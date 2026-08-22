@@ -275,3 +275,23 @@ func TestRegisteredLinkedWorktreeIsPrimary(t *testing.T) {
 		t.Fatalf("primary count = %d, want 1", primary)
 	}
 }
+
+type prunableNoReadRunner struct {
+	readPath string
+	reads    int
+}
+
+func (r *prunableNoReadRunner) Run(_ context.Context, _ string, _ []string, directory string) (CommandResult, error) {
+	if directory == r.readPath {
+		r.reads++
+	}
+	return CommandResult{}, errors.New("unexpected git read")
+}
+func TestPrunableWorktreeIsNeverRead(t *testing.T) {
+	path := t.TempDir()
+	r := &prunableNoReadRunner{readPath: path}
+	items, complete := NewGitCollector(r).WorktreeDetails(context.Background(), t.TempDir(), []Worktree{{Path: path, Prunable: true}})
+	if complete || r.reads != 0 || len(items) != 1 || items[0].Trust != "unverified" {
+		t.Fatalf("prunable path was read or trusted: %#v reads=%d complete=%v", items, r.reads, complete)
+	}
+}

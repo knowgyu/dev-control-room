@@ -270,9 +270,6 @@ func (s *Store) ReplaceWorktrees(ctx context.Context, projectID, repositoryID st
 			// same path is a new worktree identity.
 			if item.Spec.Trust == domain.WorktreeTrustVerifiedReadOnly {
 				err = tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND association_fingerprint=?`, projectID, repositoryID, item.Spec.AssociationFingerprint).Scan(&durableID)
-				if errors.Is(err, sql.ErrNoRows) {
-					err = tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND path_fingerprint=? AND trust='unverified'`, projectID, repositoryID, item.Spec.PathFingerprint).Scan(&durableID)
-				}
 			} else {
 				err = tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND path_fingerprint=?`, projectID, repositoryID, item.Spec.PathFingerprint).Scan(&durableID)
 			}

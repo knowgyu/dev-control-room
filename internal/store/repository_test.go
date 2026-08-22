@@ -252,8 +252,8 @@ func TestWorktreeIdentitySurvivesTrustRecoveryAssociationChangeAndRestart(t *tes
 		t.Fatal(err)
 	}
 	items, err := persistence.ListWorktrees(ctx, "project", "repo")
-	if err != nil || len(items) != 1 || items[0].Metadata.ID != "unverified-temporary" || items[0].Spec.AssociationFingerprint != "sha256:first-association" {
-		t.Fatalf("identity was not durable through unverified recovery: %#v %v", items, err)
+	if err != nil || len(items) != 2 || items[0].Metadata.ID != "linked-first-association" || items[0].Spec.TombstonedAt != nil || items[1].Metadata.ID != "unverified-temporary" || items[1].Spec.TombstonedAt == nil {
+		t.Fatalf("verification did not supersede the provisional identity: %#v %v", items, err)
 	}
 	verified.Metadata.ID = "linked-second-association"
 	verified.Spec.AssociationFingerprint = "sha256:second-association"
@@ -262,7 +262,11 @@ func TestWorktreeIdentitySurvivesTrustRecoveryAssociationChangeAndRestart(t *tes
 		t.Fatal(err)
 	}
 	items, err = persistence.ListWorktrees(ctx, "project", "repo")
-	if err != nil || len(items) != 2 || items[0].Metadata.ID != "linked-second-association" || items[0].Spec.TombstonedAt != nil || items[1].Metadata.ID != "unverified-temporary" || items[1].Spec.TombstonedAt == nil {
+	states := map[string]*time.Time{}
+	for i := range items {
+		states[items[i].Metadata.ID] = items[i].Spec.TombstonedAt
+	}
+	if err != nil || len(items) != 3 || states["linked-second-association"] != nil || states["linked-first-association"] == nil || states["unverified-temporary"] == nil {
 		t.Fatalf("different verified association was not a new identity: %#v %v", items, err)
 	}
 }

@@ -42,3 +42,5 @@ verified/unverified recovery across restart, masked path persistence,
 Snapshot/HTTP/CLI list-and-show equivalence, UI dynamic-field escaping, and
 v3-to-v6 migration/FK/primary-conflict scope. Native Windows runtime validation
 remains pending; cross-build is not a Task Scheduler or Windows Git smoke.
+
+Pre-acceptance schema-v6 development databases created before its final correction must be recreated rather than bypassing migration checksum validation.

@@ -346,6 +346,16 @@ func parseWorktrees(output string) []Worktree {
 // common directory before returning bounded read-only state. It is intentionally
 // separate from Collect so callers can preserve repository-level compatibility.
 func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string, advertised []Worktree) ([]Worktree, bool) {
+	for i := range advertised {
+		if advertised[i].Prunable {
+			advertised[i].Trust = "unverified"
+			advertised[i].Error = "worktree is prunable"
+			if advertised[i].ID == "" {
+				advertised[i].ID = "unverified-" + pathFingerprint(advertised[i].Path)[:32]
+				advertised[i].AssociationFingerprint = "unverified:" + pathFingerprint(advertised[i].Path)
+			}
+		}
+	}
 	registeredCanonical, err := canonicalDirectory(registeredPath)
 	if err != nil {
 		return advertised, false
@@ -357,6 +367,12 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 	complete := true
 	for i := range advertised {
 		item := &advertised[i]
+		// A Git-advertised prunable worktree is metadata only. It may point at a
+		// path that now belongs to something else, so never stat or probe it.
+		if item.Prunable {
+			complete = false
+			continue
+		}
 		candidate, candidateErr := canonicalDirectory(item.Path)
 		if candidateErr != nil {
 			// Git explicitly marks a prunable worktree as absent. It is complete
