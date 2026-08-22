@@ -103,6 +103,7 @@ type WorktreeSpec struct {
 	ProjectID              string     `json:"projectId"`
 	RepositoryID           string     `json:"repositoryId"`
 	CanonicalPath          string     `json:"canonicalPath"`
+	PathFingerprint        string     `json:"pathFingerprint"`
 	AssociationFingerprint string     `json:"associationFingerprint,omitempty"`
 	Trust                  string     `json:"trust"`
 	Primary                bool       `json:"primary"`

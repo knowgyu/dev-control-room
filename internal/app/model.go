@@ -16,6 +16,7 @@ type Config struct {
 }
 
 type RepositoryState struct {
+	ID            string            `json:"id"`
 	Path          string            `json:"path"`
 	TopLevel      string            `json:"top_level,omitempty"`
 	Branch        string            `json:"branch,omitempty"`

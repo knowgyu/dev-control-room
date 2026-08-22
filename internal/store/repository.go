@@ -261,6 +261,17 @@ func (s *Store) ReplaceWorktrees(ctx context.Context, projectID, repositoryID st
 	now := time.Now().UTC().Format(timeFormat)
 	seen := make([]any, 0, len(items))
 	for _, item := range items {
+		// A temporary unverified identity is reconciled to the durable row using
+		// the independent path fingerprint (or verified association). This keeps
+		// history through unavailable/prunable recovery without trusting the path.
+		var durableID string
+		err := tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND (path_fingerprint=? OR (association_fingerprint=? AND ? NOT LIKE 'unverified:%')) LIMIT 1`, projectID, repositoryID, item.Spec.PathFingerprint, item.Spec.AssociationFingerprint, item.Spec.AssociationFingerprint).Scan(&durableID)
+		if err == nil {
+			item.Metadata.ID = durableID
+			item.Spec.Primary = durableID == "primary"
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("reconcile worktree identity: %w", err)
+		}
 		if err := item.Validate(); err != nil {
 			return fmt.Errorf("validate worktree: %w", err)
 		}
@@ -275,8 +286,8 @@ func (s *Store) ReplaceWorktrees(ctx context.Context, projectID, repositoryID st
 		if !item.Spec.Primary {
 			association = item.Spec.AssociationFingerprint
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO worktrees(project_id, repository_id, id, association_fingerprint, canonical_path, trust, is_primary, last_observed, tombstoned_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
-ON CONFLICT(project_id, repository_id, id) DO UPDATE SET association_fingerprint=excluded.association_fingerprint, canonical_path=excluded.canonical_path, trust=excluded.trust, is_primary=excluded.is_primary, last_observed=excluded.last_observed, tombstoned_at=NULL, object_json=excluded.object_json`, projectID, repositoryID, item.Metadata.ID, association, item.Spec.CanonicalPath, item.Spec.Trust, item.Spec.Primary, item.Spec.LastObserved.UTC().Format(timeFormat), object); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO worktrees(project_id, repository_id, id, association_fingerprint, path_fingerprint, canonical_path, trust, is_primary, last_observed, tombstoned_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+ON CONFLICT(project_id, repository_id, id) DO UPDATE SET association_fingerprint=excluded.association_fingerprint, path_fingerprint=excluded.path_fingerprint, canonical_path=excluded.canonical_path, trust=excluded.trust, is_primary=excluded.is_primary, last_observed=excluded.last_observed, tombstoned_at=NULL, object_json=excluded.object_json`, projectID, repositoryID, item.Metadata.ID, association, item.Spec.PathFingerprint, item.Spec.CanonicalPath, item.Spec.Trust, item.Spec.Primary, item.Spec.LastObserved.UTC().Format(timeFormat), object); err != nil {
 			return fmt.Errorf("save worktree: %w", err)
 		}
 		observation := domain.WorktreeObservation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeObservationKind}, Metadata: domain.ObjectMeta{ID: worktreeObservationID(item), Name: "Git worktree state"}, Spec: domain.WorktreeObservationSpec{ProjectID: projectID, RepositoryID: repositoryID, WorktreeID: item.Metadata.ID, CollectedAt: item.Spec.LastObserved, Object: item}}

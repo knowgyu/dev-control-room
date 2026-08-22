@@ -359,8 +359,12 @@ func TestFailedWorktreeEnumerationDoesNotTombstonePersistedMembership(t *testing
 		t.Fatal(err)
 	}
 	service.collector = collector.NewGitCollector(worktreeListFailureRunner{directory: repository})
-	if err := service.RunScan(context.Background(), "manual"); err != nil {
-		t.Fatal(err)
+	if err := service.RunScan(context.Background(), "manual"); contract.Classify(err).Code != contract.ErrorUnavailable {
+		t.Fatalf("failed worktree enumeration did not fail scan: %v", err)
+	}
+	run, err := service.store.LatestScanRun(context.Background(), project.Metadata.ID)
+	if err != nil || run.Spec.Status != domain.ScanFailed {
+		t.Fatalf("failed worktree enumeration did not record failed scan: %#v %v", run, err)
 	}
 	items, err := service.Worktrees(context.Background(), project.Metadata.ID, "repo-1")
 	if err != nil || len(items) != 2 {

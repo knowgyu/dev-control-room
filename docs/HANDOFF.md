@@ -69,7 +69,7 @@ Current contract versions:
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
-- SQLite schema: version 5;
+- SQLite schema: version 6;
 - Go module target: Go 1.23.
 
 ## Repository state at this handoff

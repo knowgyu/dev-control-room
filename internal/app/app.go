@@ -176,7 +176,7 @@ func (a *App) Snapshot(ctx context.Context) (Snapshot, error) {
 				return Snapshot{}, err
 			}
 			if len(observations) == 0 {
-				state.Repos = append(state.Repos, RepositoryState{Path: repository.Spec.Path, Worktrees: worktrees, WorktreeCount: len(worktrees)})
+				state.Repos = append(state.Repos, RepositoryState{ID: repository.Metadata.ID, Path: repository.Spec.Path, Worktrees: worktrees, WorktreeCount: len(worktrees)})
 				continue
 			}
 			repositoryState, err := stateFromObservation(observations[0])
@@ -184,6 +184,7 @@ func (a *App) Snapshot(ctx context.Context) (Snapshot, error) {
 				return Snapshot{}, err
 			}
 			repositoryState.Worktrees = worktrees
+			repositoryState.ID = repository.Metadata.ID
 			if len(worktrees) > 0 {
 				repositoryState.WorktreeCount = len(worktrees)
 			}
@@ -344,11 +345,11 @@ func (a *App) scanProject(ctx context.Context, project domain.Project, trigger s
 		if collectErr == nil {
 			var complete bool
 			state.Worktrees, complete = a.collector.WorktreeDetails(ctx, repository.Spec.Path, state.Worktrees)
-			if !complete {
+			if !complete || !state.WorktreeEnumerationComplete {
 				state.Error = "one or more worktree states could not be collected"
 				collectorFailed = true
 			}
-			if err := a.store.ReplaceWorktrees(ctx, project.Metadata.ID, repository.Metadata.ID, domainWorktrees(project.Metadata.ID, repository.Metadata.ID, state.Worktrees, state.CollectedAt), state.WorktreeEnumerationComplete); err != nil {
+			if err := a.store.ReplaceWorktrees(ctx, project.Metadata.ID, repository.Metadata.ID, domainWorktrees(a.masker, project.Metadata.ID, repository.Metadata.ID, state.Worktrees, state.CollectedAt), state.WorktreeEnumerationComplete); err != nil {
 				return collectorFailed, err
 			}
 		}
@@ -356,7 +357,7 @@ func (a *App) scanProject(ctx context.Context, project domain.Project, trigger s
 			collectorFailed = true
 		}
 		state.Path = repository.Spec.Path
-		observation, err := newObservation(project.Metadata.ID, repository.Metadata.ID, state)
+		observation, err := newObservation(a.masker, project.Metadata.ID, repository.Metadata.ID, state)
 		if err != nil {
 			return collectorFailed, err
 		}
@@ -725,13 +726,13 @@ func removalEvent(eventType, summary string, data map[string]any) domain.Event {
 	return event
 }
 
-func newObservation(projectID, repositoryID string, state collector.State) (domain.Observation, error) {
+func newObservation(masker *masking.Masker, projectID, repositoryID string, state collector.State) (domain.Observation, error) {
 	// Paths from Git porcelain are untrusted discovery input. The durable
 	// repository observation retains no linked-worktree path; Worktree records
 	// expose only a stable path fingerprint.
 	persisted := state
 	for i := range persisted.Worktrees {
-		persisted.Worktrees[i].Path = worktreePathFingerprint(persisted.Worktrees[i].Path)
+		persisted.Worktrees[i].Path = masker.Mask(persisted.Worktrees[i].Path)
 	}
 	data, err := json.Marshal(persisted)
 	if err != nil {
@@ -768,10 +769,10 @@ func stateFromObservation(observation domain.Observation) (RepositoryState, erro
 	return state, nil
 }
 
-func domainWorktrees(projectID, repositoryID string, items []collector.Worktree, observed time.Time) []domain.Worktree {
+func domainWorktrees(masker *masking.Masker, projectID, repositoryID string, items []collector.Worktree, observed time.Time) []domain.Worktree {
 	worktrees := make([]domain.Worktree, 0, len(items))
 	for _, item := range items {
-		worktrees = append(worktrees, domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: item.ID, Name: item.ID}, Spec: domain.WorktreeSpec{ProjectID: projectID, RepositoryID: repositoryID, CanonicalPath: worktreePathFingerprint(item.Path), AssociationFingerprint: item.AssociationFingerprint, Trust: item.Trust, Primary: item.Primary, Head: item.Head, Branch: item.Branch, Dirty: item.Dirty, Untracked: item.Untracked, Upstream: item.Upstream, Ahead: item.Ahead, Behind: item.Behind, Detached: item.Detached, Locked: item.Locked, Prunable: item.Prunable, Error: item.Error, LastObserved: observed}})
+		worktrees = append(worktrees, domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: item.ID, Name: item.ID}, Spec: domain.WorktreeSpec{ProjectID: projectID, RepositoryID: repositoryID, CanonicalPath: masker.Mask(item.Path), PathFingerprint: worktreePathFingerprint(item.Path), AssociationFingerprint: item.AssociationFingerprint, Trust: item.Trust, Primary: item.Primary, Head: item.Head, Branch: item.Branch, Dirty: item.Dirty, Untracked: item.Untracked, Upstream: item.Upstream, Ahead: item.Ahead, Behind: item.Behind, Detached: item.Detached, Locked: item.Locked, Prunable: item.Prunable, Error: item.Error, LastObserved: observed}})
 	}
 	return worktrees
 }

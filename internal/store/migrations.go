@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 5
+const CurrentSchemaVersion = 6
 
 type Migration struct {
 	Version int
@@ -211,6 +211,16 @@ CREATE TRIGGER IF NOT EXISTS worktrees_primary_identity_update
 BEFORE UPDATE OF id, is_primary ON worktrees
 WHEN (NEW.is_primary = 1) != (NEW.id = 'primary')
 BEGIN SELECT RAISE(ABORT, 'worktree primary identity is inconsistent'); END;
+`,
+	},
+	{
+		Version: 6,
+		Name:    "worktree-path-fingerprint-and-primary-repair",
+		SQL: `
+ALTER TABLE worktrees ADD COLUMN path_fingerprint TEXT;
+UPDATE worktrees SET is_primary = CASE WHEN id = 'primary' THEN 1 ELSE 0 END;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_worktrees_one_primary ON worktrees(project_id, repository_id) WHERE is_primary = 1;
+CREATE INDEX IF NOT EXISTS idx_worktrees_path_fingerprint ON worktrees(project_id, repository_id, path_fingerprint);
 `,
 	},
 }

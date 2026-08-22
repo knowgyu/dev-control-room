@@ -144,3 +144,30 @@ func TestReplaceWorktreesPersistsUnverifiedAdvertisedMembership(t *testing.T) {
 		t.Fatalf("unverified membership was not retained: %#v %v", items, err)
 	}
 }
+
+func TestReplaceWorktreesKeepsDurableIDAcrossTrustTransitions(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDatabase(t, "worktree-transition")
+	s, _ := New(db, nil)
+	if err := s.SaveProject(ctx, domain.NewProject("p", "P", []domain.Repository{domain.NewRepository("r", "R", "/fixture")})); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	verified := domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: "linked-stable", Name: "linked-stable"}, Spec: domain.WorktreeSpec{ProjectID: "p", RepositoryID: "r", CanonicalPath: "/masked", PathFingerprint: "sha256:path", AssociationFingerprint: "sha256:association", Trust: domain.WorktreeTrustVerifiedReadOnly, LastObserved: now}}
+	if err := s.ReplaceWorktrees(ctx, "p", "r", []domain.Worktree{verified}, true); err != nil {
+		t.Fatal(err)
+	}
+	unverified := verified
+	unverified.Metadata.ID = "unverified-temp"
+	unverified.Spec.AssociationFingerprint = "unverified:path"
+	unverified.Spec.Trust = domain.WorktreeTrustUnverified
+	unverified.Spec.Error = "unavailable"
+	unverified.Spec.LastObserved = now.Add(time.Second)
+	if err := s.ReplaceWorktrees(ctx, "p", "r", []domain.Worktree{unverified}, true); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.ListWorktrees(ctx, "p", "r")
+	if err != nil || len(items) != 1 || items[0].Metadata.ID != "linked-stable" || items[0].Spec.Trust != domain.WorktreeTrustUnverified {
+		t.Fatalf("transition lost durable identity: %#v %v", items, err)
+	}
+}

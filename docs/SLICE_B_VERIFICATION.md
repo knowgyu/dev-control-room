@@ -1,6 +1,6 @@
 # Slice B verification: Worktree model and visibility
 
-Implemented in schema v5 (v4 identities; v5 primary-ID trigger).
+Implemented in schema v6 (v4 identities; v5 primary-ID trigger; v6 durable path-fingerprint repair).
 
 ## Contract
 

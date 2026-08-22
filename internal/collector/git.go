@@ -243,13 +243,13 @@ func (c GitCollector) optional(ctx context.Context, path string, args ...string)
 
 func (c GitCollector) optionalExitOne(ctx context.Context, path string, args ...string) (string, error) {
 	result, err := c.Runner.Run(ctx, "git", args, path)
-	if err != nil && result.ExitCode != 1 && result.ExitCode != 128 {
+	if err != nil && result.ExitCode != 1 {
 		return "", err
 	}
-	if result.ExitCode != 0 && result.ExitCode != 1 && result.ExitCode != 128 {
+	if result.ExitCode != 0 && result.ExitCode != 1 {
 		return "", errors.New("git command failed")
 	}
-	if result.ExitCode == 1 || result.ExitCode == 128 {
+	if result.ExitCode == 1 {
 		return "", nil
 	}
 	return strings.TrimSpace(result.Stdout), nil
@@ -319,7 +319,7 @@ func parseWorktrees(output string) []Worktree {
 		switch {
 		case strings.HasPrefix(line, "worktree "):
 			flush()
-			current = &Worktree{Path: strings.TrimPrefix(line, "worktree "), Trust: "unverified", Primary: len(worktrees) == 0}
+			current = &Worktree{Path: strings.TrimPrefix(line, "worktree "), Trust: "unverified"}
 		case strings.HasPrefix(line, "HEAD ") && current != nil:
 			current.Head = strings.TrimSpace(strings.TrimPrefix(line, "HEAD "))
 		case strings.HasPrefix(line, "branch ") && current != nil:
@@ -374,6 +374,7 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 			continue
 		}
 		item.Path = candidate
+		item.Primary = sameDirectory(candidate, registeredCanonical)
 		item.Trust = "verified_read_only"
 		item.AssociationFingerprint = associationFingerprint(common, gitDir)
 		if item.Primary {
@@ -425,12 +426,13 @@ func (c GitCollector) populateWorktree(ctx context.Context, item *Worktree) erro
 			item.Untracked = true
 		}
 	}
-	upstream, upstreamErr := c.optionalExitOne(ctx, item.Path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-	// Exit status one is the normal no-upstream result.
-	if upstreamErr != nil {
-		return upstreamErr
+	if item.Branch != "" {
+		upstream, upstreamErr := c.required(ctx, item.Path, "for-each-ref", "--format=%(upstream:short)", "refs/heads/"+item.Branch)
+		if upstreamErr != nil {
+			return upstreamErr
+		}
+		item.Upstream = upstream
 	}
-	item.Upstream = upstream
 	if item.Upstream != "" {
 		if counts, err := c.required(ctx, item.Path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}"); err != nil {
 			return err
