@@ -90,14 +90,16 @@ func New(home, listen string) (*App, error) {
 	}
 	service := &App{
 		home: home, listen: listen, config: config, mutationToken: randomToken(), masker: masker,
-		store: persistence, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), scheduler: &scheduler.FakeAdapter{}, scanNow: make(chan string, 1),
+		store: persistence, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), scheduler: scheduler.NewAdapter(), scanNow: make(chan string, 1),
 	}
 	var scheduled scheduler.Result
 	if found, err := persistence.LoadSingleton(context.Background(), "scheduler_state", &scheduled); err != nil {
 		_ = persistence.Close()
 		return nil, fmt.Errorf("load scheduler state: %w", err)
 	} else if found {
-		service.scheduler.(*scheduler.FakeAdapter).Exists = scheduled.Exists
+		if restorable, ok := service.scheduler.(interface{ Restore(bool) }); ok {
+			restorable.Restore(scheduled.Exists)
+		}
 	}
 	if !config.AgentProfilesInitialized {
 		if err := service.ensureDefaultAgentProfiles(context.Background()); err != nil {

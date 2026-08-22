@@ -146,15 +146,18 @@ Implemented and accepted scope:
   POST across CLI, HTTP, and UI;
 - config v3 migration and one-time default Profile initialization;
 - typed scheduler operations and validation with a fake/dry-run adapter;
+- a Windows-only Task Scheduler COM adapter for the fixed
+  `DevControlRoom.Startup` task;
 - native PowerShell 7.6.5 read-only smoke using a Windows amd64 cross-build.
 
-Important gap: native Windows Task Scheduler install, uninstall, and status are
-not implemented. The current adapter is fixture-only and never changes Task
-Scheduler. Therefore automatic logon startup and real catch-up behavior remain
-unproven even though they were part of the original Milestone 2 target. Close
-this as a small acceptance follow-up before relying on unattended background
-operation. Any native task mutation during verification requires explicit user
-authorization and must target only the application-owned task name.
+Slice A closes the implementation gap: Windows selects a native COM adapter;
+other platforms retain the fixture-only adapter. The native definition owns
+only `DevControlRoom.Startup`, starts the exact typed `serve --home` command at
+logon and daily at local `03:00`, uses `StartWhenAvailable` for catch-up, and
+ignores a second instance. `status` rejects a same-named task whose action,
+triggers, catch-up, or instance policy drifted. No native install, uninstall,
+or COM runtime smoke was authorized or performed in this WSL session, so real
+Task Scheduler behavior remains a native-Windows verification gap.
 
 See `docs/MILESTONE_2_VERIFICATION.md`.
 
@@ -232,16 +235,18 @@ A long-running goal may continue through these slices, but each slice should
 remain independently reviewable, tested, and committed. Do not turn the entire
 roadmap into one undifferentiated implementation.
 
-### Slice A: close the scheduling gap
+### Slice A: native scheduler adapter (implemented; native smoke pending)
 
-- Implement a native Windows Task Scheduler adapter behind the existing typed
-  boundary.
-- Preserve exact application-owned task name and typed `serve --home` arguments.
-- Implement install, uninstall, and native status without generic PowerShell or
-  shell execution.
-- Verify duplicate-instance policy and catch-up semantics.
-- Keep dry-run available and perform real install/uninstall smoke only with
-  explicit user authorization.
+- Windows uses the Task Scheduler COM API, not PowerShell, `schtasks`, or shell
+  execution; non-Windows keeps the fake/dry-run adapter.
+- The only mutable target is `DevControlRoom.Startup`, with a typed
+  `serve --home <absolute Windows path>` action, logon trigger, and daily local
+  `03:00` trigger. `StartWhenAvailable` supplies catch-up and `ignore_new`
+  prevents duplicates.
+- Install/update and uninstall are idempotent; install refuses to replace a
+  same-named incompatible definition. Native status detects a missing task and
+  rejects definition drift. Dry-run never opens Task Scheduler.
+- Native install/uninstall/status smoke remains explicitly authorization-gated.
 
 ### Slice B: Worktree model and visibility
 

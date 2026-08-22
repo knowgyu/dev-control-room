@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -256,6 +257,9 @@ func TestEnvironmentHTTPStatusIsReadOnlyAndDoctorRequiresMutationToken(t *testin
 }
 
 func TestSchedulerStatusUsesTypedAdapterAndPersistsFakeState(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("native Task Scheduler mutations require explicit authorization")
+	}
 	home := t.TempDir()
 	service, err := New(home, "127.0.0.1:38471")
 	if err != nil {

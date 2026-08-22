@@ -63,9 +63,15 @@ func TestSchedulerRejectsWSLPathsAndUnsafeInstancePolicy(t *testing.T) {
 	if err := Validate(operation); err == nil {
 		t.Fatal("WSL scheduler argument was accepted")
 	}
-	for _, executable := range []string{`\\server\share\devroom.exe`, `C:\tools\..\devroom.exe`, `C:\tools\devroom.exe:payload`, `C:\tools\devroom.cmd`} {
+	for _, executable := range []string{`\\server\share\devroom.exe`, `C:\tools\..\devroom.exe`, `C:\tools\devroom.exe:payload`, `C:\tools\devroom.cmd`, `C:\tools\"devroom.exe`} {
 		if _, err := Plan(OperationDryRun, executable, []string{"serve", "--home", `C:\DevControlRoom`}); err == nil {
 			t.Fatalf("unsafe scheduler executable was accepted: %q", executable)
 		}
+	}
+}
+
+func TestSchedulerDailyCatchUpContractIsDeterministic(t *testing.T) {
+	if DailyStartBoundary != "2000-01-01T03:00:00" {
+		t.Fatalf("unexpected daily catch-up boundary: %q", DailyStartBoundary)
 	}
 }

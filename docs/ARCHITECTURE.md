@@ -108,10 +108,11 @@ the broker.
 
 ### Scheduler
 
-Windows Task Scheduler starts the service at logon. The service performs bounded
-periodic jobs and records missed-run state. A daily job uses catch-up semantics:
-if the machine was off, it runs after the next start rather than spawning a
-second scheduler implementation.
+Windows Task Scheduler starts the service at logon and has one fixed local
+daily `03:00` trigger. The task uses `StartWhenAvailable` so a missed daily run
+catches up after the next start, and `TASK_INSTANCES_IGNORE_NEW` so the daily
+and logon triggers cannot create a second service instance. The service then
+performs bounded periodic jobs and records missed-run state.
 
 ### Persistence
 

@@ -1,6 +1,4 @@
-// Package scheduler defines the typed Windows Task Scheduler boundary. The
-// milestone deliberately ships only a validating fake adapter and dry-run
-// plans; no native task is created or removed by this package.
+// Package scheduler defines the typed Windows Task Scheduler boundary.
 package scheduler
 
 import (
@@ -26,6 +24,9 @@ const (
 const (
 	AppTaskName            = "DevControlRoom.Startup"
 	MultipleInstanceIgnore = "ignore_new"
+	// DailyStartBoundary is intentionally fixed so the task definition is
+	// inspectable and does not depend on the process's current time zone.
+	DailyStartBoundary = "2000-01-01T03:00:00"
 )
 
 type Operation struct {
@@ -52,6 +53,14 @@ type FakeAdapter struct {
 	mu     sync.Mutex
 	Last   *Result
 	Exists bool
+}
+
+// Restore preserves the fake scheduler's state across a local restart. Native
+// adapters always query Task Scheduler instead of trusting this cached value.
+func (a *FakeAdapter) Restore(exists bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.Exists = exists
 }
 
 func (a *FakeAdapter) Apply(ctx context.Context, operation Operation) (Result, error) {
@@ -137,7 +146,7 @@ func isLocalAbsoluteWindowsPath(value string) bool {
 }
 
 func hasUnsafeWindowsPathSegment(value string) bool {
-	if strings.TrimSpace(value) != value || strings.ContainsRune(value, '\x00') {
+	if strings.TrimSpace(value) != value || strings.ContainsRune(value, '\x00') || strings.ContainsRune(value, '"') {
 		return true
 	}
 	segments := strings.Split(strings.ReplaceAll(value[3:], "/", `\`), `\`)

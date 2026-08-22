@@ -42,9 +42,12 @@ later integrations were not started.
   operations. It validates the application-owned task name, absolute Windows
   executable path, daily catch-up, and ignore-new duplicate policy. UNC paths,
   traversal segments, alternate data streams, and non-`.exe` launch targets are
-  rejected. The only
-  adapter in this milestone is a fake adapter; no native Task Scheduler
-  registration or deletion is performed.
+  rejected. Windows selects a native Task Scheduler COM adapter; non-Windows
+  uses the fake adapter. The definition has the fixed app-owned task name,
+  typed `serve --home` action, logon trigger, fixed local daily `03:00`
+  trigger, `StartWhenAvailable`, and ignore-new policy. Native status rejects
+  a missing or incompatible definition. No generic shell, PowerShell, or
+  `schtasks` surface was added.
 - Child process environments are explicitly constructed from a small runtime
   allowlist plus a profile's configured names. Stdout and stderr have separate
   bounds, timeout/cancellation is enforced, and Unix process groups plus a
@@ -58,10 +61,10 @@ later integrations were not started.
 The full `main..codex/milestone-2` diff was reviewed against the acceptance
 boundaries. The follow-up changes harden PowerShell command-name validation,
 make scheduler arguments an exact typed `serve --home <Windows path>` shape,
-route scheduler status through the fake typed adapter, reject non-Windows
+route scheduling through the typed adapter, reject non-Windows
 paths in the Windows-targeted doctor, mask PowerShell probe output before
-metadata parsing, and add process-tree cancellation coverage. No native
-Task Scheduler adapter was introduced.
+metadata parsing, and add process-tree cancellation coverage. Slice A later
+introduced the Windows-only COM adapter and retained the non-Windows fake.
 
 The final review additionally fixed empty-allowlist parent environment
 inheritance, Health remaining available for missing/conflicting declarations,
@@ -118,9 +121,10 @@ cases, and unrelated host-version rejection.
   `pwsh.exe 7.6.5`. The synthetic command, binaries, output, SQLite database,
   and temporary Windows directory were removed after verification; no user
   PowerShell profile was modified.
-- No native Windows Task Scheduler task was installed or uninstalled, and no
-  native scheduler API was queried. The smoke's status operation used only the
-  app-owned exact task name through the fake typed adapter.
+- No native Windows Task Scheduler task was installed, uninstalled, or queried
+  for this Slice. The Windows adapter was cross-compiled only; its integration
+  test deliberately skips mutations on Windows until explicit authorization is
+  granted. WSL tests continue to exercise the fake adapter and typed policy.
 - No external network call, telemetry, automatic update, connector
   authentication, Checkset execution, Action broker execution, release,
   Jenkins, Kubernetes, Harbor, MCP, or AI workflow was added or run.
