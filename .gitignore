@@ -1,0 +1,18 @@
+# Go build and test artifacts
+/dev-control-room
+/dev-control-room.exe
+*.test
+*.out
+
+# Local application state and secrets
+/.devroom/
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Editors and OS metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

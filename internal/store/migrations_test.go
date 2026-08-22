@@ -1,0 +1,137 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestMigrateCreatesContractSchemaAndIsIdempotent(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:migration-test?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
+	}
+	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "actions", "action_plans", "approvals", "agent_profiles", "events", "scan_runs", "failure_fingerprints"} {
+		var count int
+		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("table %q was not created", table)
+		}
+	}
+}
+
+func TestOpenCreatesAndMigratesFileDatabase(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "state.db")
+	db, err := Open(context.Background(), databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
+	}
+}
+
+func TestRepositoryForeignKeysAreScopedByProject(t *testing.T) {
+	db := openTestDatabase(t, "fk-scope")
+	var foreignKeys int
+	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&foreignKeys); err != nil {
+		t.Fatal(err)
+	}
+	if foreignKeys != 1 {
+		t.Fatalf("foreign_keys = %d, want 1", foreignKeys)
+	}
+	for _, projectID := range []string{"project-a", "project-b"} {
+		if _, err := db.Exec(`INSERT INTO projects(id, api_version, kind, name, spec_json) VALUES (?, ?, ?, ?, ?)`, projectID, "devroom/v1alpha1", "Project", projectID, "{}"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO repositories(project_id, id, api_version, kind, name, spec_json) VALUES (?, ?, ?, ?, ?, ?)`, projectID, "backend", "devroom/v1alpha1", "Repository", "Backend", "{}"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO repositories(project_id, id, api_version, kind, name, spec_json) VALUES (?, ?, ?, ?, ?, ?)`, "missing-project", "backend", "devroom/v1alpha1", "Repository", "Backend", "{}"); err == nil {
+		t.Fatal("expected repository with missing project to fail foreign key validation")
+	}
+	if _, err := db.Exec(`INSERT INTO observations(id, project_id, repository_id, api_version, kind, fingerprint, collected_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, "observation-1", "project-a", "missing-repository", "devroom/v1alpha1", "Observation", "fingerprint", "now", "{}"); err == nil {
+		t.Fatal("expected observation with missing project-scoped repository to fail foreign key validation")
+	}
+	if _, err := db.Exec(`DELETE FROM projects WHERE id = ?`, "project-a"); err != nil {
+		t.Fatal(err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT count(*) FROM repositories WHERE project_id = ?`, "project-a").Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("project cascade left %d repositories", remaining)
+	}
+}
+
+func TestMigrationHistoryRejectsFutureAndMismatchedSchemas(t *testing.T) {
+	future := openUnmigratedTestDatabase(t, "future-schema")
+	if _, err := future.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := future.Exec(`INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)`, CurrentSchemaVersion+1, "future", strings.Repeat("0", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(context.Background(), future); err == nil || !strings.Contains(err.Error(), "newer than supported") {
+		t.Fatalf("expected future schema rejection, got %v", err)
+	}
+
+	mismatched := openUnmigratedTestDatabase(t, "mismatched-schema")
+	if _, err := mismatched.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mismatched.Exec(`INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)`, CurrentSchemaVersion, "renamed-migration", strings.Repeat("0", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(context.Background(), mismatched); err == nil || !strings.Contains(err.Error(), "history mismatch") {
+		t.Fatalf("expected migration history rejection, got %v", err)
+	}
+}
+
+func openTestDatabase(t *testing.T, name string) *sql.DB {
+	t.Helper()
+	db := openUnmigratedTestDatabase(t, name)
+	if err := Migrate(context.Background(), db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func openUnmigratedTestDatabase(t *testing.T, name string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+name+"?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	return db
+}
