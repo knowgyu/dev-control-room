@@ -352,7 +352,6 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 			advertised[i].Error = "worktree is prunable"
 			if advertised[i].ID == "" {
 				advertised[i].ID = "unverified-" + pathFingerprint(advertised[i].Path)[:32]
-				advertised[i].AssociationFingerprint = "unverified:" + pathFingerprint(advertised[i].Path)
 			}
 		}
 	}
@@ -413,7 +412,6 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 			item.ID = "primary"
 		} else {
 			item.ID = "unverified-" + pathFingerprint(item.Path)[:32]
-			item.AssociationFingerprint = "unverified:" + pathFingerprint(item.Path)
 		}
 	}
 	return advertised, complete

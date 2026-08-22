@@ -160,7 +160,7 @@ func TestReplaceWorktreesKeepsDurableIDAcrossTrustTransitions(t *testing.T) {
 	}
 	unverified := verified
 	unverified.Metadata.ID = "unverified-temp"
-	unverified.Spec.AssociationFingerprint = "unverified:path"
+	unverified.Spec.AssociationFingerprint = ""
 	unverified.Spec.Trust = domain.WorktreeTrustUnverified
 	unverified.Spec.Error = "unavailable"
 	unverified.Spec.LastObserved = now.Add(time.Second)
@@ -268,5 +268,38 @@ func TestWorktreeIdentitySurvivesTrustRecoveryAssociationChangeAndRestart(t *tes
 	}
 	if err != nil || len(items) != 3 || states["linked-second-association"] != nil || states["linked-first-association"] == nil || states["unverified-temporary"] == nil {
 		t.Fatalf("different verified association was not a new identity: %#v %v", items, err)
+	}
+}
+
+func TestProbeFailedAssociatedWorktreeUsesAssociationNotPath(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDatabase(t, "associated-unverified")
+	s, _ := New(db, nil)
+	_ = s.SaveProject(ctx, domain.NewProject("p", "P", []domain.Repository{domain.NewRepository("r", "R", "/fixture")}))
+	now := time.Now().UTC()
+	item := func(id, assoc string, trust string) domain.Worktree {
+		return domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: id, Name: id}, Spec: domain.WorktreeSpec{ProjectID: "p", RepositoryID: "r", CanonicalPath: "/masked", PathFingerprint: "sha256:path", AssociationFingerprint: assoc, Trust: trust, LastObserved: now}}
+	}
+	if err := s.ReplaceWorktrees(ctx, "p", "r", []domain.Worktree{item("linked-a", "sha256:a", domain.WorktreeTrustVerifiedReadOnly)}, true); err != nil {
+		t.Fatal(err)
+	}
+	failed := item("linked-b", "sha256:b", domain.WorktreeTrustUnverified)
+	failed.Spec.Error = "state unavailable"
+	if err := s.ReplaceWorktrees(ctx, "p", "r", []domain.Worktree{failed}, true); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.ListWorktrees(ctx, "p", "r")
+	if len(items) != 2 {
+		t.Fatalf("different association merged by path: %#v", items)
+	}
+	failed.Metadata.ID = "temporary"
+	failed.Spec.AssociationFingerprint = "sha256:b"
+	failed.Spec.LastObserved = now.Add(time.Second)
+	if err := s.ReplaceWorktrees(ctx, "p", "r", []domain.Worktree{failed}, true); err != nil {
+		t.Fatal(err)
+	}
+	items, _ = s.ListWorktrees(ctx, "p", "r")
+	if len(items) != 2 {
+		t.Fatalf("same associated probe failure changed identity: %#v", items)
 	}
 }

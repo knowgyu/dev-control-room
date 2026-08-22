@@ -268,7 +268,7 @@ func (s *Store) ReplaceWorktrees(ctx context.Context, projectID, repositoryID st
 			// A verified association is definitive. Path fallback is only safe if
 			// one side is unverified; a different verified association at the
 			// same path is a new worktree identity.
-			if item.Spec.Trust == domain.WorktreeTrustVerifiedReadOnly {
+			if item.Spec.AssociationFingerprint != "" {
 				err = tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND association_fingerprint=?`, projectID, repositoryID, item.Spec.AssociationFingerprint).Scan(&durableID)
 			} else {
 				err = tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND path_fingerprint=?`, projectID, repositoryID, item.Spec.PathFingerprint).Scan(&durableID)
@@ -292,6 +292,9 @@ func (s *Store) ReplaceWorktrees(ctx context.Context, projectID, repositoryID st
 		association := any(nil)
 		if !item.Spec.Primary {
 			association = item.Spec.AssociationFingerprint
+			if association == "" {
+				association = "unverified:" + item.Spec.PathFingerprint
+			}
 		}
 		if _, err = tx.ExecContext(ctx, `INSERT INTO worktrees(project_id, repository_id, id, association_fingerprint, path_fingerprint, canonical_path, trust, is_primary, last_observed, tombstoned_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
 ON CONFLICT(project_id, repository_id, id) DO UPDATE SET association_fingerprint=excluded.association_fingerprint, path_fingerprint=excluded.path_fingerprint, canonical_path=excluded.canonical_path, trust=excluded.trust, is_primary=excluded.is_primary, last_observed=excluded.last_observed, tombstoned_at=NULL, object_json=excluded.object_json`, projectID, repositoryID, item.Metadata.ID, association, item.Spec.PathFingerprint, item.Spec.CanonicalPath, item.Spec.Trust, item.Spec.Primary, item.Spec.LastObserved.UTC().Format(timeFormat), object); err != nil {

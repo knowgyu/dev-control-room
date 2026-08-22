@@ -140,7 +140,7 @@ func (w Worktree) Validate() error {
 	if w.Spec.Primary != (w.Metadata.ID == "primary") {
 		return errors.New("primary worktree identity is inconsistent")
 	}
-	if !w.Spec.Primary && strings.TrimSpace(w.Spec.AssociationFingerprint) == "" {
+	if !w.Spec.Primary && w.Spec.Trust == WorktreeTrustVerifiedReadOnly && strings.TrimSpace(w.Spec.AssociationFingerprint) == "" {
 		return errors.New("linked worktree requires an association fingerprint")
 	}
 	return nil
