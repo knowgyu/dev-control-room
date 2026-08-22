@@ -154,8 +154,9 @@ Slice A closes the implementation gap: Windows selects a native COM adapter;
 other platforms retain the fixture-only adapter. The native definition owns
 only `DevControlRoom.Startup`, starts the exact typed `serve --home` command at
 logon and daily at local `03:00`, uses `StartWhenAvailable` for catch-up, and
-ignores a second instance. `status` rejects a same-named task whose action,
-triggers, catch-up, or instance policy drifted. No native install, uninstall,
+ignores a second instance. It runs as the interactive user at least privilege
+with no execution-time limit. `status` rejects a same-named task whose action,
+triggers, principal, execution limit, catch-up, or instance policy drifted. No native install, uninstall,
 or COM runtime smoke was authorized or performed in this WSL session, so real
 Task Scheduler behavior remains a native-Windows verification gap.
 

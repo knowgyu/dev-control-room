@@ -24,6 +24,13 @@ const (
 const (
 	AppTaskName            = "DevControlRoom.Startup"
 	MultipleInstanceIgnore = "ignore_new"
+
+	// Windows Task Scheduler COM vtable offsets. Keep these constants separate
+	// from the raw calls so they are reviewable without executing COM.
+	taskServiceGetFolderSlot             = 7
+	taskServiceNewTaskSlot               = 9
+	taskServiceConnectSlot               = 10
+	taskFolderRegisterTaskDefinitionSlot = 17
 	// DailyStartBoundary is intentionally fixed so the task definition is
 	// inspectable and does not depend on the process's current time zone.
 	DailyStartBoundary = "2000-01-01T03:00:00"

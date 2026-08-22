@@ -4,7 +4,9 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -24,20 +26,24 @@ const (
 	vtDispatch = 9
 	vtBool     = 11
 
-	taskCreateOrUpdate        = 6
-	taskLogonInteractiveToken = 3
-	taskTriggerDaily          = 2
-	taskTriggerLogon          = 9
-	taskActionExec            = 0
-	taskInstancesIgnoreNew    = 2
+	taskCreateOrUpdate         = 6
+	taskLogonInteractiveToken  = 3
+	taskTriggerDaily           = 2
+	taskTriggerLogon           = 9
+	taskActionExec             = 0
+	taskInstancesIgnoreNew     = 2
+	taskRunLevelLeastPrivilege = 0
+	taskExecutionTimeUnlimited = "PT0S"
 )
 
 var (
 	ole32            = syscall.NewLazyDLL("ole32.dll")
 	oleaut32         = syscall.NewLazyDLL("oleaut32.dll")
 	coCreateInstance = ole32.NewProc("CoCreateInstance")
+	coInitializeEx   = ole32.NewProc("CoInitializeEx")
 	coUninitialize   = ole32.NewProc("CoUninitialize")
 	sysAllocString   = oleaut32.NewProc("SysAllocString")
+	sysFreeString    = oleaut32.NewProc("SysFreeString")
 	sysStringLen     = oleaut32.NewProc("SysStringLen")
 	variantClear     = oleaut32.NewProc("VariantClear")
 
@@ -91,6 +97,8 @@ func (a *NativeAdapter) Apply(ctx context.Context, operation Operation) (Result,
 	if operation.Kind == OperationDryRun {
 		return Result{Operation: operation, Message: "validated native Task Scheduler definition; no task was changed"}, nil
 	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	if err := comInitialize(); err != nil {
 		return Result{}, err
 	}
@@ -117,7 +125,7 @@ func (a *NativeAdapter) Apply(ctx context.Context, operation Operation) (Result,
 		}
 		return Result{Operation: operation, Applied: true, Exists: true, Message: "installed native Windows Task Scheduler task"}, nil
 	case OperationUninstall:
-		exists, err := taskExists(root)
+		exists, err := status(root, operation)
 		if err != nil {
 			return Result{}, err
 		}
@@ -164,6 +172,12 @@ func install(service, root *dispatch, operation Operation) error {
 	if err := settings.put("MultipleInstances", i4Variant(taskInstancesIgnoreNew)); err != nil {
 		return err
 	}
+	if err := settings.put("ExecutionTimeLimit", bstrVariant(taskExecutionTimeUnlimited)); err != nil {
+		return err
+	}
+	if err := configurePrincipal(definition); err != nil {
+		return err
+	}
 	// A task running at logon must not be stopped merely because a daily
 	// trigger also fires; the default unlimited execution time is retained.
 	if err := configureTriggers(definition); err != nil {
@@ -173,6 +187,18 @@ func install(service, root *dispatch, operation Operation) error {
 		return err
 	}
 	return registerTaskDefinition(root, definition)
+}
+
+func configurePrincipal(definition *dispatch) error {
+	principal, err := definition.propertyDispatch("Principal")
+	if err != nil {
+		return err
+	}
+	defer principal.release()
+	if err := principal.put("LogonType", i4Variant(taskLogonInteractiveToken)); err != nil {
+		return err
+	}
+	return principal.put("RunLevel", i4Variant(taskRunLevelLeastPrivilege))
 }
 
 func registerTaskDefinition(root, definition *dispatch) error {
@@ -186,14 +212,12 @@ func registerTaskDefinition(root, definition *dispatch) error {
 		return fmt.Errorf("query ITaskDefinition: %w", err)
 	}
 	defer taskDefinition.release()
-	path, err := syscall.UTF16PtrFromString(AppTaskName)
-	if err != nil {
-		return err
-	}
+	path := allocateBSTR(AppTaskName)
+	defer sysFreeString.Call(path)
 	user, password, sddl := emptyVariant(), emptyVariant(), emptyVariant()
 	var registered unsafe.Pointer
-	vtable := *(**[17]uintptr)(folder.ptr)
-	result, _, _ := syscall.SyscallN(vtable[16], uintptr(folder.ptr), uintptr(unsafe.Pointer(path)), uintptr(taskDefinition.ptr), taskCreateOrUpdate, uintptr(unsafe.Pointer(&user)), uintptr(unsafe.Pointer(&password)), taskLogonInteractiveToken, uintptr(unsafe.Pointer(&sddl)), uintptr(unsafe.Pointer(&registered)))
+	vtable := *(**[18]uintptr)(folder.ptr)
+	result, _, _ := syscall.SyscallN(vtable[taskFolderRegisterTaskDefinitionSlot], uintptr(folder.ptr), path, uintptr(taskDefinition.ptr), taskCreateOrUpdate, uintptr(unsafe.Pointer(&user)), uintptr(unsafe.Pointer(&password)), taskLogonInteractiveToken, uintptr(unsafe.Pointer(&sddl)), uintptr(unsafe.Pointer(&registered)))
 	if result != 0 {
 		return hresult(result)
 	}
@@ -301,8 +325,32 @@ func verifySettings(definition *dispatch) error {
 	if err != nil {
 		return err
 	}
-	if !catchUp || multiple != taskInstancesIgnoreNew {
+	executionLimit, err := settings.propertyString("ExecutionTimeLimit")
+	if err != nil {
+		return err
+	}
+	if !catchUp || multiple != taskInstancesIgnoreNew || executionLimit != taskExecutionTimeUnlimited {
 		return fmt.Errorf("registered scheduler task does not match duplicate-instance or catch-up policy")
+	}
+	return verifyPrincipal(definition)
+}
+
+func verifyPrincipal(definition *dispatch) error {
+	principal, err := definition.propertyDispatch("Principal")
+	if err != nil {
+		return err
+	}
+	defer principal.release()
+	logonType, err := principal.propertyI4("LogonType")
+	if err != nil {
+		return err
+	}
+	runLevel, err := principal.propertyI4("RunLevel")
+	if err != nil {
+		return err
+	}
+	if logonType != taskLogonInteractiveToken || runLevel != taskRunLevelLeastPrivilege {
+		return fmt.Errorf("registered scheduler task does not match least-privilege interactive principal")
 	}
 	return nil
 }
@@ -395,7 +443,7 @@ func verifyTriggers(definition *dispatch) error {
 }
 
 func comInitialize() error {
-	result, _, _ := syscall.SyscallN(syscall.NewLazyDLL("ole32.dll").NewProc("CoInitializeEx").Addr(), 0, coinApartment)
+	result, _, _ := coInitializeEx.Call(0, coinApartment)
 	if result != 0 && result != 1 {
 		return hresult(result)
 	}
@@ -413,8 +461,8 @@ func newTaskService() (*dispatch, error) {
 
 func (d *dispatch) connect() error {
 	server, user, domain, password := emptyVariant(), emptyVariant(), emptyVariant(), emptyVariant()
-	vtable := *(**[13]uintptr)(d.ptr)
-	result, _, _ := syscall.SyscallN(vtable[12], uintptr(d.ptr), uintptr(unsafe.Pointer(&server)), uintptr(unsafe.Pointer(&user)), uintptr(unsafe.Pointer(&domain)), uintptr(unsafe.Pointer(&password)))
+	vtable := *(**[11]uintptr)(d.ptr)
+	result, _, _ := syscall.SyscallN(vtable[taskServiceConnectSlot], uintptr(d.ptr), uintptr(unsafe.Pointer(&server)), uintptr(unsafe.Pointer(&user)), uintptr(unsafe.Pointer(&domain)), uintptr(unsafe.Pointer(&password)))
 	if result != 0 {
 		return hresult(result)
 	}
@@ -422,13 +470,11 @@ func (d *dispatch) connect() error {
 }
 
 func (d *dispatch) rootFolder() (*dispatch, error) {
-	path, err := syscall.UTF16PtrFromString(`\`)
-	if err != nil {
-		return nil, err
-	}
+	path := allocateBSTR(`\`)
+	defer sysFreeString.Call(path)
 	var folder unsafe.Pointer
-	vtable := *(**[14]uintptr)(d.ptr)
-	result, _, _ := syscall.SyscallN(vtable[13], uintptr(d.ptr), uintptr(unsafe.Pointer(path)), uintptr(unsafe.Pointer(&folder)))
+	vtable := *(**[8]uintptr)(d.ptr)
+	result, _, _ := syscall.SyscallN(vtable[taskServiceGetFolderSlot], uintptr(d.ptr), path, uintptr(unsafe.Pointer(&folder)))
 	if result != 0 {
 		return nil, hresult(result)
 	}
@@ -437,8 +483,8 @@ func (d *dispatch) rootFolder() (*dispatch, error) {
 
 func (d *dispatch) newTask() (*dispatch, error) {
 	var definition unsafe.Pointer
-	vtable := *(**[16]uintptr)(d.ptr)
-	result, _, _ := syscall.SyscallN(vtable[15], uintptr(d.ptr), 0, uintptr(unsafe.Pointer(&definition)))
+	vtable := *(**[10]uintptr)(d.ptr)
+	result, _, _ := syscall.SyscallN(vtable[taskServiceNewTaskSlot], uintptr(d.ptr), 0, uintptr(unsafe.Pointer(&definition)))
 	if result != 0 {
 		return nil, hresult(result)
 	}
@@ -589,9 +635,13 @@ func boolVariant(value bool) variant {
 	return variant{VT: vtBool}
 }
 func bstrVariant(value string) variant {
+	return variant{VT: vtBSTR, Value: int64(allocateBSTR(value))}
+}
+
+func allocateBSTR(value string) uintptr {
 	text, _ := syscall.UTF16PtrFromString(value)
 	pointer, _, _ := sysAllocString.Call(uintptr(unsafe.Pointer(text)))
-	return variant{VT: vtBSTR, Value: int64(pointer)}
+	return pointer
 }
 func clearVariant(value *variant) {
 	if value == nil || value.VT == vtEmpty {
@@ -607,52 +657,7 @@ func variantString(value variant) string {
 	length, _, _ := sysStringLen.Call(uintptr(value.Value))
 	return syscall.UTF16ToString(unsafe.Slice((*uint16)(unsafe.Pointer(uintptr(value.Value))), int(length)))
 }
-func isNotFound(err error) bool { value, ok := err.(hresult); return ok && uint32(value) == 0x80070002 }
-
-func windowsCommandLine(args []string) string {
-	result := ""
-	for index, argument := range args {
-		if index != 0 {
-			result += " "
-		}
-		result += quoteWindowsArgument(argument)
-	}
-	return result
-}
-
-func quoteWindowsArgument(argument string) string {
-	if argument != "" && !containsWindowsArgumentWhitespace(argument) {
-		return argument
-	}
-	result := `"`
-	backslashes := 0
-	for _, runeValue := range argument {
-		if runeValue == '\\' {
-			backslashes++
-			continue
-		}
-		if runeValue == '"' {
-			result += repeatBackslash(backslashes*2+1) + `"`
-			backslashes = 0
-			continue
-		}
-		result += repeatBackslash(backslashes) + string(runeValue)
-		backslashes = 0
-	}
-	return result + repeatBackslash(backslashes*2) + `"`
-}
-func containsWindowsArgumentWhitespace(value string) bool {
-	for _, r := range value {
-		if r == ' ' || r == '\t' {
-			return true
-		}
-	}
-	return false
-}
-func repeatBackslash(count int) string {
-	result := ""
-	for ; count > 0; count-- {
-		result += `\`
-	}
-	return result
+func isNotFound(err error) bool {
+	var value hresult
+	return errors.As(err, &value) && uint32(value) == 0x80070002
 }

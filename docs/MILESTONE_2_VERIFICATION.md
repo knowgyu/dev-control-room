@@ -45,8 +45,9 @@ later integrations were not started.
   rejected. Windows selects a native Task Scheduler COM adapter; non-Windows
   uses the fake adapter. The definition has the fixed app-owned task name,
   typed `serve --home` action, logon trigger, fixed local daily `03:00`
-  trigger, `StartWhenAvailable`, and ignore-new policy. Native status rejects
-  a missing or incompatible definition. No generic shell, PowerShell, or
+  trigger, `StartWhenAvailable`, ignore-new policy, interactive least-privilege
+  principal, and unlimited execution time. Native status rejects a missing or
+  incompatible definition. No generic shell, PowerShell, or
   `schtasks` surface was added.
 - Child process environments are explicitly constructed from a small runtime
   allowlist plus a profile's configured names. Stdout and stderr have separate

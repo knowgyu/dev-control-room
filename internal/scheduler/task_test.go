@@ -75,3 +75,12 @@ func TestSchedulerDailyCatchUpContractIsDeterministic(t *testing.T) {
 		t.Fatalf("unexpected daily catch-up boundary: %q", DailyStartBoundary)
 	}
 }
+
+func TestWindowsSchedulerABIAndArgumentEscaping(t *testing.T) {
+	if taskServiceGetFolderSlot != 7 || taskServiceNewTaskSlot != 9 || taskServiceConnectSlot != 10 || taskFolderRegisterTaskDefinitionSlot != 17 {
+		t.Fatal("unexpected Task Scheduler COM ABI slot")
+	}
+	if got, want := windowsCommandLine([]string{"serve", "--home", `C:\Users\Fixture User\AppData\Local\DevControlRoom`}), `serve --home "C:\Users\Fixture User\AppData\Local\DevControlRoom"`; got != want {
+		t.Fatalf("typed scheduler arguments escaped incorrectly: got %q want %q", got, want)
+	}
+}
