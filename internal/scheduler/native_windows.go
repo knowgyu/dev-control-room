@@ -169,6 +169,9 @@ func install(service, root *dispatch, operation Operation) error {
 	if err := settings.put("StartWhenAvailable", boolVariant(true)); err != nil {
 		return err
 	}
+	if err := settings.put("Enabled", boolVariant(true)); err != nil {
+		return err
+	}
 	if err := settings.put("MultipleInstances", i4Variant(taskInstancesIgnoreNew)); err != nil {
 		return err
 	}
@@ -178,8 +181,7 @@ func install(service, root *dispatch, operation Operation) error {
 	if err := configurePrincipal(definition); err != nil {
 		return err
 	}
-	// A task running at logon must not be stopped merely because a daily
-	// trigger also fires; the default unlimited execution time is retained.
+	// PT0S avoids Task Scheduler's default 72-hour execution limit.
 	if err := configureTriggers(definition); err != nil {
 		return err
 	}
@@ -212,7 +214,10 @@ func registerTaskDefinition(root, definition *dispatch) error {
 		return fmt.Errorf("query ITaskDefinition: %w", err)
 	}
 	defer taskDefinition.release()
-	path := allocateBSTR(AppTaskName)
+	path, err := requiredBSTR(AppTaskName)
+	if err != nil {
+		return err
+	}
 	defer sysFreeString.Call(path)
 	user, password, sddl := emptyVariant(), emptyVariant(), emptyVariant()
 	var registered unsafe.Pointer
@@ -329,7 +334,11 @@ func verifySettings(definition *dispatch) error {
 	if err != nil {
 		return err
 	}
-	if !catchUp || multiple != taskInstancesIgnoreNew || executionLimit != taskExecutionTimeUnlimited {
+	enabled, err := settings.propertyBool("Enabled")
+	if err != nil {
+		return err
+	}
+	if !enabled || !catchUp || multiple != taskInstancesIgnoreNew || executionLimit != taskExecutionTimeUnlimited {
 		return fmt.Errorf("registered scheduler task does not match duplicate-instance or catch-up policy")
 	}
 	return verifyPrincipal(definition)
@@ -470,7 +479,10 @@ func (d *dispatch) connect() error {
 }
 
 func (d *dispatch) rootFolder() (*dispatch, error) {
-	path := allocateBSTR(`\`)
+	path, err := requiredBSTR(`\`)
+	if err != nil {
+		return nil, err
+	}
 	defer sysFreeString.Call(path)
 	var folder unsafe.Pointer
 	vtable := *(**[8]uintptr)(d.ptr)
@@ -591,6 +603,16 @@ func (d *dispatch) invoke(name string, flags uint16, args ...variant) (variant, 
 	if d == nil || d.ptr == nil {
 		return variant{}, fmt.Errorf("Task Scheduler automation object is closed")
 	}
+	defer func() {
+		for i := range args {
+			clearVariant(&args[i])
+		}
+	}()
+	for _, argument := range args {
+		if argument.VT == vtBSTR && argument.Value == 0 {
+			return variant{}, fmt.Errorf("allocate Task Scheduler BSTR")
+		}
+	}
 	nameUTF16, err := syscall.UTF16PtrFromString(name)
 	if err != nil {
 		return variant{}, err
@@ -617,9 +639,6 @@ func (d *dispatch) invoke(name string, flags uint16, args ...variant) (variant, 
 	var output variant
 	var argumentError uint32
 	result, _, _ = syscall.SyscallN(vtable[6], uintptr(d.ptr), uintptr(dispid), uintptr(unsafe.Pointer(&iidNull)), 0x0400, uintptr(flags), uintptr(unsafe.Pointer(&params)), uintptr(unsafe.Pointer(&output)), 0, uintptr(unsafe.Pointer(&argumentError)))
-	for i := range args {
-		clearVariant(&args[i])
-	}
 	if result != 0 {
 		return variant{}, fmt.Errorf("Task Scheduler Invoke %s argument %d: %w", name, argumentError, hresult(result))
 	}
@@ -642,6 +661,14 @@ func allocateBSTR(value string) uintptr {
 	text, _ := syscall.UTF16PtrFromString(value)
 	pointer, _, _ := sysAllocString.Call(uintptr(unsafe.Pointer(text)))
 	return pointer
+}
+
+func requiredBSTR(value string) (uintptr, error) {
+	pointer := allocateBSTR(value)
+	if pointer == 0 {
+		return 0, fmt.Errorf("allocate Task Scheduler BSTR")
+	}
+	return pointer, nil
 }
 func clearVariant(value *variant) {
 	if value == nil || value.VT == vtEmpty {
