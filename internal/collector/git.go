@@ -6,6 +6,8 @@ package collector
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -117,26 +119,39 @@ const (
 )
 
 type Worktree struct {
-	Path   string `json:"path"`
-	Head   string `json:"head,omitempty"`
-	Branch string `json:"branch,omitempty"`
-	Bare   bool   `json:"bare,omitempty"`
+	ID                     string `json:"id"`
+	Path                   string `json:"path"`
+	AssociationFingerprint string `json:"associationFingerprint,omitempty"`
+	Trust                  string `json:"trust"`
+	Primary                bool   `json:"primary"`
+	Head                   string `json:"head,omitempty"`
+	Branch                 string `json:"branch,omitempty"`
+	Bare                   bool   `json:"bare,omitempty"`
+	Detached               bool   `json:"detached"`
+	Dirty                  bool   `json:"dirty"`
+	Untracked              bool   `json:"untracked"`
+	Ahead                  int    `json:"ahead"`
+	Behind                 int    `json:"behind"`
+	Upstream               string `json:"upstream,omitempty"`
+	Locked                 bool   `json:"locked"`
+	Prunable               bool   `json:"prunable"`
 }
 
 type State struct {
-	Path          string       `json:"path"`
-	TopLevel      string       `json:"topLevel,omitempty"`
-	Branch        string       `json:"branch,omitempty"`
-	Detached      bool         `json:"detached"`
-	Dirty         bool         `json:"dirty"`
-	Ahead         int          `json:"ahead"`
-	Behind        int          `json:"behind"`
-	Upstream      string       `json:"upstream,omitempty"`
-	Remotes       []RemoteInfo `json:"remotes,omitempty"`
-	Worktrees     []Worktree   `json:"worktrees,omitempty"`
-	UnsafeCleanup bool         `json:"unsafeCleanup"`
-	Error         string       `json:"error,omitempty"`
-	CollectedAt   time.Time    `json:"collectedAt"`
+	Path                        string       `json:"path"`
+	TopLevel                    string       `json:"topLevel,omitempty"`
+	Branch                      string       `json:"branch,omitempty"`
+	Detached                    bool         `json:"detached"`
+	Dirty                       bool         `json:"dirty"`
+	Ahead                       int          `json:"ahead"`
+	Behind                      int          `json:"behind"`
+	Upstream                    string       `json:"upstream,omitempty"`
+	Remotes                     []RemoteInfo `json:"remotes,omitempty"`
+	Worktrees                   []Worktree   `json:"worktrees,omitempty"`
+	WorktreeEnumerationComplete bool         `json:"worktreeEnumerationComplete"`
+	UnsafeCleanup               bool         `json:"unsafeCleanup"`
+	Error                       string       `json:"error,omitempty"`
+	CollectedAt                 time.Time    `json:"collectedAt"`
 }
 
 type GitCollector struct {
@@ -171,7 +186,7 @@ func (c GitCollector) Collect(ctx context.Context, path string) (State, error) {
 		state.Detached = true
 		state.Branch = ""
 	}
-	status, err := c.required(ctx, path, "status", "--porcelain=v1", "--untracked-files=all")
+	status, err := c.required(ctx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
 		state.Error = "Git status could not be read"
 		return state, err
@@ -188,7 +203,8 @@ func (c GitCollector) Collect(ctx context.Context, path string) (State, error) {
 			}
 		}
 	}
-	state.Worktrees, _ = c.worktrees(ctx, path)
+	state.Worktrees, err = c.worktrees(ctx, path)
+	state.WorktreeEnumerationComplete = err == nil
 	state.UnsafeCleanup = state.Dirty || state.Detached || state.Ahead > 0 || len(state.Worktrees) > 1
 	return state, nil
 }
@@ -257,10 +273,16 @@ func (c GitCollector) remotes(ctx context.Context, path string) []RemoteInfo {
 }
 
 func (c GitCollector) worktrees(ctx context.Context, path string) ([]Worktree, error) {
-	result, err := c.Runner.Run(ctx, "git", []string{"worktree", "list", "--porcelain"}, path)
+	result, err := c.Runner.Run(ctx, "git", []string{"worktree", "list", "--porcelain", "-z"}, path)
 	if err != nil || result.ExitCode != 0 {
 		return []Worktree{}, err
 	}
+	return parseWorktrees(result.Stdout), nil
+}
+
+// parseWorktrees consumes Git's NUL-delimited porcelain format. Paths may
+// contain spaces or newlines, so line splitting is deliberately forbidden.
+func parseWorktrees(output string) []Worktree {
 	var worktrees []Worktree
 	var current *Worktree
 	flush := func() {
@@ -269,23 +291,135 @@ func (c GitCollector) worktrees(ctx context.Context, path string) ([]Worktree, e
 			current = nil
 		}
 	}
-	for _, line := range strings.Split(result.Stdout, "\n") {
+	records := strings.Split(output, "\x00")
+	// Compatibility for test doubles and older Git output; real collection
+	// always requests -z and never uses this branch for path parsing.
+	if !strings.Contains(output, "\x00") {
+		records = strings.Split(output, "\n")
+	}
+	for _, line := range records {
 		switch {
 		case strings.HasPrefix(line, "worktree "):
 			flush()
-			current = &Worktree{Path: strings.TrimSpace(strings.TrimPrefix(line, "worktree "))}
+			current = &Worktree{Path: strings.TrimPrefix(line, "worktree "), Trust: "unverified"}
 		case strings.HasPrefix(line, "HEAD ") && current != nil:
 			current.Head = strings.TrimSpace(strings.TrimPrefix(line, "HEAD "))
 		case strings.HasPrefix(line, "branch ") && current != nil:
 			current.Branch = strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(line, "branch ")), "refs/heads/")
 		case line == "bare" && current != nil:
 			current.Bare = true
+		case line == "locked" && current != nil:
+			current.Locked = true
+		case strings.HasPrefix(line, "locked ") && current != nil:
+			current.Locked = true
+		case line == "prunable" && current != nil:
+			current.Prunable = true
+		case strings.HasPrefix(line, "prunable ") && current != nil:
+			current.Prunable = true
 		case line == "":
 			flush()
 		}
 	}
 	flush()
-	return worktrees, nil
+	return worktrees
+}
+
+// WorktreeDetails verifies each advertised worktree against the same Git
+// common directory before returning bounded read-only state. It is intentionally
+// separate from Collect so callers can preserve repository-level compatibility.
+func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string, advertised []Worktree) ([]Worktree, bool) {
+	registeredCanonical, err := canonicalDirectory(registeredPath)
+	if err != nil {
+		return advertised, false
+	}
+	common, err := c.gitDirectory(ctx, registeredCanonical, "--git-common-dir")
+	if err != nil {
+		return advertised, false
+	}
+	complete := true
+	for i := range advertised {
+		item := &advertised[i]
+		candidate, candidateErr := canonicalDirectory(item.Path)
+		if candidateErr != nil {
+			// Git explicitly marks a prunable worktree as absent. It is complete
+			// enumeration evidence, but is never entered or status-read.
+			if !item.Prunable {
+				complete = false
+			}
+			continue
+		}
+		top, topErr := c.required(ctx, candidate, "rev-parse", "--show-toplevel")
+		candidateCommon, commonErr := c.gitDirectory(ctx, candidate, "--git-common-dir")
+		gitDir, gitErr := c.gitDirectory(ctx, candidate, "--git-dir")
+		if topErr != nil || commonErr != nil || gitErr != nil || !sameDirectory(candidate, top) || !sameDirectory(common, candidateCommon) {
+			complete = false
+			continue
+		}
+		item.Path = candidate
+		item.Primary = sameDirectory(candidate, registeredCanonical)
+		item.Trust = "verified_read_only"
+		item.AssociationFingerprint = associationFingerprint(common, gitDir)
+		if item.Primary {
+			item.ID = "primary"
+		} else {
+			item.ID = "linked-" + item.AssociationFingerprint[len("sha256:"):][:32]
+		}
+		c.populateWorktree(ctx, item)
+	}
+	return advertised, complete
+}
+
+func (c GitCollector) populateWorktree(ctx context.Context, item *Worktree) {
+	item.Branch, _ = c.optional(ctx, item.Path, "symbolic-ref", "--short", "-q", "HEAD")
+	item.Detached = item.Branch == ""
+	item.Head, _ = c.optional(ctx, item.Path, "rev-parse", "HEAD")
+	status, err := c.required(ctx, item.Path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err == nil {
+		item.Dirty = strings.TrimSpace(status) != ""
+		for _, record := range strings.Split(status, "\x00") {
+			if strings.HasPrefix(record, "?? ") {
+				item.Untracked = true
+			}
+		}
+	}
+	item.Upstream, _ = c.optional(ctx, item.Path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if item.Upstream != "" {
+		if counts, err := c.required(ctx, item.Path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}"); err == nil {
+			fields := strings.Fields(counts)
+			if len(fields) == 2 {
+				item.Ahead, _ = strconv.Atoi(fields[0])
+				item.Behind, _ = strconv.Atoi(fields[1])
+			}
+		}
+	}
+}
+
+func canonicalDirectory(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return "", errors.New("worktree path is unavailable")
+	}
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(canonical), nil
+}
+
+func (c GitCollector) gitDirectory(ctx context.Context, path, argument string) (string, error) {
+	value, err := c.required(ctx, path, "rev-parse", argument)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(value) {
+		value = filepath.Join(path, value)
+	}
+	return canonicalDirectory(value)
+}
+
+func associationFingerprint(commonDir, gitDir string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(commonDir) + "\x00" + filepath.Clean(gitDir)))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // NormalizeRemote strips credentials, query strings, fragments and the .git

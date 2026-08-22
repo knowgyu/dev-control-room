@@ -171,13 +171,21 @@ func (a *App) Snapshot(ctx context.Context) (Snapshot, error) {
 			if err != nil {
 				return Snapshot{}, err
 			}
+			worktrees, err := a.store.ListWorktrees(ctx, project.Metadata.ID, repository.Metadata.ID)
+			if err != nil {
+				return Snapshot{}, err
+			}
 			if len(observations) == 0 {
-				state.Repos = append(state.Repos, RepositoryState{Path: repository.Spec.Path})
+				state.Repos = append(state.Repos, RepositoryState{Path: repository.Spec.Path, Worktrees: worktrees, WorktreeCount: len(worktrees)})
 				continue
 			}
 			repositoryState, err := stateFromObservation(observations[0])
 			if err != nil {
 				return Snapshot{}, err
+			}
+			repositoryState.Worktrees = worktrees
+			if len(worktrees) > 0 {
+				repositoryState.WorktreeCount = len(worktrees)
 			}
 			state.Repos = append(state.Repos, repositoryState)
 			if repositoryState.ScannedAt.After(state.ScannedAt) {
@@ -217,6 +225,13 @@ func (a *App) Repository(ctx context.Context, projectID, repositoryID string) (d
 		return domain.Repository{}, contract.NotFound("repository not found")
 	}
 	return repository, err
+}
+
+func (a *App) Worktrees(ctx context.Context, projectID, repositoryID string) ([]domain.Worktree, error) {
+	if _, err := a.Repository(ctx, projectID, repositoryID); err != nil {
+		return nil, err
+	}
+	return a.store.ListWorktrees(ctx, projectID, repositoryID)
 }
 
 func (a *App) Findings(ctx context.Context, projectID, repositoryID string) ([]domain.Finding, error) {
@@ -315,6 +330,14 @@ func (a *App) scanProject(ctx context.Context, project domain.Project, trigger s
 	findingCount := 0
 	for _, repository := range project.Spec.Repositories {
 		state, collectErr := a.collector.Collect(ctx, repository.Spec.Path)
+		if collectErr == nil {
+			var complete bool
+			state.Worktrees, complete = a.collector.WorktreeDetails(ctx, repository.Spec.Path, state.Worktrees)
+			complete = complete && state.WorktreeEnumerationComplete
+			if err := a.store.ReplaceWorktrees(ctx, project.Metadata.ID, repository.Metadata.ID, domainWorktrees(project.Metadata.ID, repository.Metadata.ID, state.Worktrees, state.CollectedAt), complete); err != nil {
+				return collectorFailed, err
+			}
+		}
 		if collectErr != nil {
 			collectorFailed = true
 		}
@@ -722,6 +745,17 @@ func stateFromObservation(observation domain.Observation) (RepositoryState, erro
 		state.Capabilities = collected.Remotes[0].Capabilities
 	}
 	return state, nil
+}
+
+func domainWorktrees(projectID, repositoryID string, items []collector.Worktree, observed time.Time) []domain.Worktree {
+	worktrees := make([]domain.Worktree, 0, len(items))
+	for _, item := range items {
+		if item.Trust != domain.WorktreeTrustVerifiedReadOnly {
+			continue
+		}
+		worktrees = append(worktrees, domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: item.ID, Name: item.Path}, Spec: domain.WorktreeSpec{ProjectID: projectID, RepositoryID: repositoryID, CanonicalPath: item.Path, AssociationFingerprint: item.AssociationFingerprint, Trust: item.Trust, Primary: item.Primary, Head: item.Head, Branch: item.Branch, Dirty: item.Dirty, Untracked: item.Untracked, Upstream: item.Upstream, Ahead: item.Ahead, Behind: item.Behind, Detached: item.Detached, Locked: item.Locked, Prunable: item.Prunable, LastObserved: observed}})
+	}
+	return worktrees
 }
 
 func (a *App) Handler() http.Handler { return newHTTPHandler(a, a.listen, a.mutationToken) }

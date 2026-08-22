@@ -93,3 +93,34 @@ func TestSaveProjectRemovesOnlyRepositoriesOmittedFromAggregate(t *testing.T) {
 		t.Fatalf("omitted repository survived aggregate save: %v", err)
 	}
 }
+
+func TestReplaceWorktreesRetainsMembershipAfterIncompleteEnumeration(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDatabase(t, "worktree-retention")
+	s, err := New(db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := domain.NewProject("project", "Project", []domain.Repository{domain.NewRepository("repo", "Repo", "/fixture")})
+	if err := s.SaveProject(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	item := domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: "primary", Name: "fixture"}, Spec: domain.WorktreeSpec{ProjectID: "project", RepositoryID: "repo", CanonicalPath: "/fixture", Trust: domain.WorktreeTrustVerifiedReadOnly, Primary: true, LastObserved: time.Now().UTC()}}
+	if err := s.ReplaceWorktrees(ctx, "project", "repo", []domain.Worktree{item}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceWorktrees(ctx, "project", "repo", nil, false); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.ListWorktrees(ctx, "project", "repo")
+	if err != nil || len(items) != 1 || items[0].Spec.TombstonedAt != nil {
+		t.Fatalf("incomplete enumeration removed membership: %#v %v", items, err)
+	}
+	if err := s.ReplaceWorktrees(ctx, "project", "repo", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	items, err = s.ListWorktrees(ctx, "project", "repo")
+	if err != nil || items[0].Spec.TombstonedAt == nil {
+		t.Fatalf("complete enumeration did not tombstone membership: %#v %v", items, err)
+	}
+}

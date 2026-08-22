@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -271,3 +273,50 @@ func gitFixture(t *testing.T, directory string, args ...string) {
 }
 
 func nowUTC() time.Time { return time.Now().UTC() }
+
+func TestWorktreeSnapshotPersistenceAndReadOnlySurfaces(t *testing.T) {
+	home := t.TempDir()
+	repository := tempGitRepository(t, "primary")
+	linked := filepath.Join(t.TempDir(), "linked")
+	gitFixture(t, repository, "worktree", "add", "-b", "linked", linked)
+	if err := os.WriteFile(filepath.Join(linked, "untracked"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Worktree Fixture", Path: repository})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.Worktrees(context.Background(), project.Metadata.ID, "repo-1")
+	if err != nil || len(items) != 2 {
+		t.Fatalf("persisted worktrees = %#v, %v", items, err)
+	}
+	var linkedID string
+	for _, item := range items {
+		if item.Metadata.ID == "primary" && item.Spec.Trust != domain.WorktreeTrustVerifiedReadOnly {
+			t.Fatalf("primary trust = %s", item.Spec.Trust)
+		}
+		if !item.Spec.Primary {
+			linkedID = item.Metadata.ID
+		}
+	}
+	if linkedID == "" {
+		t.Fatalf("linked worktree missing: %#v", items)
+	}
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil || len(snapshot.Projects) != 1 || len(snapshot.Projects[0].Repos[0].Worktrees) != 2 {
+		t.Fatalf("snapshot missing worktree detail: %#v, %v", snapshot, err)
+	}
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/projects/"+project.Metadata.ID+"/repositories/repo-1/worktrees", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"verified_read_only"`) {
+		t.Fatalf("worktree HTTP surface = %d %s", recorder.Code, recorder.Body.String())
+	}
+}

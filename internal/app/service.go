@@ -18,6 +18,7 @@ type QueryService interface {
 	Project(context.Context, string) (domain.Project, error)
 	Repositories(context.Context, string) ([]domain.Repository, error)
 	Repository(context.Context, string, string) (domain.Repository, error)
+	Worktrees(context.Context, string, string) ([]domain.Worktree, error)
 	Findings(context.Context, string, string) ([]domain.Finding, error)
 	Finding(context.Context, string) (domain.Finding, error)
 	Events(context.Context, int) ([]domain.Event, error)

@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,5 +103,34 @@ func TestEnvironmentDoctorJSONUsesStableEnvelopeAndHidesSecret(t *testing.T) {
 	}
 	if envelope.Schema != contract.EnvelopeSchema || !envelope.OK || envelope.Data == nil || strings.Contains(stdout.String(), canary) || strings.Contains(stderr.String(), canary) {
 		t.Fatalf("invalid or secret-bearing environment envelope: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestProjectWorktreeListJSONUsesReadOnlyEnvelope(t *testing.T) {
+	home := t.TempDir()
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := filepath.Dir(filepath.Dir(workingDirectory))
+	service, err := app.New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.AddProject(context.Background(), app.AddProjectInput{Name: "worktrees", Path: repository})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	_ = service.Close()
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"project", "worktree", "list", project.Metadata.ID, "repo-1", "--home", home, "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("worktree CLI failed: %d %s", code, stderr.String())
+	}
+	var envelope contract.Envelope[[]map[string]any]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil || len(*envelope.Data) != 1 {
+		t.Fatalf("worktree CLI envelope = %s (%v)", stdout.String(), err)
 	}
 }

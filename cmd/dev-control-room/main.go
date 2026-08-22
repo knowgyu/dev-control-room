@@ -109,6 +109,9 @@ func runProject(args []string, stdout, stderr io.Writer) int {
 	if subcommand == "repository" {
 		return runRepository(args, stdout, stderr)
 	}
+	if subcommand == "worktree" {
+		return runWorktree(args, stdout, stderr)
+	}
 	jsonOutput, args, err := parseJSONFlag(args)
 	if err != nil {
 		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
@@ -187,6 +190,36 @@ func runProject(args []string, stdout, stderr io.Writer) int {
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown project command: "+subcommand))
 	}
+}
+
+func runWorktree(args []string, stdout, stderr io.Writer) int {
+	jsonOutput, args, err := parseJSONFlag(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if len(args) != 3 || args[0] != "list" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("project worktree list requires project and repository ids"))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	items, err := service.Worktrees(context.Background(), args[1], args[2])
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if jsonOutput {
+		return encodeSuccess(stdout, items)
+	}
+	for _, item := range items {
+		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", item.Metadata.ID, item.Spec.CanonicalPath, item.Spec.Branch, item.Spec.Trust)
+	}
+	return int(contract.ExitSuccess)
 }
 
 func runProjectAdd(service *app.App, args []string, stdout, stderr io.Writer, jsonOutput bool) int {

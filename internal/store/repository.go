@@ -7,7 +7,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -246,6 +248,99 @@ func (s *Store) DeleteRepository(ctx context.Context, projectID, repositoryID st
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// ReplaceWorktrees stores a complete, verified enumeration atomically. Missing
+// entries are tombstoned only after the caller proves enumeration completed.
+func (s *Store) ReplaceWorktrees(ctx context.Context, projectID, repositoryID string, items []domain.Worktree, complete bool) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin worktree transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	now := time.Now().UTC().Format(timeFormat)
+	seen := make([]any, 0, len(items))
+	for _, item := range items {
+		if item.Spec.Trust != domain.WorktreeTrustVerifiedReadOnly {
+			continue
+		}
+		if err := item.Validate(); err != nil {
+			return fmt.Errorf("validate worktree: %w", err)
+		}
+		if item.Spec.ProjectID != projectID || item.Spec.RepositoryID != repositoryID {
+			return errors.New("worktree scope does not match repository")
+		}
+		object, err := s.maskedJSON(item)
+		if err != nil {
+			return err
+		}
+		association := any(nil)
+		if !item.Spec.Primary {
+			association = item.Spec.AssociationFingerprint
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO worktrees(project_id, repository_id, id, association_fingerprint, canonical_path, trust, is_primary, last_observed, tombstoned_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+ON CONFLICT(project_id, repository_id, id) DO UPDATE SET association_fingerprint=excluded.association_fingerprint, canonical_path=excluded.canonical_path, trust=excluded.trust, is_primary=excluded.is_primary, last_observed=excluded.last_observed, tombstoned_at=NULL, object_json=excluded.object_json`, projectID, repositoryID, item.Metadata.ID, association, item.Spec.CanonicalPath, item.Spec.Trust, item.Spec.Primary, item.Spec.LastObserved.UTC().Format(timeFormat), object); err != nil {
+			return fmt.Errorf("save worktree: %w", err)
+		}
+		observation := domain.WorktreeObservation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeObservationKind}, Metadata: domain.ObjectMeta{ID: worktreeObservationID(item), Name: "Git worktree state"}, Spec: domain.WorktreeObservationSpec{ProjectID: projectID, RepositoryID: repositoryID, WorktreeID: item.Metadata.ID, CollectedAt: item.Spec.LastObserved, Object: item}}
+		observationJSON, err := s.maskedJSON(observation)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO worktree_observations(id, project_id, repository_id, worktree_id, collected_at, object_json) VALUES (?, ?, ?, ?, ?, ?)`, observation.Metadata.ID, projectID, repositoryID, item.Metadata.ID, item.Spec.LastObserved.UTC().Format(timeFormat), observationJSON); err != nil {
+			return fmt.Errorf("save worktree observation: %w", err)
+		}
+		seen = append(seen, item.Metadata.ID)
+	}
+	if complete {
+		query := `UPDATE worktrees SET tombstoned_at = ? WHERE project_id = ? AND repository_id = ? AND tombstoned_at IS NULL`
+		args := []any{now, projectID, repositoryID}
+		if len(seen) > 0 {
+			query += ` AND id NOT IN (` + strings.TrimRight(strings.Repeat("?,", len(seen)), ",") + `)`
+			args = append(args, seen...)
+		}
+		if _, err = tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("tombstone missing worktrees: %w", err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit worktrees: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListWorktrees(ctx context.Context, projectID, repositoryID string) ([]domain.Worktree, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_json, tombstoned_at FROM worktrees WHERE project_id = ? AND repository_id = ? ORDER BY is_primary DESC, id`, projectID, repositoryID)
+	if err != nil {
+		return nil, fmt.Errorf("list worktrees: %w", err)
+	}
+	defer rows.Close()
+	items := []domain.Worktree{}
+	for rows.Next() {
+		var object string
+		var tombstoned sql.NullString
+		if err := rows.Scan(&object, &tombstoned); err != nil {
+			return nil, err
+		}
+		var item domain.Worktree
+		if err := json.Unmarshal([]byte(object), &item); err != nil {
+			return nil, fmt.Errorf("decode worktree: %w", err)
+		}
+		if tombstoned.Valid {
+			at, err := time.Parse(timeFormat, tombstoned.String)
+			if err != nil {
+				return nil, err
+			}
+			item.Spec.TombstonedAt = &at
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func worktreeObservationID(item domain.Worktree) string {
+	sum := sha256.Sum256([]byte(item.Spec.ProjectID + "\x00" + item.Spec.RepositoryID + "\x00" + item.Metadata.ID + "\x00" + item.Spec.LastObserved.UTC().Format(time.RFC3339Nano)))
+	return "worktree-observation-" + hex.EncodeToString(sum[:])[:48]
 }
 
 func (s *Store) SaveObservation(ctx context.Context, observation domain.Observation) error {

@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 type Migration struct {
 	Version int
@@ -164,6 +164,39 @@ CREATE TABLE IF NOT EXISTS scheduler_state (
     object_json TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+`,
+	},
+	{
+		Version: 4,
+		Name:    "worktree-identities-and-observations",
+		SQL: `
+CREATE TABLE IF NOT EXISTS worktrees (
+    project_id TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    id TEXT NOT NULL CHECK (length(trim(id)) > 0),
+    association_fingerprint TEXT,
+    canonical_path TEXT NOT NULL,
+    trust TEXT NOT NULL CHECK (trust IN ('verified_read_only', 'unverified')),
+    is_primary INTEGER NOT NULL CHECK (is_primary IN (0, 1)),
+    last_observed TEXT NOT NULL,
+    tombstoned_at TEXT,
+    object_json TEXT NOT NULL,
+    PRIMARY KEY (project_id, repository_id, id),
+    UNIQUE (project_id, repository_id, association_fingerprint),
+    FOREIGN KEY (project_id, repository_id) REFERENCES repositories(project_id, id) ON DELETE CASCADE,
+    CHECK ((is_primary = 1 AND id = 'primary' AND association_fingerprint IS NULL) OR (is_primary = 0 AND association_fingerprint IS NOT NULL))
+);
+CREATE TABLE IF NOT EXISTS worktree_observations (
+    id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+    project_id TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    worktree_id TEXT NOT NULL,
+    collected_at TEXT NOT NULL,
+    object_json TEXT NOT NULL,
+    FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_worktrees_repository_active ON worktrees(project_id, repository_id, tombstoned_at, last_observed);
+CREATE INDEX IF NOT EXISTS idx_worktree_observations_scope ON worktree_observations(project_id, repository_id, worktree_id, collected_at);
 `,
 	},
 }

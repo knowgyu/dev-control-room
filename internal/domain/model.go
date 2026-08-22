@@ -18,18 +18,20 @@ import (
 const (
 	APIVersion = "devroom/v1alpha1"
 
-	ProjectKind            = "Project"
-	RepositoryKind         = "Repository"
-	ObservationKind        = "Observation"
-	FindingKind            = "Finding"
-	ChecksetKind           = "Checkset"
-	ActionKind             = "Action"
-	ActionPlanKind         = "ActionPlan"
-	ApprovalKind           = "Approval"
-	AgentProfileKind       = "AgentProfile"
-	EventKind              = "Event"
-	ScanRunKind            = "ScanRun"
-	FailureFingerprintKind = "FailureFingerprint"
+	ProjectKind             = "Project"
+	RepositoryKind          = "Repository"
+	WorktreeKind            = "Worktree"
+	WorktreeObservationKind = "WorktreeObservation"
+	ObservationKind         = "Observation"
+	FindingKind             = "Finding"
+	ChecksetKind            = "Checkset"
+	ActionKind              = "Action"
+	ActionPlanKind          = "ActionPlan"
+	ApprovalKind            = "Approval"
+	AgentProfileKind        = "AgentProfile"
+	EventKind               = "Event"
+	ScanRunKind             = "ScanRun"
+	FailureFingerprintKind  = "FailureFingerprint"
 )
 
 var (
@@ -87,6 +89,86 @@ type Repository struct {
 type RepositorySpec struct {
 	Path      string              `json:"path"`
 	Checksets map[string][]string `json:"checksets,omitempty"`
+}
+
+// Worktree is a concrete, read-only-discovered checkout beneath a Repository.
+// Its trust state is observation evidence, never execution authority.
+type Worktree struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta   `json:"metadata"`
+	Spec     WorktreeSpec `json:"spec"`
+}
+
+type WorktreeSpec struct {
+	ProjectID              string     `json:"projectId"`
+	RepositoryID           string     `json:"repositoryId"`
+	CanonicalPath          string     `json:"canonicalPath"`
+	AssociationFingerprint string     `json:"associationFingerprint,omitempty"`
+	Trust                  string     `json:"trust"`
+	Primary                bool       `json:"primary"`
+	Head                   string     `json:"head,omitempty"`
+	Branch                 string     `json:"branch,omitempty"`
+	Dirty                  bool       `json:"dirty"`
+	Untracked              bool       `json:"untracked"`
+	Upstream               string     `json:"upstream,omitempty"`
+	Ahead                  int        `json:"ahead"`
+	Behind                 int        `json:"behind"`
+	Detached               bool       `json:"detached"`
+	Locked                 bool       `json:"locked"`
+	Prunable               bool       `json:"prunable"`
+	LastObserved           time.Time  `json:"lastObserved"`
+	TombstonedAt           *time.Time `json:"tombstonedAt,omitempty"`
+}
+
+const (
+	WorktreeTrustVerifiedReadOnly = "verified_read_only"
+	WorktreeTrustUnverified       = "unverified"
+)
+
+func (w Worktree) Validate() error {
+	if err := validateResource(w.TypeMeta, WorktreeKind, w.Metadata); err != nil {
+		return err
+	}
+	if err := validateProjectRepository(w.Spec.ProjectID, w.Spec.RepositoryID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(w.Spec.CanonicalPath) == "" || (w.Spec.Trust != WorktreeTrustVerifiedReadOnly && w.Spec.Trust != WorktreeTrustUnverified) {
+		return errors.New("worktree path and trust are required")
+	}
+	if w.Spec.Primary && w.Metadata.ID != "primary" {
+		return errors.New("primary worktree id is reserved")
+	}
+	if !w.Spec.Primary && strings.TrimSpace(w.Spec.AssociationFingerprint) == "" {
+		return errors.New("linked worktree requires an association fingerprint")
+	}
+	return nil
+}
+
+type WorktreeObservation struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta              `json:"metadata"`
+	Spec     WorktreeObservationSpec `json:"spec"`
+}
+
+type WorktreeObservationSpec struct {
+	ProjectID    string    `json:"projectId"`
+	RepositoryID string    `json:"repositoryId"`
+	WorktreeID   string    `json:"worktreeId"`
+	CollectedAt  time.Time `json:"collectedAt"`
+	Object       Worktree  `json:"object"`
+}
+
+func (o WorktreeObservation) Validate() error {
+	if err := validateResource(o.TypeMeta, WorktreeObservationKind, o.Metadata); err != nil {
+		return err
+	}
+	if err := validateProjectRepository(o.Spec.ProjectID, o.Spec.RepositoryID); err != nil || !validIdentifier(o.Spec.WorktreeID) || o.Spec.CollectedAt.IsZero() {
+		return errors.New("worktree observation scope and collection time are required")
+	}
+	if o.Spec.Object.Metadata.ID != o.Spec.WorktreeID || o.Spec.Object.Spec.ProjectID != o.Spec.ProjectID || o.Spec.Object.Spec.RepositoryID != o.Spec.RepositoryID {
+		return errors.New("worktree observation scope must match its worktree")
+	}
+	return o.Spec.Object.Validate()
 }
 
 type Observation struct {

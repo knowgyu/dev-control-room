@@ -93,3 +93,66 @@ func gitTest(t *testing.T, directory string, args ...string) {
 		t.Fatalf("git %v: %v (%s)", args, err, output)
 	}
 }
+
+func TestWorktreeDetailsReadsNULPorcelainAndRealLinkedState(t *testing.T) {
+	repository := t.TempDir()
+	gitTest(t, repository, "init", "--initial-branch=main")
+	gitTest(t, repository, "config", "user.email", "test@example.invalid")
+	gitTest(t, repository, "config", "user.name", "Dev Room Test")
+	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitTest(t, repository, "add", "README.md")
+	gitTest(t, repository, "commit", "-m", "fixture")
+	linked := filepath.Join(t.TempDir(), "linked with space\nand newline")
+	gitTest(t, repository, "worktree", "add", "-b", "linked", linked)
+	if err := os.WriteFile(filepath.Join(linked, "untracked"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	collector := NewGitCollector(nil)
+	state, err := collector.Collect(context.Background(), repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, complete := collector.WorktreeDetails(context.Background(), repository, state.Worktrees)
+	if !complete || len(items) != 2 {
+		t.Fatalf("worktree enumeration = %#v complete=%v", items, complete)
+	}
+	var primary, linkedState *Worktree
+	for i := range items {
+		if items[i].Primary {
+			primary = &items[i]
+		} else {
+			linkedState = &items[i]
+		}
+	}
+	if primary == nil || primary.ID != "primary" || primary.Trust != "verified_read_only" {
+		t.Fatalf("primary identity = %#v", primary)
+	}
+	if linkedState == nil || !linkedState.Untracked || !linkedState.Dirty || linkedState.ID == "" || linkedState.AssociationFingerprint == "" {
+		t.Fatalf("linked state = %#v", linkedState)
+	}
+	linkedID := linkedState.ID
+	moved := filepath.Join(t.TempDir(), "moved")
+	gitTest(t, repository, "worktree", "move", linked, moved)
+	state, err = collector.Collect(context.Background(), repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, complete = collector.WorktreeDetails(context.Background(), repository, state.Worktrees)
+	if !complete {
+		t.Fatal("moved worktree did not enumerate")
+	}
+	for _, item := range items {
+		if !item.Primary && item.ID != linkedID {
+			t.Fatalf("linked id changed after move: %s want %s", item.ID, linkedID)
+		}
+	}
+}
+
+func TestParseWorktreesPreservesNewlinePathAndFlags(t *testing.T) {
+	items := parseWorktrees("worktree /tmp/a space\nand newline\x00HEAD abc\x00detached\x00locked reason\x00prunable gone\x00unknown field\x00\x00bare\x00")
+	if len(items) != 1 || items[0].Path != "/tmp/a space\nand newline" || !items[0].Locked || !items[0].Prunable {
+		t.Fatalf("NUL porcelain parsing lost boundaries: %#v", items)
+	}
+}

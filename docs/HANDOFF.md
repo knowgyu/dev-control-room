@@ -69,7 +69,7 @@ Current contract versions:
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
-- SQLite schema: version 3;
+- SQLite schema: version 4;
 - Go module target: Go 1.23.
 
 ## Repository state at this handoff
@@ -249,14 +249,22 @@ roadmap into one undifferentiated implementation.
   rejects definition drift. Dry-run never opens Task Scheduler.
 - Native install/uninstall/status smoke remains explicitly authorization-gated.
 
-### Slice B: Worktree model and visibility
+### Slice B: Worktree model and visibility (implemented; native smoke pending)
 
-- Add forward-only schema migration for Worktree identities and observations.
-- Parse `git worktree list --porcelain -z` and safely handle path boundaries.
-- Re-observe each verified linked Worktree using bounded Git commands.
-- Add structured CLI/API state and expandable UI rows.
-- Preserve historical Milestone 1 migration behavior and Repository identity
-  `(project_id, repository_id)`.
+- Schema v4 adds project/repository-scoped Worktree identities and immutable
+  worktree observations without changing existing Repository identity/history.
+- Git worktree porcelain is parsed NUL-delimited. Every advertised path is
+  canonicalized and verified against the registered Repository's Git common
+  directory before bounded state collection.
+- `primary` is reserved for the registered checkout; linked IDs derive from the
+  verified common/git-directory association fingerprint rather than path.
+- Discovery trust is only `verified_read_only` or `unverified`; it grants no
+  execution authority. Failed enumerations retain membership; complete ones
+  tombstone absent durable identities.
+- `project worktree list <project> <repository>`, the matching loopback API,
+  Snapshot, and UI details expose read-only per-worktree state.
+
+See `docs/SLICE_B_VERIFICATION.md`.
 
 ### Slice C: deterministic discovery and proposals
 
