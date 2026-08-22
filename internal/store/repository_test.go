@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -206,5 +207,62 @@ func TestPrimaryIncomingIdentityIsNeverReconciled(t *testing.T) {
 	got, _ := s.GetWorktree(ctx, "p", "r", "primary")
 	if !got.Spec.Primary {
 		t.Fatal("primary was reconciled away")
+	}
+}
+
+func TestWorktreeIdentitySurvivesTrustRecoveryAssociationChangeAndRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistence, err := New(db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := domain.NewProject("project", "Project", []domain.Repository{domain.NewRepository("repo", "Repo", "/fixture")})
+	if err := persistence.SaveProject(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC()
+	unverified := domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: "unverified-temporary", Name: "unverified-temporary"}, Spec: domain.WorktreeSpec{ProjectID: "project", RepositoryID: "repo", CanonicalPath: "/masked", PathFingerprint: "sha256:same-path", AssociationFingerprint: "unverified:sha256:same-path", Trust: domain.WorktreeTrustUnverified, LastObserved: at}}
+	if err := persistence.ReplaceWorktrees(ctx, "project", "repo", []domain.Worktree{unverified}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistence, err = New(db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer persistence.Close()
+	verified := unverified
+	verified.Metadata.ID = "linked-first-association"
+	verified.Spec.AssociationFingerprint = "sha256:first-association"
+	verified.Spec.Trust = domain.WorktreeTrustVerifiedReadOnly
+	verified.Spec.LastObserved = at.Add(time.Second)
+	if err := persistence.ReplaceWorktrees(ctx, "project", "repo", []domain.Worktree{verified}, true); err != nil {
+		t.Fatal(err)
+	}
+	items, err := persistence.ListWorktrees(ctx, "project", "repo")
+	if err != nil || len(items) != 1 || items[0].Metadata.ID != "unverified-temporary" || items[0].Spec.AssociationFingerprint != "sha256:first-association" {
+		t.Fatalf("identity was not durable through unverified recovery: %#v %v", items, err)
+	}
+	verified.Metadata.ID = "linked-second-association"
+	verified.Spec.AssociationFingerprint = "sha256:second-association"
+	verified.Spec.LastObserved = at.Add(2 * time.Second)
+	if err := persistence.ReplaceWorktrees(ctx, "project", "repo", []domain.Worktree{verified}, true); err != nil {
+		t.Fatal(err)
+	}
+	items, err = persistence.ListWorktrees(ctx, "project", "repo")
+	if err != nil || len(items) != 2 || items[0].Metadata.ID != "linked-second-association" || items[0].Spec.TombstonedAt != nil || items[1].Metadata.ID != "unverified-temporary" || items[1].Spec.TombstonedAt == nil {
+		t.Fatalf("different verified association was not a new identity: %#v %v", items, err)
 	}
 }

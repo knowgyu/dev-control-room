@@ -371,3 +371,63 @@ func TestFailedWorktreeEnumerationDoesNotTombstonePersistedMembership(t *testing
 		t.Fatalf("failed list tombstoned worktrees: %#v %v", items, err)
 	}
 }
+
+func TestWorktreePathCanaryIsMaskedAcrossPersistenceAndReadSurfaces(t *testing.T) {
+	const canary = "linked-path-secret-canary"
+	home := t.TempDir()
+	repository := tempGitRepository(t, "primary")
+	linked := filepath.Join(t.TempDir(), canary)
+	gitFixture(t, repository, "worktree", "add", "-b", "linked", linked)
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	service.masker = masking.New([]string{canary}, nil)
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "masked", Path: repository})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.Worktrees(context.Background(), project.Metadata.ID, "repo-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(items)
+	if strings.Contains(string(encoded), canary) || !strings.Contains(string(encoded), masking.Replacement) {
+		t.Fatalf("worktree surface leaked canary: %s", encoded)
+	}
+	for _, query := range []string{`SELECT object_json FROM worktrees`, `SELECT object_json FROM observations`, `SELECT object_json FROM worktree_observations`} {
+		rows, err := service.store.DB().Query(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var raw string
+			if err := rows.Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(raw, canary) {
+				t.Fatalf("canary persisted by %q: %s", query, raw)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(snapshot)
+	if strings.Contains(string(body), canary) {
+		t.Fatalf("snapshot leaked canary: %s", body)
+	}
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/projects/"+project.Metadata.ID+"/repositories/repo-1/worktrees", nil))
+	if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), canary) {
+		t.Fatalf("HTTP leaked canary: %d %s", recorder.Code, recorder.Body.String())
+	}
+}

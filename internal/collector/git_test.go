@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,5 +169,109 @@ func (failedWorktreeListRunner) Run(_ context.Context, _ string, args []string, 
 func TestWorktreeListNonzeroWithoutRunnerErrorIsIncomplete(t *testing.T) {
 	if _, err := NewGitCollector(failedWorktreeListRunner{}).worktrees(context.Background(), t.TempDir()); err == nil {
 		t.Fatal("nonzero worktree list exit was accepted")
+	}
+}
+
+type recordingGitRunner struct {
+	registered string
+	foreign    string
+	calls      []string
+	exit128    bool
+}
+
+func (r *recordingGitRunner) Run(_ context.Context, _ string, args []string, directory string) (CommandResult, error) {
+	r.calls = append(r.calls, directory+"\x00"+strings.Join(args, " "))
+	if r.exit128 && len(args) > 0 && args[0] == "for-each-ref" {
+		return CommandResult{ExitCode: 128}, errors.New("fatal git fixture")
+	}
+	if len(args) >= 2 && args[0] == "rev-parse" {
+		switch args[1] {
+		case "--git-common-dir", "--git-dir":
+			if directory == r.registered {
+				return CommandResult{Stdout: filepath.Join(r.registered, ".git") + "\n"}, nil
+			}
+			return CommandResult{Stdout: filepath.Join(r.foreign, ".git") + "\n"}, nil
+		case "--show-toplevel":
+			return CommandResult{Stdout: directory + "\n"}, nil
+		}
+	}
+	if len(args) > 0 && args[0] == "symbolic-ref" {
+		return CommandResult{Stdout: "main\n"}, nil
+	}
+	if len(args) > 0 && args[0] == "rev-parse" {
+		return CommandResult{Stdout: "abc\n"}, nil
+	}
+	if len(args) > 0 && args[0] == "status" {
+		return CommandResult{}, nil
+	}
+	if len(args) > 0 && args[0] == "for-each-ref" {
+		return CommandResult{}, nil
+	}
+	return CommandResult{}, nil
+}
+
+func TestWorktreeForeignCommonDirectoryDoesNotReadState(t *testing.T) {
+	registered, foreign := t.TempDir(), t.TempDir()
+	for _, path := range []string{filepath.Join(registered, ".git"), filepath.Join(foreign, ".git")} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &recordingGitRunner{registered: registered, foreign: foreign}
+	items, complete := NewGitCollector(runner).WorktreeDetails(context.Background(), registered, []Worktree{{Path: foreign, Trust: "unverified"}})
+	if complete || len(items) != 1 || items[0].Trust != "unverified" || items[0].Error == "" {
+		t.Fatalf("foreign worktree was trusted: %#v complete=%v", items, complete)
+	}
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, foreign+"\x00status ") || strings.HasPrefix(call, foreign+"\x00symbolic-ref ") || strings.HasPrefix(call, foreign+"\x00for-each-ref ") {
+			t.Fatalf("foreign path received post-association state read: %q", call)
+		}
+	}
+}
+
+func TestWorktreeExit128MakesDetailsIncomplete(t *testing.T) {
+	repository := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repository, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingGitRunner{registered: repository, foreign: repository, exit128: true}
+	items, complete := NewGitCollector(runner).WorktreeDetails(context.Background(), repository, []Worktree{{Path: repository, Trust: "unverified"}})
+	if complete || len(items) != 1 || items[0].Trust != "unverified" || items[0].Error == "" {
+		t.Fatalf("exit 128 was accepted: %#v complete=%v", items, complete)
+	}
+}
+
+func TestRegisteredLinkedWorktreeIsPrimary(t *testing.T) {
+	repository := t.TempDir()
+	gitTest(t, repository, "init", "--initial-branch=main")
+	gitTest(t, repository, "config", "user.email", "test@example.invalid")
+	gitTest(t, repository, "config", "user.name", "Dev Room Test")
+	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitTest(t, repository, "add", "README.md")
+	gitTest(t, repository, "commit", "-m", "fixture")
+	linked := filepath.Join(t.TempDir(), "registered-linked")
+	gitTest(t, repository, "worktree", "add", "-b", "linked", linked)
+	collector := NewGitCollector(nil)
+	state, err := collector.Collect(context.Background(), linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, complete := collector.WorktreeDetails(context.Background(), linked, state.Worktrees)
+	if !complete {
+		t.Fatalf("linked collection incomplete: %#v", items)
+	}
+	var primary int
+	for _, item := range items {
+		if item.Primary {
+			primary++
+			if item.ID != "primary" || item.Path != linked {
+				t.Fatalf("registered linked checkout is not primary: %#v", item)
+			}
+		}
+	}
+	if primary != 1 {
+		t.Fatalf("primary count = %d, want 1", primary)
 	}
 }

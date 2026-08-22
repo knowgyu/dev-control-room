@@ -36,7 +36,9 @@ GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build ./cmd/dev-control-room
 git diff --check
 ```
 
-Focused coverage includes NUL paths, real primary/linked Git worktrees,
-persistence/restart/snapshot/CLI/HTTP visibility, and v3-to-v4 migration/FK
-scope. Native Windows runtime validation remains pending; cross-build is not a
-Task Scheduler or Windows Git smoke.
+Focused coverage includes NUL paths, foreign-common-directory no-read,
+exit-128 failure propagation, linked registered-primary identity,
+verified/unverified recovery across restart, masked path persistence,
+Snapshot/HTTP/CLI list-and-show equivalence, UI dynamic-field escaping, and
+v3-to-v6 migration/FK/primary-conflict scope. Native Windows runtime validation
+remains pending; cross-build is not a Task Scheduler or Windows Git smoke.

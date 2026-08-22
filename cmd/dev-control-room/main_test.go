@@ -6,13 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/knowgyu/dev-control-room/internal/app"
 	"github.com/knowgyu/dev-control-room/internal/contract"
+	"github.com/knowgyu/dev-control-room/internal/domain"
 )
 
 func TestWriteCLIErrorDoesNotExposeInternalDetails(t *testing.T) {
@@ -124,13 +128,37 @@ func TestProjectWorktreeListJSONUsesReadOnlyEnvelope(t *testing.T) {
 	if err := service.RunScan(context.Background(), "manual"); err != nil {
 		t.Fatal(err)
 	}
-	_ = service.Close()
+	want, err := service.Worktrees(context.Background(), project.Metadata.ID, "repo-1")
+	if err != nil || len(want) != 1 {
+		t.Fatalf("service worktrees = %#v, %v", want, err)
+	}
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil || !reflect.DeepEqual(snapshot.Projects[0].Repos[0].Worktrees, want) {
+		t.Fatalf("snapshot worktrees differ: %#v %v", snapshot, err)
+	}
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/projects/"+project.Metadata.ID+"/repositories/repo-1/worktrees", nil))
+	var httpEnvelope contract.Envelope[[]domain.Worktree]
+	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &httpEnvelope) != nil || httpEnvelope.Data == nil || !reflect.DeepEqual(*httpEnvelope.Data, want) {
+		t.Fatalf("HTTP worktrees differ: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"project", "worktree", "list", project.Metadata.ID, "repo-1", "--home", home, "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
 		t.Fatalf("worktree CLI failed: %d %s", code, stderr.String())
 	}
-	var envelope contract.Envelope[[]map[string]any]
-	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil || len(*envelope.Data) != 1 {
+	var envelope contract.Envelope[[]domain.Worktree]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil || !reflect.DeepEqual(*envelope.Data, want) {
 		t.Fatalf("worktree CLI envelope = %s (%v)", stdout.String(), err)
+	}
+	stdout.Reset()
+	if code := run([]string{"project", "worktree", "show", project.Metadata.ID, "repo-1", want[0].Metadata.ID, "--home", home, "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("worktree show failed: %d %s", code, stderr.String())
+	}
+	var show contract.Envelope[domain.Worktree]
+	if err := json.Unmarshal(stdout.Bytes(), &show); err != nil || !show.OK || show.Data == nil || !reflect.DeepEqual(*show.Data, want[0]) {
+		t.Fatalf("CLI show differs: %s (%v)", stdout.String(), err)
 	}
 }

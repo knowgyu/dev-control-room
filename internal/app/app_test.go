@@ -235,3 +235,14 @@ func contains(value, needle string) bool {
 	}
 	return false
 }
+
+func TestWorktreeUIEscapesEveryDynamicWorktreeField(t *testing.T) {
+	for _, field := range []string{"esc(w.metadata.id)", "esc(w.spec.canonicalPath)", "esc(w.spec.head||'unavailable')", "esc(w.spec.branch||'detached')", "esc(w.spec.trust)", "esc(w.spec.tombstonedAt?'tombstoned':(w.spec.error||'current'))"} {
+		if !strings.Contains(indexHTML, field) {
+			t.Fatalf("worktree UI leaves dynamic field unescaped: %s", field)
+		}
+	}
+	if !strings.Contains(indexHTML, "w.metadata.id") || !strings.Contains(indexHTML, "w.spec.canonicalPath") {
+		t.Fatal("worktree UI does not expose exact identity fields")
+	}
+}

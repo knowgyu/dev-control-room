@@ -225,3 +225,42 @@ func TestMigrationFourPreservesRepositoryIdentityAndScopesWorktrees(t *testing.T
 		t.Fatalf("worktree cascade failed: %d %v", count, err)
 	}
 }
+
+func TestMigrationSixBackfillsPathFingerprintAndEnforcesSinglePrimary(t *testing.T) {
+	db := openUnmigratedTestDatabase(t, "worktree-v5-forward")
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:5] {
+		if _, err := db.Exec(migration.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version,name,checksum) VALUES(?,?,?)`, migration.Version, migration.Name, migrationChecksum(migration.SQL)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, statement := range []string{
+		`INSERT INTO projects(id,api_version,kind,name,spec_json) VALUES('p','v','Project','p','{}')`,
+		`INSERT INTO repositories(project_id,id,api_version,kind,name,spec_json) VALUES('p','r','v','Repository','r','{}')`,
+		`INSERT INTO worktrees(project_id,repository_id,id,association_fingerprint,canonical_path,trust,is_primary,last_observed,object_json) VALUES('p','r','primary',NULL,'/masked','verified_read_only',1,'now','{"metadata":{"id":"primary"},"spec":{"primary":true,"pathFingerprint":"sha256:legacy-path"}}')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var fingerprint string
+	if err := db.QueryRow(`SELECT path_fingerprint FROM worktrees WHERE project_id='p' AND repository_id='r' AND id='primary'`).Scan(&fingerprint); err != nil || fingerprint != "sha256:legacy-path" {
+		t.Fatalf("v6 did not backfill path fingerprint: %q %v", fingerprint, err)
+	}
+	if _, err := db.Exec(`INSERT INTO worktrees(project_id,repository_id,id,association_fingerprint,canonical_path,path_fingerprint,trust,is_primary,last_observed,object_json) VALUES('p','r','linked','sha256:linked','/masked2','sha256:linked-path','verified_read_only',1,'now','{}')`); err == nil {
+		t.Fatal("conflicting primary was accepted")
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM worktrees WHERE project_id='p' AND repository_id='r'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("primary conflict deleted or added rows: %d %v", count, err)
+	}
+}
