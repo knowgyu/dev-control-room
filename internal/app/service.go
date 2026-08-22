@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/environment"
+	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
 // QueryService and CommandService are the application boundary. CLI and HTTP
@@ -19,6 +21,9 @@ type QueryService interface {
 	Findings(context.Context, string, string) ([]domain.Finding, error)
 	Finding(context.Context, string) (domain.Finding, error)
 	Events(context.Context, int) ([]domain.Event, error)
+	EnvironmentHealth(context.Context, bool) (environment.Health, error)
+	AgentProfiles(context.Context) ([]domain.AgentProfile, error)
+	AgentProfile(context.Context, string) (domain.AgentProfile, error)
 }
 
 type CommandService interface {
@@ -33,6 +38,10 @@ type CommandService interface {
 	AcknowledgeFinding(context.Context, string) error
 	ExportProject(context.Context, string) ([]byte, error)
 	ImportProject(context.Context, []byte) (domain.Project, error)
+	AddAgentProfile(context.Context, AddAgentProfileInput) (domain.AgentProfile, error)
+	UpdateAgentProfile(context.Context, string, UpdateAgentProfileInput) (domain.AgentProfile, error)
+	RemoveAgentProfile(context.Context, string) error
+	Schedule(context.Context, scheduler.Operation) (scheduler.Result, error)
 }
 
 type ApplicationService interface {
@@ -68,4 +77,25 @@ type UpdateProjectInput struct {
 type UpdateRepositoryInput struct {
 	Name string
 	Path string
+}
+
+type AddAgentProfileInput struct {
+	ID                   string
+	Name                 string
+	Command              string
+	VersionProbe         []string
+	TimeoutSeconds       int
+	EnvironmentAllowlist []string
+	LaunchMode           domain.AgentLaunchMode
+	DataBoundary         domain.AgentDataBoundary
+}
+
+type UpdateAgentProfileInput struct {
+	Name                 string
+	Command              string
+	VersionProbe         []string
+	TimeoutSeconds       int
+	EnvironmentAllowlist []string
+	LaunchMode           domain.AgentLaunchMode
+	DataBoundary         domain.AgentDataBoundary
 }

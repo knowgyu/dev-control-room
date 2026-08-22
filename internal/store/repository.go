@@ -508,6 +508,95 @@ func (s *Store) ListFailureFingerprints(ctx context.Context, limit int) ([]domai
 	return items, rows.Err()
 }
 
+func (s *Store) SaveAgentProfile(ctx context.Context, profile domain.AgentProfile) error {
+	if err := profile.Validate(); err != nil {
+		return err
+	}
+	object, err := s.maskedJSON(profile)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO agent_profiles(id, object_json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET object_json=excluded.object_json`, profile.Metadata.ID, object)
+	return err
+}
+
+func (s *Store) ListAgentProfiles(ctx context.Context) ([]domain.AgentProfile, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_json FROM agent_profiles ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	profiles := []domain.AgentProfile{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var profile domain.AgentProfile
+		if err := json.Unmarshal([]byte(raw), &profile); err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, profile)
+	}
+	return profiles, rows.Err()
+}
+
+func (s *Store) GetAgentProfile(ctx context.Context, id string) (domain.AgentProfile, error) {
+	var raw string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM agent_profiles WHERE id = ?`, id).Scan(&raw); err != nil {
+		return domain.AgentProfile{}, err
+	}
+	var profile domain.AgentProfile
+	if err := json.Unmarshal([]byte(raw), &profile); err != nil {
+		return domain.AgentProfile{}, err
+	}
+	return profile, nil
+}
+
+func (s *Store) DeleteAgentProfile(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM agent_profiles WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) SaveSingleton(ctx context.Context, table string, value any, at time.Time) error {
+	if table != "environment_health" && table != "scheduler_state" {
+		return errors.New("unsupported singleton table")
+	}
+	object, err := s.maskedJSON(value)
+	if err != nil {
+		return err
+	}
+	column := map[string]string{"environment_health": "checked_at", "scheduler_state": "updated_at"}[table]
+	_, err = s.db.ExecContext(ctx, `INSERT INTO `+table+`(id, object_json, `+column+`) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET object_json=excluded.object_json, `+column+`=excluded.`+column, object, at.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+func (s *Store) LoadSingleton(ctx context.Context, table string, target any) (bool, error) {
+	if table != "environment_health" && table != "scheduler_state" {
+		return false, errors.New("unsupported singleton table")
+	}
+	var raw string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM `+table+` WHERE id = 1`).Scan(&raw); errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal([]byte(raw), target); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) maskedJSON(value any) (string, error) {
 	data, err := json.Marshal(value)
 	if err != nil {

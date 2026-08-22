@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/knowgyu/dev-control-room/internal/contract"
+	"github.com/knowgyu/dev-control-room/internal/domain"
 )
 
 func newHTTPHandler(service ApplicationService, listen, mutationToken string) http.Handler {
@@ -94,6 +95,38 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(events))
 	})
+	mux.HandleFunc("GET /api/environment", func(response http.ResponseWriter, request *http.Request) {
+		health, err := service.EnvironmentHealth(request.Context(), false)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(health))
+	})
+	mux.HandleFunc("POST /api/environment/doctor", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		health, err := service.EnvironmentHealth(request.Context(), true)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(health))
+	}))
+	mux.HandleFunc("GET /api/agent-profiles", func(response http.ResponseWriter, request *http.Request) {
+		profiles, err := service.AgentProfiles(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(profiles))
+	})
+	mux.HandleFunc("GET /api/agent-profiles/{profileID}", func(response http.ResponseWriter, request *http.Request) {
+		profile, err := service.AgentProfile(request.Context(), request.PathValue("profileID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(profile))
+	})
 	mux.HandleFunc("POST /api/scan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		if err := service.QueueScan(request.Context(), "manual"); err != nil {
 			writeServiceError(response, err)
@@ -116,6 +149,53 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 			return
 		}
 		writeEnvelope(response, http.StatusCreated, contract.Success(project))
+	}))
+	mux.HandleFunc("POST /api/agent-profiles", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			ID, Name, Command    string
+			VersionProbe         []string                 `json:"versionProbe"`
+			TimeoutSeconds       int                      `json:"timeoutSeconds"`
+			EnvironmentAllowlist []string                 `json:"environmentAllowlist"`
+			LaunchMode           domain.AgentLaunchMode   `json:"launchMode"`
+			DataBoundary         domain.AgentDataBoundary `json:"dataBoundary"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		profile, err := service.AddAgentProfile(request.Context(), AddAgentProfileInput{ID: input.ID, Name: input.Name, Command: input.Command, VersionProbe: input.VersionProbe, TimeoutSeconds: input.TimeoutSeconds, EnvironmentAllowlist: input.EnvironmentAllowlist, LaunchMode: input.LaunchMode, DataBoundary: input.DataBoundary})
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(profile))
+	}))
+	mux.HandleFunc("PUT /api/agent-profiles/{profileID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Name, Command        string
+			VersionProbe         []string                 `json:"versionProbe"`
+			TimeoutSeconds       int                      `json:"timeoutSeconds"`
+			EnvironmentAllowlist []string                 `json:"environmentAllowlist"`
+			LaunchMode           domain.AgentLaunchMode   `json:"launchMode"`
+			DataBoundary         domain.AgentDataBoundary `json:"dataBoundary"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		profile, err := service.UpdateAgentProfile(request.Context(), request.PathValue("profileID"), UpdateAgentProfileInput{Name: input.Name, Command: input.Command, VersionProbe: input.VersionProbe, TimeoutSeconds: input.TimeoutSeconds, EnvironmentAllowlist: input.EnvironmentAllowlist, LaunchMode: input.LaunchMode, DataBoundary: input.DataBoundary})
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(profile))
+	}))
+	mux.HandleFunc("DELETE /api/agent-profiles/{profileID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := service.RemoveAgentProfile(request.Context(), request.PathValue("profileID")); err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(map[string]bool{"removed": true}))
 	}))
 	mux.HandleFunc("POST /api/projects/import", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		data, err := readBody(response, request)
@@ -259,5 +339,5 @@ const indexHTML = `<!doctype html>
 <body><header><div><h1>Dev Control Room</h1><div class="muted">Local-only project health and evidence</div></div><button id="scan" class="primary">Scan now</button></header><main>
 <div class="grid"><div class="card"><div class="muted">Projects</div><div id="m-projects" class="metric">0</div></div><div class="card"><div class="muted">Repositories</div><div id="m-repos" class="metric">0</div></div><div class="card"><div class="muted">Open findings</div><div id="m-findings" class="metric">0</div></div><div class="card"><div class="muted">Last scan</div><div id="m-scan" class="metric" style="font-size:15px">Never</div></div></div>
 <section><h2>Register project</h2><form id="add-form"><input id="name" placeholder="Project name"><input id="path" placeholder="Registered Git repository path" required><button class="primary">Add</button></form><div class="muted" style="margin-top:9px">Only paths registered here are ever passed to the bounded Git collector.</div></section>
-<section><h2>Projects and repositories</h2><div id="projects" class="muted">Loading…</div></section><section><h2>Findings and evidence</h2><div id="findings" class="muted">Loading…</div></section><section><h2>Recent activity</h2><div id="events" class="muted">Loading…</div></section></main>
-<script>const token=document.querySelector('meta[name="control-room-token"]').content;const headers={'Content-Type':'application/json','X-Control-Room-Token':token};const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));async function req(p,o={}){const r=await fetch(p,o),b=await r.json();if(!r.ok||!b.ok)throw Error(b.error?.message||r.statusText);return b.data}async function refresh(){const[s,f,e]=await Promise.all([req('/api/state'),req('/api/findings'),req('/api/events')]);const ps=s.projects||[],rs=ps.flatMap(p=>(p.repos||[]).map(r=>({...r,project:p.name}))),open=f.filter(x=>x.spec.state==='open'||x.spec.state==='acknowledged');document.getElementById('m-projects').textContent=ps.length;document.getElementById('m-repos').textContent=rs.length;document.getElementById('m-findings').textContent=open.length;document.getElementById('m-scan').textContent=s.generated_at?new Date(s.generated_at).toLocaleString():'Never';document.getElementById('projects').innerHTML=ps.length?'<table><thead><tr><th>Project</th><th>Repository</th><th>Branch</th><th>Status</th><th>Remote</th></tr></thead><tbody>'+rs.map(r=>'<tr><td>'+esc(r.project)+'</td><td><code>'+esc(r.path)+'</code></td><td>'+esc(r.branch||'detached')+'</td><td class="'+(r.error||r.unsafe_cleanup?'bad':r.dirty||r.behind?'warn':'ok')+'">'+esc(r.error||((r.dirty?'dirty ':'')+(r.behind?'behind':'clean'))||'clean')+'</td><td>'+esc(r.origin||'missing')+'</td></tr>').join('')+'</tbody></table>':'No registered projects';document.getElementById('findings').innerHTML=open.length?open.map(x=>'<div class="finding"><strong>'+esc(x.spec.severity)+' · '+esc(x.spec.type)+'</strong><div>'+esc(x.spec.summary)+'</div><div class="muted">Evidence: '+esc((x.spec.evidenceRefs||[]).join(', ')||'none')+' · Next: '+esc(x.spec.recommendedNextAction)+'</div></div>').join(''):'No open findings';document.getElementById('events').innerHTML=e.length?'<table><tbody>'+e.slice().reverse().map(x=>'<tr><td>'+new Date(x.spec.occurredAt).toLocaleString()+'</td><td>'+esc(x.spec.type)+'</td><td>'+esc(x.spec.summary)+'</td></tr>').join('')+'</tbody></table>':'No events yet'}document.getElementById('scan').onclick=async()=>{await req('/api/scan',{method:'POST',headers});setTimeout(refresh,500)};document.getElementById('add-form').onsubmit=async ev=>{ev.preventDefault();try{await req('/api/projects',{method:'POST',headers,body:JSON.stringify({name:document.getElementById('name').value,path:document.getElementById('path').value})});ev.target.reset();setTimeout(refresh,300)}catch(e){alert(e.message)}};refresh().catch(e=>document.getElementById('projects').textContent=e.message);setInterval(refresh,15000);</script></body></html>`
+<section><h2>Projects and repositories</h2><div id="projects" class="muted">Loading…</div></section><section><h2>Environment Health</h2><button id="env-doctor" type="button">Run environment doctor</button><div id="environment" class="muted">Loading…</div></section><section><h2>Findings and evidence</h2><div id="findings" class="muted">Loading…</div></section><section><h2>Recent activity</h2><div id="events" class="muted">Loading…</div></section></main>
+<script>const token=document.querySelector('meta[name="control-room-token"]').content;const headers={'Content-Type':'application/json','X-Control-Room-Token':token};const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));async function req(p,o={}){const r=await fetch(p,o),b=await r.json();if(!r.ok||!b.ok)throw Error(b.error?.message||r.statusText);return b.data}async function refresh(){const[s,f,e,h]=await Promise.all([req('/api/state'),req('/api/findings'),req('/api/events'),req('/api/environment')]);const ps=s.projects||[],rs=ps.flatMap(p=>(p.repos||[]).map(r=>({...r,project:p.name}))),open=f.filter(x=>x.spec.state==='open'||x.spec.state==='acknowledged');document.getElementById('m-projects').textContent=ps.length;document.getElementById('m-repos').textContent=rs.length;document.getElementById('m-findings').textContent=open.length;document.getElementById('m-scan').textContent=s.generated_at?new Date(s.generated_at).toLocaleString():'Never';document.getElementById('projects').innerHTML=ps.length?'<table><thead><tr><th>Project</th><th>Repository</th><th>Branch</th><th>Status</th><th>Remote</th></tr></thead><tbody>'+rs.map(r=>'<tr><td>'+esc(r.project)+'</td><td><code>'+esc(r.path)+'</code></td><td>'+esc(r.branch||'detached')+'</td><td class="'+(r.error||r.unsafe_cleanup?'bad':r.dirty||r.behind?'warn':'ok')+'">'+esc(r.error||((r.dirty?'dirty ':'')+(r.behind?'behind':'clean'))||'clean')+'</td><td>'+esc(r.origin||'missing')+'</td></tr>').join('')+'</tbody></table>':'No registered projects';document.getElementById('environment').innerHTML='<div class="'+(h.available?'ok':'warn')+'">'+(h.available?'All configured capabilities available':'Some capabilities are unavailable; see next actions below')+'</div>'+(h.findings||[]).map(x=>'<div class="finding"><strong>'+esc(x.severity)+' · '+esc(x.target||x.type)+'</strong><div>'+esc(x.summary)+'</div><div class="muted">Next: '+esc(x.recommendedNextAction)+'</div></div>').join('')||'<div class="ok">No environment findings</div>';document.getElementById('findings').innerHTML=open.length?open.map(x=>'<div class="finding"><strong>'+esc(x.spec.severity)+' · '+esc(x.spec.type)+'</strong><div>'+esc(x.spec.summary)+'</div><div class="muted">Evidence: '+esc((x.spec.evidenceRefs||[]).join(', ')||'none')+' · Next: '+esc(x.spec.recommendedNextAction)+'</div></div>').join(''):'No open findings';document.getElementById('events').innerHTML=e.length?'<table><tbody>'+e.slice().reverse().map(x=>'<tr><td>'+new Date(x.spec.occurredAt).toLocaleString()+'</td><td>'+esc(x.spec.type)+'</td><td>'+esc(x.spec.summary)+'</td></tr>').join('')+'</tbody></table>':'No events yet'}document.getElementById('scan').onclick=async()=>{await req('/api/scan',{method:'POST',headers});setTimeout(refresh,500)};document.getElementById('env-doctor').onclick=async()=>{const b=document.getElementById('env-doctor');b.disabled=true;try{await req('/api/environment/doctor',{method:'POST',headers});await refresh()}catch(e){alert(e.message)}finally{b.disabled=false}};document.getElementById('add-form').onsubmit=async ev=>{ev.preventDefault();try{await req('/api/projects',{method:'POST',headers,body:JSON.stringify({name:document.getElementById('name').value,path:document.getElementById('path').value})});ev.target.reset();setTimeout(refresh,300)}catch(e){alert(e.message)}};refresh().catch(e=>document.getElementById('projects').textContent=e.message);setInterval(refresh,15000);</script></body></html>`

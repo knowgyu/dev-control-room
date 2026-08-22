@@ -15,13 +15,16 @@ Dev Control Room files. Projects can be exported and imported without secrets.
 
 ## Project manifest shape
 
-The Milestone 0 schema is versioned as local JSON (`version: 2`). The domain
-objects use `apiVersion: devroom/v1alpha1` and the local file stores only
-non-secret Project configuration:
+The local configuration schema is versioned as JSON (`version: 3`). Version 3
+adds non-secret Environment/Connector metadata and a one-time Agent Profile
+initialization marker. Version 2 files are migrated without discarding fields
+written by Milestone 2 pre-acceptance builds. The domain objects use
+`apiVersion: devroom/v1alpha1` and the local file stores only non-secret Project
+configuration:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "scan_interval_seconds": 300,
   "projects": [
     {
@@ -96,6 +99,29 @@ The doctor stores metadata only:
 
 It also reports duplicate definitions, source precedence conflicts, unresolved
 commands, alias/function conflicts, and stale references.
+
+## Milestone 2 profile and environment fields
+
+The non-secret local configuration may declare environment metadata alongside
+Projects. It contains names and scopes only; it never contains the value of a
+variable or connector credential:
+
+```json
+{
+  "environment": [
+    {"name": "EXAMPLE_TOOL_HOME", "scope": "user", "purpose": "tool configuration", "profileId": "codex"}
+  ],
+  "connectors": [
+    {"id": "example-connector", "name": "Example Connector", "secretReference": "env:EXAMPLE_CONNECTOR_TOKEN", "lastResult": "not_checked"}
+  ]
+}
+```
+
+Agent Profiles are stored as non-secret objects in SQLite and can be managed by
+the `devroom agent profile` CLI family or the matching loopback API. A profile
+contains a command name or executable path, a version-probe argument array,
+timeout, launch mode, and environment-name allowlist. Values are never copied
+from the parent environment wholesale into a probe process.
 
 ## Action policy defaults
 

@@ -19,9 +19,10 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/app"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
-const version = "0.2.0-milestone-1"
+const version = "0.3.0-milestone-2"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -40,6 +41,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runFinding(args[1:], stdout, stderr)
 	case "event":
 		return runEvent(args[1:], stdout, stderr)
+	case "env":
+		return runEnvironment(args[1:], stdout, stderr)
+	case "agent":
+		return runAgent(args[1:], stdout, stderr)
+	case "schedule":
+		return runSchedule(args[1:], stdout, stderr)
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown command: "+args[0]))
 	}
@@ -55,7 +62,7 @@ func runVersionTo(args []string, stdout, stderr io.Writer) int {
 	if len(remaining) != 0 {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("version does not accept positional arguments"))
 	}
-	data := map[string]string{"version": version, "milestone": "1", "cli_schema": contract.EnvelopeSchema, "api_version": domain.APIVersion}
+	data := map[string]string{"version": version, "milestone": "2", "cli_schema": contract.EnvelopeSchema, "api_version": domain.APIVersion}
 	if jsonOutput {
 		return encodeSuccess(stdout, data)
 	}
@@ -413,6 +420,213 @@ func runEvent(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", event.Spec.OccurredAt.Format(time.RFC3339), event.Spec.EventType, event.Spec.Summary)
 	}
 	return int(contract.ExitSuccess)
+}
+
+func runEnvironment(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || (args[0] != "doctor" && args[0] != "status") {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("env requires doctor or status"))
+	}
+	command := args[0]
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil || len(args) != 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("env command accepts only --json and --home"))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	health, err := service.EnvironmentHealth(context.Background(), command == "doctor")
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if jsonOutput {
+		if code := encodeSuccess(stdout, health); code != int(contract.ExitSuccess) {
+			return code
+		}
+	} else {
+		for _, finding := range health.Findings {
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", finding.Severity, finding.Type, finding.Summary, finding.RecommendedNextAction)
+		}
+		if len(health.Findings) == 0 {
+			_, _ = fmt.Fprintln(stdout, "environment healthy")
+		}
+	}
+	if !health.Available {
+		return int(contract.ExitUnavailable)
+	}
+	return int(contract.ExitSuccess)
+}
+
+func runAgent(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 2 || args[0] != "profile" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("agent requires profile list, show, add, update, or remove"))
+	}
+	command := args[1]
+	jsonOutput, args, err := parseJSONFlag(args[2:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	ctx := context.Background()
+	switch command {
+	case "list":
+		if len(args) != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("agent profile list takes no positional arguments"))
+		}
+		profiles, err := service.AgentProfiles(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		if jsonOutput {
+			return encodeSuccess(stdout, profiles)
+		}
+		for _, profile := range profiles {
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", profile.Metadata.ID, profile.Metadata.Name, profile.Spec.LaunchMode, profile.Spec.Command)
+		}
+		return int(contract.ExitSuccess)
+	case "show":
+		if len(args) != 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("agent profile show requires an id"))
+		}
+		profile, err := service.AgentProfile(ctx, args[0])
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, profile, jsonOutput)
+	case "remove":
+		if len(args) != 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("agent profile remove requires an id"))
+		}
+		if err := service.RemoveAgentProfile(ctx, args[0]); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, map[string]bool{"removed": true}, jsonOutput)
+	case "add", "update":
+		return runAgentProfileMutation(service, command, args, stdout, stderr, jsonOutput)
+	default:
+		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown agent profile command: "+command))
+	}
+}
+
+func runAgentProfileMutation(service *app.App, command string, args []string, stdout, stderr io.Writer, jsonOutput bool) int {
+	positionalID := ""
+	if command == "update" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		positionalID, args = args[0], args[1:]
+	}
+	flags := flag.NewFlagSet("agent profile "+command, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	id := flags.String("id", "", "profile id")
+	name := flags.String("name", "", "profile name")
+	profileCommand := flags.String("command", "", "executable or PowerShell command name")
+	launchMode := flags.String("launch-mode", "", "direct or powershell_profile")
+	boundary := flags.String("data-boundary", "", "local or enterprise")
+	probe := flags.String("version-probe", "", "comma-separated version probe arguments")
+	timeout := flags.Int("timeout", 0, "probe timeout in seconds")
+	allowlist := flags.String("env", "", "comma-separated allowed environment variable names")
+	if err := flags.Parse(args); err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	probes := splitCSV(*probe)
+	allowed := splitCSV(*allowlist)
+	mode := domain.AgentLaunchMode(*launchMode)
+	dataBoundary := domain.AgentDataBoundary(*boundary)
+	ctx := context.Background()
+	if command == "add" {
+		profile, err := service.AddAgentProfile(ctx, app.AddAgentProfileInput{ID: *id, Name: *name, Command: *profileCommand, VersionProbe: probes, TimeoutSeconds: *timeout, EnvironmentAllowlist: allowed, LaunchMode: mode, DataBoundary: dataBoundary})
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, profile, jsonOutput)
+	}
+	if *id == "" {
+		*id = positionalID
+	}
+	if *id == "" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("agent profile update requires --id"))
+	}
+	profile, err := service.UpdateAgentProfile(ctx, *id, app.UpdateAgentProfileInput{Name: *name, Command: *profileCommand, VersionProbe: probes, TimeoutSeconds: *timeout, EnvironmentAllowlist: allowed, LaunchMode: mode, DataBoundary: dataBoundary})
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, profile, jsonOutput)
+}
+
+func runSchedule(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("schedule requires install, uninstall, status, or dry-run"))
+	}
+	command := args[0]
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	flags := flag.NewFlagSet("schedule "+command, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	executable := flags.String("executable", "", "absolute Windows executable path")
+	if err := flags.Parse(args); err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if flags.NArg() != 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("schedule takes no positional arguments"))
+	}
+	kind := scheduler.OperationKind(command)
+	if command == "dry-run" {
+		kind = scheduler.OperationDryRun
+	}
+	if command != string(scheduler.OperationInstall) && command != string(scheduler.OperationUninstall) && command != string(scheduler.OperationStatus) && command != string(scheduler.OperationDryRun) {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown schedule command"))
+	}
+	if *executable == "" {
+		*executable, err = os.Executable()
+		if err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("schedule requires --executable"))
+		}
+	}
+	operation, err := scheduler.Plan(kind, *executable, []string{"serve", "--home", home})
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	result, err := service.Schedule(context.Background(), operation)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, result, jsonOutput)
+}
+
+func splitCSV(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func openCLIService(home string) (*app.App, error) { return app.New(home, "127.0.0.1:0") }

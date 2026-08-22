@@ -221,6 +221,39 @@ func TestAgentProfileRequiresReviewedBoundaryLaunchModeAndEnvironment(t *testing
 	}
 }
 
+func TestAgentProfileRejectsShellSurfaces(t *testing.T) {
+	profile := AgentProfile{
+		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: AgentProfileKind},
+		Metadata: ObjectMeta{ID: "safe-profile", Name: "Safe Profile"},
+		Spec:     AgentProfileSpec{Command: "pwsh.exe -Command Write-Host", LaunchMode: AgentLaunchDirect, DataBoundary: AgentBoundaryLocal},
+	}
+	if err := profile.Validate(); err == nil {
+		t.Fatal("direct profile accepted a generic shell command")
+	}
+	profile.Spec = AgentProfileSpec{Command: "Get-Command;Write-Host", LaunchMode: AgentLaunchPowerShellProfile, DataBoundary: AgentBoundaryLocal}
+	if err := profile.Validate(); err == nil {
+		t.Fatal("PowerShell profile accepted command injection syntax")
+	}
+	profile.Spec = AgentProfileSpec{Command: `C:\Program Files\Tool\tool.exe`, LaunchMode: AgentLaunchDirect, DataBoundary: AgentBoundaryLocal}
+	if err := profile.Validate(); err != nil {
+		t.Fatalf("safe absolute Windows executable was rejected: %v", err)
+	}
+	profile.Spec.VersionProbe = []string{"-Command", "Remove-Item"}
+	if err := profile.Validate(); err == nil {
+		t.Fatal("agent profile accepted an arbitrary version-probe command surface")
+	}
+	profile.Spec.VersionProbe = []string{"--version"}
+	profile.Spec.EnvironmentAllowlist = []string{"INVALID NAME"}
+	if err := profile.Validate(); err == nil {
+		t.Fatal("agent profile accepted an invalid environment variable name")
+	}
+	profile.Spec.EnvironmentAllowlist = nil
+	profile.Spec.Command = `\\server\share\tool.exe`
+	if err := profile.Validate(); err == nil {
+		t.Fatal("agent profile accepted a UNC executable")
+	}
+}
+
 func futureTime() *time.Time {
 	value := time.Now().UTC().Add(time.Hour)
 	return &value

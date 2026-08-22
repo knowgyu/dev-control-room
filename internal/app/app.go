@@ -21,8 +21,10 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/collector"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/environment"
 	"github.com/knowgyu/dev-control-room/internal/masking"
 	"github.com/knowgyu/dev-control-room/internal/reconcile"
+	"github.com/knowgyu/dev-control-room/internal/scheduler"
 	"github.com/knowgyu/dev-control-room/internal/store"
 )
 
@@ -36,8 +38,11 @@ type App struct {
 	masker        *masking.Masker
 	store         *store.Store
 	collector     collector.GitCollector
+	doctor        environment.Doctor
+	scheduler     scheduler.Adapter
 	scanNow       chan string
 	scanMu        sync.Mutex
+	environmentMu sync.Mutex
 }
 
 func New(home, listen string) (*App, error) {
@@ -83,10 +88,30 @@ func New(home, listen string) (*App, error) {
 			return nil, fmt.Errorf("finalize project configuration migration: %w", err)
 		}
 	}
-	return &App{
+	service := &App{
 		home: home, listen: listen, config: config, mutationToken: randomToken(), masker: masker,
-		store: persistence, collector: collector.NewGitCollector(nil), scanNow: make(chan string, 1),
-	}, nil
+		store: persistence, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), scheduler: &scheduler.FakeAdapter{}, scanNow: make(chan string, 1),
+	}
+	var scheduled scheduler.Result
+	if found, err := persistence.LoadSingleton(context.Background(), "scheduler_state", &scheduled); err != nil {
+		_ = persistence.Close()
+		return nil, fmt.Errorf("load scheduler state: %w", err)
+	} else if found {
+		service.scheduler.(*scheduler.FakeAdapter).Exists = scheduled.Exists
+	}
+	if !config.AgentProfilesInitialized {
+		if err := service.ensureDefaultAgentProfiles(context.Background()); err != nil {
+			_ = persistence.Close()
+			return nil, err
+		}
+		config.AgentProfilesInitialized = true
+		service.config = config
+		if err := saveConfig(home, config); err != nil {
+			_ = persistence.Close()
+			return nil, fmt.Errorf("finalize default agent profile initialization: %w", err)
+		}
+	}
+	return service, nil
 }
 
 func requireLoopback(address string) error {
@@ -110,6 +135,7 @@ func (a *App) Close() error {
 
 func (a *App) RunDoctor(ctx context.Context) {
 	_ = a.RunScan(ctx, "startup")
+	_, _ = a.EnvironmentHealth(ctx, true)
 	interval := time.Duration(a.config.ScanIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -119,6 +145,7 @@ func (a *App) RunDoctor(ctx context.Context) {
 			return
 		case <-ticker.C:
 			_ = a.RunScan(ctx, "schedule")
+			_, _ = a.EnvironmentHealth(ctx, true)
 		case trigger := <-a.scanNow:
 			_ = a.RunScan(ctx, trigger)
 		}

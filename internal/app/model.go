@@ -7,9 +7,12 @@ import (
 )
 
 type Config struct {
-	Version             int              `json:"version"`
-	ScanIntervalSeconds int              `json:"scan_interval_seconds"`
-	Projects            []domain.Project `json:"projects"`
+	Version                  int                             `json:"version"`
+	ScanIntervalSeconds      int                             `json:"scan_interval_seconds"`
+	Projects                 []domain.Project                `json:"projects"`
+	Environment              []domain.EnvironmentDeclaration `json:"environment,omitempty"`
+	Connectors               []domain.ConnectorReference     `json:"connectors,omitempty"`
+	AgentProfilesInitialized bool                            `json:"agent_profiles_initialized,omitempty"`
 }
 
 type RepositoryState struct {

@@ -38,12 +38,12 @@ source of truth.
 
 ## Repository status
 
-Milestone 1 now provides SQLite-backed Project and Repository CRUD, secret-free
-Project export/import, durable observations/findings/events/scan runs, bounded
-local Git/worktree collection, deterministic findings, and shared CLI/HTTP/UI
-application services. The former JSONL ledger and in-memory snapshot spike
-adapters are no longer used. Milestone 2 environment diagnostics and Windows
-scheduling have not been started.
+Milestone 2 now adds SQLite-backed Agent Profile CRUD, read-only Environment
+Doctor health summaries, connector-reference presence checks, shared CLI/HTTP/UI
+health surfaces, and a fixture-only typed Windows scheduling boundary. The
+former JSONL ledger and in-memory snapshot spike adapters are no longer used.
+Milestone 3 Checkset execution and Action broker execution have not been
+started.
 
 The target stack is a small Go service and CLI, an embedded local web UI,
 SQLite-backed state, PowerShell 7.6 runbooks, and Windows Task Scheduler for

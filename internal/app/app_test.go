@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,14 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConfigRejectsUnknownEnvironmentScope(t *testing.T) {
+	config := defaultConfig()
+	config.Environment = []domain.EnvironmentDeclaration{{Name: "VALID_NAME", Scope: "registry"}}
+	if err := validateConfig(config); err == nil {
+		t.Fatal("unknown environment scope was accepted")
+	}
+}
+
 func TestConfigV1MigrationDropsPersistedMutationToken(t *testing.T) {
 	home := t.TempDir()
 	legacy := `{
@@ -77,6 +86,35 @@ func TestConfigV1MigrationDropsPersistedMutationToken(t *testing.T) {
 	}
 	if string(saved) == legacy || string(saved) == "" || contains(string(saved), "secret-token-canary") || contains(string(saved), "workbenches") {
 		t.Fatalf("legacy secret or terminology survived migration: %s", saved)
+	}
+}
+
+func TestConfigV2MigrationPreservesAdditiveMilestone2Metadata(t *testing.T) {
+	home := t.TempDir()
+	versionTwo := `{
+  "version": 2,
+  "scan_interval_seconds": 45,
+  "projects": [],
+  "environment": [{"name":"EXAMPLE_HOME","scope":"user"}],
+  "connectors": [{"id":"example","name":"Example","secretReference":"env:EXAMPLE_TOKEN","lastResult":"not_checked"}],
+  "agent_profiles_initialized": true
+}`
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(versionTwo), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := loadConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Version != currentConfigVersion || len(config.Environment) != 1 || len(config.Connectors) != 1 || !config.AgentProfilesInitialized {
+		t.Fatalf("version 2 metadata was not preserved: %#v", config)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"version": 3`) {
+		t.Fatalf("version 2 config was not rewritten as version 3: %s", data)
 	}
 }
 

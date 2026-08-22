@@ -28,7 +28,7 @@ func TestMigrateCreatesContractSchemaAndIsIdempotent(t *testing.T) {
 	if version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
 	}
-	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "actions", "action_plans", "approvals", "agent_profiles", "events", "scan_runs", "failure_fingerprints"} {
+	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "actions", "action_plans", "approvals", "agent_profiles", "events", "scan_runs", "failure_fingerprints", "environment_health", "scheduler_state"} {
 		var count int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -66,6 +66,35 @@ func TestOpenCreatesAndMigratesFileDatabase(t *testing.T) {
 	}
 	if !strings.EqualFold(journalMode, "wal") {
 		t.Fatalf("journal_mode = %q, want wal", journalMode)
+	}
+}
+
+func TestMigrationThreeAppliesForwardFromVersionTwo(t *testing.T) {
+	db := openUnmigratedTestDatabase(t, "forward-migration")
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:2] {
+		if _, err := db.Exec(migration.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)`, migration.Version, migration.Name, migrationChecksum(migration.SQL)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 3 {
+		t.Fatalf("forward migration did not reach version 3: %d, %v", version, err)
+	}
+	for _, table := range []string{"environment_health", "scheduler_state"} {
+		var count int
+		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("forward migration did not create %s: %d, %v", table, count, err)
+		}
 	}
 }
 

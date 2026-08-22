@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -32,8 +33,11 @@ const (
 )
 
 var (
-	identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	planDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	identifierPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	planDigestPattern      = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	commandNamePattern     = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	windowsPathPattern     = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 )
 
 type TypeMeta struct {
@@ -300,6 +304,8 @@ type AgentProfile struct {
 
 type AgentProfileSpec struct {
 	Command               string            `json:"command"`
+	VersionProbe          []string          `json:"versionProbe,omitempty"`
+	TimeoutSeconds        int               `json:"timeoutSeconds,omitempty"`
 	ModelArgumentTemplate string            `json:"modelArgumentTemplate,omitempty"`
 	DataBoundary          AgentDataBoundary `json:"dataBoundary"`
 	EnvironmentAllowlist  []string          `json:"environmentAllowlist,omitempty"`
@@ -319,6 +325,25 @@ const (
 	AgentLaunchDirect            AgentLaunchMode = "direct"
 	AgentLaunchPowerShellProfile AgentLaunchMode = "powershell_profile"
 )
+
+// EnvironmentDeclaration is metadata about a required variable. Value is
+// intentionally absent from this contract; the doctor only records presence
+// and declaration conflicts.
+type EnvironmentDeclaration struct {
+	Name      string `json:"name"`
+	Scope     string `json:"scope"`
+	Purpose   string `json:"purpose,omitempty"`
+	ProfileID string `json:"profileId,omitempty"`
+	Connector string `json:"connector,omitempty"`
+}
+
+type ConnectorReference struct {
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	SecretReference string     `json:"secretReference"`
+	LastValidatedAt *time.Time `json:"lastValidatedAt,omitempty"`
+	LastResult      string     `json:"lastResult,omitempty"`
+}
 
 type Event struct {
 	TypeMeta `json:",inline"`
@@ -611,16 +636,28 @@ func (a AgentProfile) Validate() error {
 	if strings.TrimSpace(a.Spec.Command) == "" {
 		return errors.New("agent profile command is required")
 	}
+	if strings.ContainsAny(a.Spec.Command, "|&<>$`(){}[]\"'\x00\r\n") || strings.HasPrefix(strings.TrimSpace(a.Spec.Command), "-") {
+		return errors.New("agent profile command contains unsupported shell syntax")
+	}
+	if a.Spec.TimeoutSeconds < 0 || a.Spec.TimeoutSeconds > 300 {
+		return errors.New("agent profile timeout must be between 0 and 300 seconds")
+	}
 	if a.Spec.DataBoundary != AgentBoundaryEnterprise && a.Spec.DataBoundary != AgentBoundaryLocal {
 		return errors.New("agent profile has an invalid data boundary")
 	}
 	if a.Spec.LaunchMode != AgentLaunchDirect && a.Spec.LaunchMode != AgentLaunchPowerShellProfile {
 		return errors.New("agent profile has an invalid launch mode")
 	}
+	if a.Spec.LaunchMode == AgentLaunchPowerShellProfile && !commandNamePattern.MatchString(a.Spec.Command) {
+		return errors.New("PowerShell profile command must be a command name")
+	}
+	if a.Spec.LaunchMode == AgentLaunchDirect && !commandNamePattern.MatchString(a.Spec.Command) && !validLocalWindowsExecutablePath(a.Spec.Command) {
+		return errors.New("direct profile command must be an executable name or local absolute Windows executable path")
+	}
 	seen := make(map[string]struct{}, len(a.Spec.EnvironmentAllowlist))
 	for _, name := range a.Spec.EnvironmentAllowlist {
 		name = strings.TrimSpace(name)
-		if name == "" || strings.ContainsAny(name, "=\x00") {
+		if !environmentNamePattern.MatchString(name) {
 			return errors.New("agent environment allowlist contains an invalid variable name")
 		}
 		key := strings.ToUpper(name)
@@ -629,7 +666,35 @@ func (a AgentProfile) Validate() error {
 		}
 		seen[key] = struct{}{}
 	}
+	if len(a.Spec.VersionProbe) > 0 && !validVersionProbe(a.Spec.VersionProbe) {
+		return errors.New("agent version probe must contain one reviewed version argument")
+	}
 	return nil
+}
+
+func validVersionProbe(arguments []string) bool {
+	if len(arguments) != 1 {
+		return false
+	}
+	switch arguments[0] {
+	case "--version", "-version", "version", "-V", "-v", "/version":
+		return true
+	default:
+		return false
+	}
+}
+
+func validLocalWindowsExecutablePath(value string) bool {
+	if strings.TrimSpace(value) != value || !windowsPathPattern.MatchString(value) || !strings.EqualFold(filepath.Ext(value), ".exe") || strings.Contains(value[2:], ":") {
+		return false
+	}
+	segments := strings.Split(strings.ReplaceAll(value[3:], "/", `\`), `\`)
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." || strings.HasSuffix(segment, " ") || strings.HasSuffix(segment, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 func (e Event) Validate() error {

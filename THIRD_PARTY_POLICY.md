@@ -92,3 +92,11 @@ the Go standard library and existing dependencies only. `go list -m all` and
 `go mod verify` are part of the Milestone 1 verification record, and any future
 module addition must append its exact version, license, runtime network
 behavior, and removal path here before code is merged.
+
+## Milestone 2 dependency audit
+
+Milestone 2 adds no module to `go.mod` or `go.sum`. Environment process
+execution, PowerShell metadata probing, SQLite profile/health persistence,
+loopback HTTP, and the fake Task Scheduler adapter use the Go standard library
+and the already reviewed SQLite driver. There is no runtime network behavior,
+telemetry, credential upload, or dependency removal work for this milestone.

@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 type Migration struct {
 	Version int
@@ -148,6 +148,22 @@ CREATE INDEX IF NOT EXISTS idx_scan_runs_project_started_at
     ON scan_runs(project_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_failure_fingerprints_last_seen
     ON failure_fingerprints(last_seen);
+`,
+	},
+	{
+		Version: 3,
+		Name:    "environment-health-and-scheduler-state",
+		SQL: `
+CREATE TABLE IF NOT EXISTS environment_health (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    object_json TEXT NOT NULL,
+    checked_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS scheduler_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    object_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 `,
 	},
 }

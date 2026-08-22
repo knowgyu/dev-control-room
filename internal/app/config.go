@@ -14,9 +14,10 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/domain"
 )
 
-const currentConfigVersion = 2
+const currentConfigVersion = 3
 
 var configIDPattern = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
+var safeReferenceName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
 type legacyConfigV1 struct {
 	Version             int             `json:"version"`
@@ -59,6 +60,23 @@ func loadConfig(home string) (Config, error) {
 			return Config{}, fmt.Errorf("save migrated config: %w", err)
 		}
 		return config, nil
+	case 2:
+		// Version 3 adds only non-secret environment metadata, connector
+		// references, and the one-time Agent Profile initialization marker. Read
+		// the additive shape so pre-acceptance v2 files retain any fields already
+		// written by Milestone 2 builds.
+		var config Config
+		if err := json.Unmarshal(data, &config); err != nil {
+			return Config{}, fmt.Errorf("decode version 2 config: %w", err)
+		}
+		config.Version = currentConfigVersion
+		if err := validateConfig(config); err != nil {
+			return Config{}, fmt.Errorf("migrate version 2 config: %w", err)
+		}
+		if err := saveConfig(home, config); err != nil {
+			return Config{}, fmt.Errorf("save version 3 config: %w", err)
+		}
+		return config, nil
 	case currentConfigVersion:
 		var config Config
 		if err := json.Unmarshal(data, &config); err != nil {
@@ -98,7 +116,47 @@ func validateConfig(config Config) error {
 		}
 		seen[project.Metadata.ID] = struct{}{}
 	}
+	for _, declaration := range config.Environment {
+		name := strings.TrimSpace(declaration.Name)
+		scope := strings.ToLower(strings.TrimSpace(declaration.Scope))
+		if !safeReferenceName.MatchString(name) || (scope != "process" && scope != "user" && scope != "machine") {
+			return errors.New("environment declarations require a name and scope")
+		}
+		if declaration.ProfileID != "" && !validConfigID(declaration.ProfileID) {
+			return errors.New("environment declaration profile id is invalid")
+		}
+		if declaration.Connector != "" && !validConfigID(declaration.Connector) {
+			return errors.New("environment declaration connector id is invalid")
+		}
+	}
+	seenConnectors := make(map[string]struct{}, len(config.Connectors))
+	for _, connector := range config.Connectors {
+		if !validConfigID(connector.ID) || !validSecretReference(connector.SecretReference) {
+			return errors.New("connector references require a valid id and secret reference")
+		}
+		if connector.LastResult != "" && connector.LastResult != "not_checked" && connector.LastResult != "passed" && connector.LastResult != "failed" && connector.LastResult != "unavailable" {
+			return errors.New("connector last validation result is invalid")
+		}
+		if _, exists := seenConnectors[connector.ID]; exists {
+			return fmt.Errorf("duplicate connector id %q", connector.ID)
+		}
+		seenConnectors[connector.ID] = struct{}{}
+	}
 	return nil
+}
+
+func validConfigID(value string) bool {
+	return regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`).MatchString(strings.TrimSpace(value))
+}
+
+func validSecretReference(value string) bool {
+	value = strings.TrimSpace(value)
+	for _, prefix := range []string{"env:", "credential_manager:"} {
+		if strings.HasPrefix(strings.ToLower(value), prefix) {
+			return safeReferenceName.MatchString(strings.TrimSpace(value[len(prefix):]))
+		}
+	}
+	return false
 }
 
 func saveConfig(home string, config Config) error {

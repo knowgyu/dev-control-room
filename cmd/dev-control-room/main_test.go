@@ -33,6 +33,20 @@ func TestWriteCLIErrorDoesNotExposeInternalDetails(t *testing.T) {
 	}
 }
 
+func TestVersionJSONReportsCurrentMilestone(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runVersionTo([]string{"--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("version exit code = %d, stderr=%s", code, stderr.String())
+	}
+	var envelope contract.Envelope[map[string]string]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Data == nil || (*envelope.Data)["milestone"] != "2" || (*envelope.Data)["version"] != version {
+		t.Fatalf("unexpected version envelope: %#v", envelope)
+	}
+}
+
 func TestProjectListJSONUsesStableEnvelope(t *testing.T) {
 	home := t.TempDir()
 	service, err := app.New(home, "127.0.0.1:38471")
@@ -59,5 +73,33 @@ func TestProjectListJSONUsesStableEnvelope(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout.String()) != strings.TrimSpace(string(want)) {
 		t.Fatalf("CLI JSON golden mismatch: got %s want %s", stdout.String(), want)
+	}
+}
+
+func TestEnvironmentDoctorJSONUsesStableEnvelopeAndHidesSecret(t *testing.T) {
+	const canary = "secret-canary-value"
+	if err := os.Setenv("DEVROOM_CLI_SECRET", canary); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("DEVROOM_CLI_SECRET") })
+	home := t.TempDir()
+	service, err := app.New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"env", "doctor", "--home", home, "--json"}, &stdout, &stderr)
+	if code != int(contract.ExitUnavailable) {
+		t.Fatalf("env doctor exit code = %d, stderr=%s", code, stderr.String())
+	}
+	var envelope contract.Envelope[map[string]any]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Schema != contract.EnvelopeSchema || !envelope.OK || envelope.Data == nil || strings.Contains(stdout.String(), canary) || strings.Contains(stderr.String(), canary) {
+		t.Fatalf("invalid or secret-bearing environment envelope: stdout=%s stderr=%s", stdout.String(), stderr.String())
 	}
 }
