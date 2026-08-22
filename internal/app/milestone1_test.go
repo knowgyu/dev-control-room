@@ -320,3 +320,50 @@ func TestWorktreeSnapshotPersistenceAndReadOnlySurfaces(t *testing.T) {
 		t.Fatalf("worktree HTTP surface = %d %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+type worktreeListFailureRunner struct{ directory string }
+
+func (r worktreeListFailureRunner) Run(_ context.Context, _ string, args []string, _ string) (collector.CommandResult, error) {
+	if len(args) > 1 && args[0] == "worktree" {
+		return collector.CommandResult{ExitCode: 1}, nil
+	}
+	if len(args) > 1 && args[0] == "rev-parse" && args[1] == "--is-inside-work-tree" {
+		return collector.CommandResult{Stdout: "true\n"}, nil
+	}
+	if len(args) > 1 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
+		return collector.CommandResult{Stdout: r.directory + "\n"}, nil
+	}
+	if len(args) > 1 && args[0] == "rev-parse" && args[1] == "--git-common-dir" {
+		return collector.CommandResult{Stdout: filepath.Join(r.directory, ".git") + "\n"}, nil
+	}
+	if len(args) > 0 && args[0] == "symbolic-ref" {
+		return collector.CommandResult{Stdout: "main\n"}, nil
+	}
+	return collector.CommandResult{}, nil
+}
+func TestFailedWorktreeEnumerationDoesNotTombstonePersistedMembership(t *testing.T) {
+	home := t.TempDir()
+	repository := tempGitRepository(t, "primary")
+	linked := filepath.Join(t.TempDir(), "linked")
+	gitFixture(t, repository, "worktree", "add", "-b", "linked", linked)
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "retention", Path: repository})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	service.collector = collector.NewGitCollector(worktreeListFailureRunner{directory: repository})
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.Worktrees(context.Background(), project.Metadata.ID, "repo-1")
+	if err != nil || len(items) != 2 {
+		t.Fatalf("failed list tombstoned worktrees: %#v %v", items, err)
+	}
+}

@@ -135,6 +135,7 @@ type Worktree struct {
 	Upstream               string `json:"upstream,omitempty"`
 	Locked                 bool   `json:"locked"`
 	Prunable               bool   `json:"prunable"`
+	Error                  string `json:"error,omitempty"`
 }
 
 type State struct {
@@ -240,6 +241,20 @@ func (c GitCollector) optional(ctx context.Context, path string, args ...string)
 	return strings.TrimSpace(result.Stdout), nil
 }
 
+func (c GitCollector) optionalExitOne(ctx context.Context, path string, args ...string) (string, error) {
+	result, err := c.Runner.Run(ctx, "git", args, path)
+	if err != nil && result.ExitCode != 1 && result.ExitCode != 128 {
+		return "", err
+	}
+	if result.ExitCode != 0 && result.ExitCode != 1 && result.ExitCode != 128 {
+		return "", errors.New("git command failed")
+	}
+	if result.ExitCode == 1 || result.ExitCode == 128 {
+		return "", nil
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
+
 func (c GitCollector) remotes(ctx context.Context, path string) []RemoteInfo {
 	result, err := c.Runner.Run(ctx, "git", []string{"remote", "-v"}, path)
 	if err != nil || result.ExitCode != 0 {
@@ -275,6 +290,9 @@ func (c GitCollector) remotes(ctx context.Context, path string) []RemoteInfo {
 func (c GitCollector) worktrees(ctx context.Context, path string) ([]Worktree, error) {
 	result, err := c.Runner.Run(ctx, "git", []string{"worktree", "list", "--porcelain", "-z"}, path)
 	if err != nil || result.ExitCode != 0 {
+		if err == nil {
+			err = errors.New("git worktree list failed")
+		}
 		return []Worktree{}, err
 	}
 	return parseWorktrees(result.Stdout), nil
@@ -301,7 +319,7 @@ func parseWorktrees(output string) []Worktree {
 		switch {
 		case strings.HasPrefix(line, "worktree "):
 			flush()
-			current = &Worktree{Path: strings.TrimPrefix(line, "worktree "), Trust: "unverified"}
+			current = &Worktree{Path: strings.TrimPrefix(line, "worktree "), Trust: "unverified", Primary: len(worktrees) == 0}
 		case strings.HasPrefix(line, "HEAD ") && current != nil:
 			current.Head = strings.TrimSpace(strings.TrimPrefix(line, "HEAD "))
 		case strings.HasPrefix(line, "branch ") && current != nil:
@@ -343,9 +361,8 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 		if candidateErr != nil {
 			// Git explicitly marks a prunable worktree as absent. It is complete
 			// enumeration evidence, but is never entered or status-read.
-			if !item.Prunable {
-				complete = false
-			}
+			item.Error = "worktree path is unavailable"
+			complete = false
 			continue
 		}
 		top, topErr := c.required(ctx, candidate, "rev-parse", "--show-toplevel")
@@ -353,10 +370,10 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 		gitDir, gitErr := c.gitDirectory(ctx, candidate, "--git-dir")
 		if topErr != nil || commonErr != nil || gitErr != nil || !sameDirectory(candidate, top) || !sameDirectory(common, candidateCommon) {
 			complete = false
+			item.Error = "worktree association could not be verified"
 			continue
 		}
 		item.Path = candidate
-		item.Primary = sameDirectory(candidate, registeredCanonical)
 		item.Trust = "verified_read_only"
 		item.AssociationFingerprint = associationFingerprint(common, gitDir)
 		if item.Primary {
@@ -364,27 +381,60 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 		} else {
 			item.ID = "linked-" + item.AssociationFingerprint[len("sha256:"):][:32]
 		}
-		c.populateWorktree(ctx, item)
+		if err := c.populateWorktree(ctx, item); err != nil {
+			item.Trust = "unverified"
+			item.Error = "worktree state could not be collected"
+			complete = false
+		}
+	}
+	for i := range advertised {
+		item := &advertised[i]
+		if item.ID != "" {
+			continue
+		}
+		if item.Primary {
+			item.ID = "primary"
+		} else {
+			item.ID = "unverified-" + pathFingerprint(item.Path)[:32]
+			item.AssociationFingerprint = "unverified:" + pathFingerprint(item.Path)
+		}
 	}
 	return advertised, complete
 }
 
-func (c GitCollector) populateWorktree(ctx context.Context, item *Worktree) {
-	item.Branch, _ = c.optional(ctx, item.Path, "symbolic-ref", "--short", "-q", "HEAD")
+func (c GitCollector) populateWorktree(ctx context.Context, item *Worktree) error {
+	branch, branchErr := c.optionalExitOne(ctx, item.Path, "symbolic-ref", "--short", "-q", "HEAD")
+	// A detached HEAD is the documented non-zero symbolic-ref result.
+	if branchErr != nil {
+		return branchErr
+	}
+	item.Branch = branch
 	item.Detached = item.Branch == ""
-	item.Head, _ = c.optional(ctx, item.Path, "rev-parse", "HEAD")
+	head, err := c.required(ctx, item.Path, "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	item.Head = head
 	status, err := c.required(ctx, item.Path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-	if err == nil {
-		item.Dirty = strings.TrimSpace(status) != ""
-		for _, record := range strings.Split(status, "\x00") {
-			if strings.HasPrefix(record, "?? ") {
-				item.Untracked = true
-			}
+	if err != nil {
+		return err
+	}
+	item.Dirty = strings.TrimSpace(status) != ""
+	for _, record := range strings.Split(status, "\x00") {
+		if strings.HasPrefix(record, "?? ") {
+			item.Untracked = true
 		}
 	}
-	item.Upstream, _ = c.optional(ctx, item.Path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	upstream, upstreamErr := c.optionalExitOne(ctx, item.Path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	// Exit status one is the normal no-upstream result.
+	if upstreamErr != nil {
+		return upstreamErr
+	}
+	item.Upstream = upstream
 	if item.Upstream != "" {
-		if counts, err := c.required(ctx, item.Path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}"); err == nil {
+		if counts, err := c.required(ctx, item.Path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}"); err != nil {
+			return err
+		} else {
 			fields := strings.Fields(counts)
 			if len(fields) == 2 {
 				item.Ahead, _ = strconv.Atoi(fields[0])
@@ -392,6 +442,7 @@ func (c GitCollector) populateWorktree(ctx context.Context, item *Worktree) {
 			}
 		}
 	}
+	return nil
 }
 
 func canonicalDirectory(path string) (string, error) {
@@ -420,6 +471,11 @@ func (c GitCollector) gitDirectory(ctx context.Context, path, argument string) (
 func associationFingerprint(commonDir, gitDir string) string {
 	sum := sha256.Sum256([]byte(filepath.Clean(commonDir) + "\x00" + filepath.Clean(gitDir)))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func pathFingerprint(path string) string {
+	sum := sha256.Sum256([]byte(path))
+	return hex.EncodeToString(sum[:])
 }
 
 // NormalizeRemote strips credentials, query strings, fragments and the .git

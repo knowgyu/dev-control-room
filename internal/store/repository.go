@@ -261,9 +261,6 @@ func (s *Store) ReplaceWorktrees(ctx context.Context, projectID, repositoryID st
 	now := time.Now().UTC().Format(timeFormat)
 	seen := make([]any, 0, len(items))
 	for _, item := range items {
-		if item.Spec.Trust != domain.WorktreeTrustVerifiedReadOnly {
-			continue
-		}
 		if err := item.Validate(); err != nil {
 			return fmt.Errorf("validate worktree: %w", err)
 		}
@@ -336,6 +333,19 @@ func (s *Store) ListWorktrees(ctx context.Context, projectID, repositoryID strin
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Store) GetWorktree(ctx context.Context, projectID, repositoryID, id string) (domain.Worktree, error) {
+	items, err := s.ListWorktrees(ctx, projectID, repositoryID)
+	if err != nil {
+		return domain.Worktree{}, err
+	}
+	for _, item := range items {
+		if item.Metadata.ID == id {
+			return item, nil
+		}
+	}
+	return domain.Worktree{}, sql.ErrNoRows
 }
 
 func worktreeObservationID(item domain.Worktree) string {

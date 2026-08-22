@@ -87,8 +87,8 @@ func TestMigrationFourAppliesForwardFromVersionTwo(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 4 {
-		t.Fatalf("forward migration did not reach version 4: %d, %v", version, err)
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 5 {
+		t.Fatalf("forward migration did not reach version 5: %d, %v", version, err)
 	}
 	for _, table := range []string{"environment_health", "scheduler_state"} {
 		var count int

@@ -1,6 +1,6 @@
 # Slice B verification: Worktree model and visibility
 
-Implemented in schema v4.
+Implemented in schema v5 (v4 identities; v5 primary-ID trigger).
 
 ## Contract
 
@@ -18,7 +18,7 @@ Implemented in schema v4.
 
 ## Surfaces
 
-- CLI: `devroom project worktree list <project-id> <repository-id> --json`
+- CLI: `devroom project worktree list <project-id> <repository-id> --json` and `show`
 - HTTP: `GET /api/projects/{projectID}/repositories/{repositoryID}/worktrees`
 - Snapshot: per-repository `worktrees`; UI uses a read-only expandable details
   row while retaining existing repository summary fields.

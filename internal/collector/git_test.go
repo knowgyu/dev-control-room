@@ -156,3 +156,17 @@ func TestParseWorktreesPreservesNewlinePathAndFlags(t *testing.T) {
 		t.Fatalf("NUL porcelain parsing lost boundaries: %#v", items)
 	}
 }
+
+type failedWorktreeListRunner struct{}
+
+func (failedWorktreeListRunner) Run(_ context.Context, _ string, args []string, _ string) (CommandResult, error) {
+	if len(args) > 1 && args[0] == "worktree" {
+		return CommandResult{ExitCode: 1}, nil
+	}
+	return CommandResult{}, nil
+}
+func TestWorktreeListNonzeroWithoutRunnerErrorIsIncomplete(t *testing.T) {
+	if _, err := NewGitCollector(failedWorktreeListRunner{}).worktrees(context.Background(), t.TempDir()); err == nil {
+		t.Fatal("nonzero worktree list exit was accepted")
+	}
+}

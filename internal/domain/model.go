@@ -116,6 +116,7 @@ type WorktreeSpec struct {
 	Detached               bool       `json:"detached"`
 	Locked                 bool       `json:"locked"`
 	Prunable               bool       `json:"prunable"`
+	Error                  string     `json:"error,omitempty"`
 	LastObserved           time.Time  `json:"lastObserved"`
 	TombstonedAt           *time.Time `json:"tombstonedAt,omitempty"`
 }
@@ -135,8 +136,8 @@ func (w Worktree) Validate() error {
 	if strings.TrimSpace(w.Spec.CanonicalPath) == "" || (w.Spec.Trust != WorktreeTrustVerifiedReadOnly && w.Spec.Trust != WorktreeTrustUnverified) {
 		return errors.New("worktree path and trust are required")
 	}
-	if w.Spec.Primary && w.Metadata.ID != "primary" {
-		return errors.New("primary worktree id is reserved")
+	if w.Spec.Primary != (w.Metadata.ID == "primary") {
+		return errors.New("primary worktree identity is inconsistent")
 	}
 	if !w.Spec.Primary && strings.TrimSpace(w.Spec.AssociationFingerprint) == "" {
 		return errors.New("linked worktree requires an association fingerprint")

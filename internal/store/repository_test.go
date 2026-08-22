@@ -124,3 +124,23 @@ func TestReplaceWorktreesRetainsMembershipAfterIncompleteEnumeration(t *testing.
 		t.Fatalf("complete enumeration did not tombstone membership: %#v %v", items, err)
 	}
 }
+
+func TestReplaceWorktreesPersistsUnverifiedAdvertisedMembership(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDatabase(t, "unverified-worktree")
+	s, err := New(db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveProject(ctx, domain.NewProject("project", "Project", []domain.Repository{domain.NewRepository("repo", "Repo", "/fixture")})); err != nil {
+		t.Fatal(err)
+	}
+	item := domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: "unverified-abc", Name: "unverified-abc"}, Spec: domain.WorktreeSpec{ProjectID: "project", RepositoryID: "repo", CanonicalPath: "sha256:abc", AssociationFingerprint: "unverified:abc", Trust: domain.WorktreeTrustUnverified, LastObserved: time.Now().UTC(), Prunable: true, Error: "worktree path is unavailable"}}
+	if err := s.ReplaceWorktrees(ctx, "project", "repo", []domain.Worktree{item}, true); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.ListWorktrees(ctx, "project", "repo")
+	if err != nil || len(items) != 1 || items[0].Spec.Trust != domain.WorktreeTrustUnverified {
+		t.Fatalf("unverified membership was not retained: %#v %v", items, err)
+	}
+}

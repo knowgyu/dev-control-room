@@ -69,7 +69,7 @@ Current contract versions:
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
-- SQLite schema: version 4;
+- SQLite schema: version 5;
 - Go module target: Go 1.23.
 
 ## Repository state at this handoff
@@ -261,7 +261,7 @@ roadmap into one undifferentiated implementation.
 - Discovery trust is only `verified_read_only` or `unverified`; it grants no
   execution authority. Failed enumerations retain membership; complete ones
   tombstone absent durable identities.
-- `project worktree list <project> <repository>`, the matching loopback API,
+- `project worktree list|show <project> <repository>`, the matching loopback API,
   Snapshot, and UI details expose read-only per-worktree state.
 
 See `docs/SLICE_B_VERIFICATION.md`.

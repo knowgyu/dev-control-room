@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 4
+const CurrentSchemaVersion = 5
 
 type Migration struct {
 	Version int
@@ -197,6 +197,20 @@ CREATE TABLE IF NOT EXISTS worktree_observations (
 );
 CREATE INDEX IF NOT EXISTS idx_worktrees_repository_active ON worktrees(project_id, repository_id, tombstoned_at, last_observed);
 CREATE INDEX IF NOT EXISTS idx_worktree_observations_scope ON worktree_observations(project_id, repository_id, worktree_id, collected_at);
+`,
+	},
+	{
+		Version: 5,
+		Name:    "worktree-primary-identity-invariant",
+		SQL: `
+CREATE TRIGGER IF NOT EXISTS worktrees_primary_identity_insert
+BEFORE INSERT ON worktrees
+WHEN (NEW.is_primary = 1) != (NEW.id = 'primary')
+BEGIN SELECT RAISE(ABORT, 'worktree primary identity is inconsistent'); END;
+CREATE TRIGGER IF NOT EXISTS worktrees_primary_identity_update
+BEFORE UPDATE OF id, is_primary ON worktrees
+WHEN (NEW.is_primary = 1) != (NEW.id = 'primary')
+BEGIN SELECT RAISE(ABORT, 'worktree primary identity is inconsistent'); END;
 `,
 	},
 }

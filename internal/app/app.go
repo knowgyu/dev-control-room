@@ -234,6 +234,17 @@ func (a *App) Worktrees(ctx context.Context, projectID, repositoryID string) ([]
 	return a.store.ListWorktrees(ctx, projectID, repositoryID)
 }
 
+func (a *App) Worktree(ctx context.Context, projectID, repositoryID, worktreeID string) (domain.Worktree, error) {
+	if _, err := a.Repository(ctx, projectID, repositoryID); err != nil {
+		return domain.Worktree{}, err
+	}
+	item, err := a.store.GetWorktree(ctx, projectID, repositoryID, worktreeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Worktree{}, contract.NotFound("worktree not found")
+	}
+	return item, err
+}
+
 func (a *App) Findings(ctx context.Context, projectID, repositoryID string) ([]domain.Finding, error) {
 	if projectID != "" {
 		if _, err := a.Project(ctx, projectID); err != nil {
@@ -333,8 +344,11 @@ func (a *App) scanProject(ctx context.Context, project domain.Project, trigger s
 		if collectErr == nil {
 			var complete bool
 			state.Worktrees, complete = a.collector.WorktreeDetails(ctx, repository.Spec.Path, state.Worktrees)
-			complete = complete && state.WorktreeEnumerationComplete
-			if err := a.store.ReplaceWorktrees(ctx, project.Metadata.ID, repository.Metadata.ID, domainWorktrees(project.Metadata.ID, repository.Metadata.ID, state.Worktrees, state.CollectedAt), complete); err != nil {
+			if !complete {
+				state.Error = "one or more worktree states could not be collected"
+				collectorFailed = true
+			}
+			if err := a.store.ReplaceWorktrees(ctx, project.Metadata.ID, repository.Metadata.ID, domainWorktrees(project.Metadata.ID, repository.Metadata.ID, state.Worktrees, state.CollectedAt), state.WorktreeEnumerationComplete); err != nil {
 				return collectorFailed, err
 			}
 		}
@@ -712,7 +726,14 @@ func removalEvent(eventType, summary string, data map[string]any) domain.Event {
 }
 
 func newObservation(projectID, repositoryID string, state collector.State) (domain.Observation, error) {
-	data, err := json.Marshal(state)
+	// Paths from Git porcelain are untrusted discovery input. The durable
+	// repository observation retains no linked-worktree path; Worktree records
+	// expose only a stable path fingerprint.
+	persisted := state
+	for i := range persisted.Worktrees {
+		persisted.Worktrees[i].Path = worktreePathFingerprint(persisted.Worktrees[i].Path)
+	}
+	data, err := json.Marshal(persisted)
 	if err != nil {
 		return domain.Observation{}, err
 	}
@@ -720,7 +741,7 @@ func newObservation(projectID, repositoryID string, state collector.State) (doma
 	if err := json.Unmarshal(data, &evidence); err != nil {
 		return domain.Observation{}, err
 	}
-	stable := state
+	stable := persisted
 	stable.CollectedAt = time.Time{}
 	stableData, _ := json.Marshal(stable)
 	fingerprintSum := sha256.Sum256(append([]byte(projectID+"\x00"+repositoryID+"\x00"), stableData...))
@@ -750,12 +771,14 @@ func stateFromObservation(observation domain.Observation) (RepositoryState, erro
 func domainWorktrees(projectID, repositoryID string, items []collector.Worktree, observed time.Time) []domain.Worktree {
 	worktrees := make([]domain.Worktree, 0, len(items))
 	for _, item := range items {
-		if item.Trust != domain.WorktreeTrustVerifiedReadOnly {
-			continue
-		}
-		worktrees = append(worktrees, domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: item.ID, Name: item.Path}, Spec: domain.WorktreeSpec{ProjectID: projectID, RepositoryID: repositoryID, CanonicalPath: item.Path, AssociationFingerprint: item.AssociationFingerprint, Trust: item.Trust, Primary: item.Primary, Head: item.Head, Branch: item.Branch, Dirty: item.Dirty, Untracked: item.Untracked, Upstream: item.Upstream, Ahead: item.Ahead, Behind: item.Behind, Detached: item.Detached, Locked: item.Locked, Prunable: item.Prunable, LastObserved: observed}})
+		worktrees = append(worktrees, domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: item.ID, Name: item.ID}, Spec: domain.WorktreeSpec{ProjectID: projectID, RepositoryID: repositoryID, CanonicalPath: worktreePathFingerprint(item.Path), AssociationFingerprint: item.AssociationFingerprint, Trust: item.Trust, Primary: item.Primary, Head: item.Head, Branch: item.Branch, Dirty: item.Dirty, Untracked: item.Untracked, Upstream: item.Upstream, Ahead: item.Ahead, Behind: item.Behind, Detached: item.Detached, Locked: item.Locked, Prunable: item.Prunable, Error: item.Error, LastObserved: observed}})
 	}
 	return worktrees
+}
+
+func worktreePathFingerprint(path string) string {
+	sum := sha256.Sum256([]byte(path))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func (a *App) Handler() http.Handler { return newHTTPHandler(a, a.listen, a.mutationToken) }

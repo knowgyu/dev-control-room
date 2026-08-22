@@ -201,14 +201,27 @@ func runWorktree(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
 	}
-	if len(args) != 3 || args[0] != "list" {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("project worktree list requires project and repository ids"))
+	if len(args) < 3 || (args[0] != "list" && args[0] != "show") {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("project worktree requires list or show with project and repository ids"))
 	}
 	service, err := openCLIService(home)
 	if err != nil {
 		return writeCLIErrorTo(stderr, err)
 	}
 	defer service.Close()
+	if args[0] == "show" {
+		if len(args) != 4 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("project worktree show requires project, repository, and worktree ids"))
+		}
+		item, err := service.Worktree(context.Background(), args[1], args[2], args[3])
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	}
+	if len(args) != 3 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("project worktree list requires project and repository ids"))
+	}
 	items, err := service.Worktrees(context.Background(), args[1], args[2])
 	if err != nil {
 		return writeCLIErrorTo(stderr, err)
