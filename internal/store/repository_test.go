@@ -171,3 +171,40 @@ func TestReplaceWorktreesKeepsDurableIDAcrossTrustTransitions(t *testing.T) {
 		t.Fatalf("transition lost durable identity: %#v %v", items, err)
 	}
 }
+
+func TestWorktreeReconciliationDoesNotMergeDifferentVerifiedAssociations(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDatabase(t, "verified-association")
+	s, _ := New(db, nil)
+	_ = s.SaveProject(ctx, domain.NewProject("p", "P", []domain.Repository{domain.NewRepository("r", "R", "/fixture")}))
+	now := time.Now().UTC()
+	makeItem := func(id, assoc string) domain.Worktree {
+		return domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: id, Name: id}, Spec: domain.WorktreeSpec{ProjectID: "p", RepositoryID: "r", CanonicalPath: "/masked", PathFingerprint: "sha256:path", AssociationFingerprint: assoc, Trust: domain.WorktreeTrustVerifiedReadOnly, LastObserved: now}}
+	}
+	if err := s.ReplaceWorktrees(ctx, "p", "r", []domain.Worktree{makeItem("linked-a", "sha256:a")}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceWorktrees(ctx, "p", "r", []domain.Worktree{makeItem("linked-b", "sha256:b")}, false); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.ListWorktrees(ctx, "p", "r")
+	if len(items) != 2 {
+		t.Fatalf("different verified associations merged: %#v", items)
+	}
+}
+
+func TestPrimaryIncomingIdentityIsNeverReconciled(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDatabase(t, "primary-reconcile")
+	s, _ := New(db, nil)
+	_ = s.SaveProject(ctx, domain.NewProject("p", "P", []domain.Repository{domain.NewRepository("r", "R", "/fixture")}))
+	now := time.Now().UTC()
+	primary := domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: "primary", Name: "primary"}, Spec: domain.WorktreeSpec{ProjectID: "p", RepositoryID: "r", CanonicalPath: "/masked", PathFingerprint: "sha256:new", Trust: domain.WorktreeTrustVerifiedReadOnly, Primary: true, LastObserved: now}}
+	if err := s.ReplaceWorktrees(ctx, "p", "r", []domain.Worktree{primary}, true); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetWorktree(ctx, "p", "r", "primary")
+	if !got.Spec.Primary {
+		t.Fatal("primary was reconciled away")
+	}
+}

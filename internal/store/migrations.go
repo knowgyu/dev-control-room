@@ -218,7 +218,11 @@ BEGIN SELECT RAISE(ABORT, 'worktree primary identity is inconsistent'); END;
 		Name:    "worktree-path-fingerprint-and-primary-repair",
 		SQL: `
 ALTER TABLE worktrees ADD COLUMN path_fingerprint TEXT;
-UPDATE worktrees SET is_primary = CASE WHEN id = 'primary' THEN 1 ELSE 0 END;
+UPDATE worktrees SET path_fingerprint = COALESCE(path_fingerprint, json_extract(object_json, '$.spec.pathFingerprint'));
+UPDATE worktrees SET association_fingerprint = NULL, is_primary = 1,
+ object_json = json_remove(json_set(object_json, '$.metadata.id', 'primary', '$.spec.primary', json('true'), '$.spec.pathFingerprint', COALESCE(path_fingerprint, '')), '$.spec.associationFingerprint')
+WHERE id = 'primary' AND is_primary = 0;
+UPDATE worktrees SET is_primary = 0 WHERE id <> 'primary' AND is_primary <> 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_worktrees_one_primary ON worktrees(project_id, repository_id) WHERE is_primary = 1;
 CREATE INDEX IF NOT EXISTS idx_worktrees_path_fingerprint ON worktrees(project_id, repository_id, path_fingerprint);
 `,

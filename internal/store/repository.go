@@ -261,16 +261,26 @@ func (s *Store) ReplaceWorktrees(ctx context.Context, projectID, repositoryID st
 	now := time.Now().UTC().Format(timeFormat)
 	seen := make([]any, 0, len(items))
 	for _, item := range items {
-		// A temporary unverified identity is reconciled to the durable row using
-		// the independent path fingerprint (or verified association). This keeps
-		// history through unavailable/prunable recovery without trusting the path.
-		var durableID string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND (path_fingerprint=? OR (association_fingerprint=? AND ? NOT LIKE 'unverified:%')) LIMIT 1`, projectID, repositoryID, item.Spec.PathFingerprint, item.Spec.AssociationFingerprint, item.Spec.AssociationFingerprint).Scan(&durableID)
-		if err == nil {
-			item.Metadata.ID = durableID
-			item.Spec.Primary = durableID == "primary"
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("reconcile worktree identity: %w", err)
+		if item.Spec.Primary { // registered root is unconditionally primary.
+			item.Metadata.ID = "primary"
+		} else {
+			var durableID string
+			// A verified association is definitive. Path fallback is only safe if
+			// one side is unverified; a different verified association at the
+			// same path is a new worktree identity.
+			if item.Spec.Trust == domain.WorktreeTrustVerifiedReadOnly {
+				err = tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND association_fingerprint=?`, projectID, repositoryID, item.Spec.AssociationFingerprint).Scan(&durableID)
+				if errors.Is(err, sql.ErrNoRows) {
+					err = tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND path_fingerprint=? AND trust='unverified'`, projectID, repositoryID, item.Spec.PathFingerprint).Scan(&durableID)
+				}
+			} else {
+				err = tx.QueryRowContext(ctx, `SELECT id FROM worktrees WHERE project_id=? AND repository_id=? AND tombstoned_at IS NULL AND path_fingerprint=?`, projectID, repositoryID, item.Spec.PathFingerprint).Scan(&durableID)
+			}
+			if err == nil {
+				item.Metadata.ID = durableID
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("reconcile worktree identity: %w", err)
+			}
 		}
 		if err := item.Validate(); err != nil {
 			return fmt.Errorf("validate worktree: %w", err)

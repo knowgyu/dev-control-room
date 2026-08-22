@@ -251,7 +251,7 @@ roadmap into one undifferentiated implementation.
 
 ### Slice B: Worktree model and visibility (implemented; native smoke pending)
 
-- Schema v4 adds project/repository-scoped Worktree identities and immutable
+- Schema v4 adds project/repository-scoped Worktree identities (v6 was corrected before Slice B acceptance to repair legacy primary rows and backfill path fingerprints) and immutable
   worktree observations without changing existing Repository identity/history.
 - Git worktree porcelain is parsed NUL-delimited. Every advertised path is
   canonicalized and verified against the registered Repository's Git common
