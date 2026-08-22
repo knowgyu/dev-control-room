@@ -5,7 +5,8 @@
 - Project with multiple repositories.
 - Windows-native background service and Task Scheduler integration.
 - Stable CLI with human and JSON output.
-- Local Git, branch, upstream, dirty-state, and worktree collectors.
+- Local Git and per-worktree branch, HEAD, upstream, dirty/untracked,
+  detached/locked/prunable collectors, including linked `.worktrees` paths.
 - Finding model with severity, confidence, evidence, and lifecycle.
 - Environment, executable, and PowerShell-profile doctor.
 - Project overview, finding detail, and evidence drill-down UI.
@@ -17,8 +18,10 @@ registered projects without reading raw logs.
 
 ## P1: first configured release project
 
+- Read-only discovery of existing repository/CI automation for a selected
+  Worktree, followed by proposal, review, and explicit apply.
 - Approved pre-PR Checksets imported from existing documentation and verified
-  against repository/CI configuration.
+  against repository/CI configuration without inventing duplicate tooling.
 - PowerShell 7.6 Action runner with prechecks, approvals, masking, and postchecks.
 - Local repository synchronization and fast-forward validation.
 - Separate backend/frontend stage and production procedures.

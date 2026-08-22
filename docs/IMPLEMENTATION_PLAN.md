@@ -85,6 +85,26 @@ Goal: run known checks and local operations without AI latency.
 
 Work:
 
+- Introduce a Worktree identity beneath Repository for the primary checkout and
+  every linked Git worktree. Record canonical path, branch, HEAD, dirty and
+  untracked state, upstream drift, detached/locked/prunable state, and last
+  observation. A `.worktrees` directory is a convention, not a special case;
+  discovery comes from `git worktree list --porcelain -z`.
+- Show expandable per-worktree status in UI and structured CLI output. A
+  Repository summary may retain counts, but it must not hide the worktree that
+  a check, Action, cleanup candidate, or Agent Handoff targets.
+- Add deterministic repository discovery for existing `package.json` scripts,
+  formatter/linter configs, Make/Task/Just files, language build metadata,
+  CI workflows, Jenkinsfiles, and reviewed local scripts or documents.
+- Make discovery read-only. It may not install a tool, create configuration,
+  edit a repository, or invent a replacement command. Prefer an existing CI or
+  package/build entry point over reconstructing its underlying command.
+- Persist discoveries as proposals with source evidence, selected worktree,
+  branch, HEAD, and relevant file digests. Require explicit review before
+  applying a proposal, and mark it stale when its target or source changes.
+- Allow optional AI assistance only for ambiguous proposal drafting. AI output
+  is labelled as inference, constrained to the discovered evidence, validated
+  against the same schema, and cannot apply or activate itself.
 - Implement typed executable/argument/working-directory/environment definitions.
 - Implement Checkset execution, cancellation, timeout, status normalization,
   masking, and evidence capture.
@@ -93,13 +113,20 @@ Work:
   idempotency keys.
 - Add `devroom check` and `devroom action` CLI families.
 - Add UI flows for pre-PR checks, plans, approval, execution, and result review.
-- Import the user's existing pre-PR documentation as proposed Checksets and
-  require review against actual CI/repository configuration.
+- Import the user's existing pre-PR documentation as proposals and require
+  review against the selected worktree's actual CI/repository configuration.
+- Add discovery/proposal CLI and UI flows following
+  `discover -> proposal -> review -> apply`; `run` executes only an applied
+  Checkset. Every execution binds to one explicit worktree identity.
 
 Exit criteria:
 
 - A pre-PR Checkset can report passed, failed, skipped, and unavailable steps.
 - The same Checkset behaves identically from UI and CLI.
+- A linked worktree under `.worktrees` is visible with its own state, and a
+  Checkset cannot silently run in a different worktree.
+- Discovery of an existing repository creates no file and installs no tool;
+  every applied step retains evidence of the existing command it uses.
 - Secret-canary tests prove that stdout/stderr/event/API/CLI surfaces are masked.
 - A caller cannot bypass required approval through HTTP or CLI.
 
@@ -117,6 +144,9 @@ Work:
 - Add GitHub/Jenkins read-only collectors only for configured Projects.
 - Implement cleanup candidate correlation for merged PRs, branches, worktrees,
   remote branches, and explicit issue links.
+- Re-observe every candidate worktree immediately before cleanup and block
+  dirty, untracked, detached, locked, active, missing-upstream, or unpushed
+  states unless the reviewed policy explicitly proves the operation safe.
 - Keep dirty/unpushed cleanup blocked and production/destructive operations
   always human-approved.
 

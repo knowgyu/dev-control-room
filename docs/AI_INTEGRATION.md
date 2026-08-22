@@ -17,7 +17,8 @@ When deterministic work is insufficient, the UI offers `Ask Agent`:
 1. The user selects an Agent Profile and optional model.
 2. Dev Control Room creates a bounded, masked handoff document.
 3. The user previews its data scope.
-4. The app opens the configured CLI in the selected repository directory.
+4. The app opens the configured CLI in the explicitly selected primary or
+   linked Worktree directory.
 5. Dev Control Room records launch metadata and later verification results, not
    the full private conversation by default.
 
@@ -43,6 +44,21 @@ Commands defined as PowerShell aliases or functions require a deliberate
 PowerShell-profile launch mode. Direct executable invocation remains the safer
 default.
 
+## Discovery assistance
+
+Repository setup is deterministic discovery first, not agent-generated
+configuration. Dev Control Room extracts existing package/build scripts,
+formatter/linter configuration, CI invocations, Jenkinsfiles, and reviewed
+local scripts from one explicitly selected Worktree. It emits a proposal with
+source evidence, branch, HEAD, and relevant file digests and performs no install
+or repository mutation.
+
+If evidence is ambiguous, the user may ask a selected Agent Profile to draft a
+proposal from the bounded discovery bundle. The draft is marked as inference,
+validated against the same schema and current Worktree evidence, and cannot
+apply itself. Suggestions for tooling that does not already exist are presented
+separately as improvements, never disguised as discovered checks.
+
 ## MCP adapter
 
 MCP is a later adapter, not the domain architecture. It runs over stdio and
@@ -51,7 +67,7 @@ offers narrow tools backed by the same application service. Planned tool groups:
 - project and repository status;
 - findings and evidence;
 - environment-health summaries;
-- Checkset discovery and execution;
+- Worktree-aware Checkset discovery and execution;
 - Action planning and approval-status inspection;
 - cleanup candidate inspection;
 - Agent Handoff preparation.

@@ -34,14 +34,26 @@ masking, execution, and audit treatment on every surface.
 
 Loads user-local Project configuration and optional repository-level
 `.devroom.yaml` files. It resolves repositories and enabled capabilities but
-does not hold secret values.
+does not hold secret values. Repository is the logical source-control identity;
+Worktree is a concrete checkout path beneath it. The primary checkout and every
+linked worktree have separate identities, state, and execution scopes.
+
+Linked worktrees are enumerated from NUL-delimited Git porcelain metadata, not
+by assuming a directory name. A `.worktrees` folder therefore works without
+special handling. A
+discovered path is canonicalized and verified against the same Git common
+directory before bounded read-only observation. Discovery does not grant
+mutation authority for that path.
 
 ### Collectors
 
 Collectors gather typed observations. Initial collectors cover local Git,
 worktrees, tool resolution, environment metadata, and PowerShell profiles.
 Later collectors cover GitHub, Jenkins, Kubernetes read-only diagnostics, and
-optional Harbor metadata. Collectors are read-only and may not remediate.
+optional Harbor metadata. Worktree collection retains path, branch, HEAD,
+dirty/untracked state, upstream drift, and detached/locked/prunable state for
+each checkout rather than reducing the repository to a count. Collectors are
+read-only and may not remediate.
 
 ### Reconcilers
 
@@ -49,11 +61,28 @@ Reconcilers derive current Findings from observations and configured policy.
 They are deterministic whenever possible. An AI batch may create a proposed
 finding or safeguard, but it must retain evidence and be marked as an inference.
 
+### Discovery and proposals
+
+Deterministic discovery inspects a user-selected worktree for existing build,
+formatter, linter, test, CI, and reviewed script entry points. It produces a
+proposal; it does not create configuration, install dependencies, rewrite a
+command, or execute the discovered entry point. Existing package/build scripts
+and CI invocations are preferred over newly reconstructed commands.
+
+A proposal records Project, Repository, Worktree, branch, HEAD, source file and
+digest, extracted command identity, and whether any field was AI-inferred. The
+user reviews the proposal before it becomes a Checkset or Action definition.
+Changing the selected worktree, HEAD, or relevant source digest makes the
+proposal stale. Optional AI assistance can interpret ambiguous evidence, but it
+cannot widen the scanned scope, activate a proposal, or mutate the repository.
+
 ### Check runner
 
 The Check runner executes reviewed Checksets with explicit executables,
 argument arrays, working directories, environment allowlists, timeouts, and
-output limits. It produces normalized results and masked evidence.
+output limits. It produces normalized results and masked evidence. Each run is
+bound to an explicit Worktree identity and revalidates its canonical path and
+expected source state before execution.
 
 ### Action broker
 
@@ -104,6 +133,8 @@ schemas and exit codes are versioned. Initial command families are:
 
 ```text
 devroom project list|show|doctor
+devroom project worktree|discover
+devroom proposal list|show|apply|reject
 devroom finding list|show|acknowledge
 devroom env doctor
 devroom check list|run
@@ -150,6 +181,11 @@ Read-only tools follow project scope. Mutating tools call the Action broker and
 cannot manufacture human approval. External and high-impact actions return an
 approval requirement that must be satisfied through the human surface.
 
+Repository-scoped tools also require an explicit Worktree identity whenever
+file content, diffs, checks, Actions, or an Agent working directory may differ
+between checkouts. They must not silently fall back from a selected linked
+worktree to the primary checkout.
+
 The CLI remains the universal fallback for providers whose MCP support is
 missing or unreliable.
 
@@ -173,6 +209,9 @@ feature unless explicitly added later.
   the parent process environment wholesale.
 - Keep executable and arguments separate; reject unresolved executables and
   unvalidated working directories.
+- Treat Git-advertised linked worktree paths as read-only discoveries until
+  their canonical path and common-directory association are verified. Never
+  use one worktree's evidence to authorize execution or cleanup in another.
 - Record who or what requested an Action, the policy decision, approval, exact
   executable identity, result, and postcheck evidence.
 - Recompute and verify the approved ActionPlan digest immediately before

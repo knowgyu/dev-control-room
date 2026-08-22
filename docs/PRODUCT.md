@@ -36,6 +36,15 @@ A Repository belongs to exactly one Project in the local configuration. Its Git
 remote identifies optional provider capabilities such as GitHub PR and CI
 status. GitHub is not a separate top-level object.
 
+### Worktree
+
+A Worktree is one concrete checkout of a Repository: either its primary
+checkout or a linked Git worktree, including those conventionally stored under
+`.worktrees`. Each Worktree has its own path, branch, HEAD, dirty state,
+upstream state, and activity. Checks, Actions, Agent Handoffs, and cleanup
+candidates always name the Worktree they target; Repository-level summaries
+must not obscure that target.
+
 ### Observation and Finding
 
 An Observation is immutable evidence collected from Git, a process, a file, a
@@ -79,7 +88,9 @@ scheduler can request or plan work but can never grant approval.
 A Checkset is a reviewed collection of deterministic checks, such as a
 repository's pre-PR checks. Results are `passed`, `failed`, `skipped`, or
 `unavailable`; a local pass must never imply that unavailable remote CI checks
-passed.
+passed. A Checkset is discovered or imported as a proposal, reviewed, and then
+applied. It reuses existing repository and CI entry points and does not create a
+new formatter, linter, or package script merely because one could be inferred.
 
 ### Agent profile and handoff
 
@@ -117,9 +128,14 @@ Logs are drill-down evidence, not the primary interface.
 
 ### Pre-PR checks
 
-- import existing human-written CI/pre-PR documentation once;
-- compare it with actual repository and CI configuration;
+- choose the exact primary or linked Worktree to inspect and run against;
+- deterministically discover existing package/build scripts, formatter/linter
+  configuration, CI workflows, Jenkinsfiles, and reviewed local scripts;
+- import existing human-written CI/pre-PR documentation as proposal evidence;
+- compare proposals with actual repository and CI configuration at the selected
+  branch, HEAD, and source-file digest;
 - save the user-approved result as a structured Checkset;
+- mark unapplied proposals stale when their Worktree or source changes;
 - run it from UI or CLI with the same behavior and machine-readable result;
 - offer an Agent Handoff only after presenting deterministic evidence.
 
@@ -140,6 +156,8 @@ For projects that enable release capabilities:
 
 - correlate merged PRs with local branches, remote branches, worktrees, and
   explicitly linked issues;
+- show each Worktree's path, branch, HEAD, dirty/untracked, upstream,
+  detached/locked/prunable, and last-observed state;
 - never delete a dirty worktree or a branch containing unpushed commits;
 - never close an issue based only on an AI inference;
 - group candidates by project and explain why each is safe or blocked.
