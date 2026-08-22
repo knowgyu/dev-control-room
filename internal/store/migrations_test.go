@@ -53,6 +53,20 @@ func TestOpenCreatesAndMigratesFileDatabase(t *testing.T) {
 	if version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
 	}
+	var busyTimeout int
+	if err := db.QueryRow(`PRAGMA busy_timeout`).Scan(&busyTimeout); err != nil {
+		t.Fatal(err)
+	}
+	if busyTimeout != 5000 {
+		t.Fatalf("busy_timeout = %d, want 5000", busyTimeout)
+	}
+	var journalMode string
+	if err := db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		t.Fatalf("journal_mode = %q, want wal", journalMode)
+	}
 }
 
 func TestRepositoryForeignKeysAreScopedByProject(t *testing.T) {

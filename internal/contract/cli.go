@@ -193,6 +193,10 @@ func Forbidden(message string) error {
 	return CodedError{Code: ErrorForbidden, Message: message}
 }
 
+func Unavailable(message string) error {
+	return CodedError{Code: ErrorUnavailable, Message: message}
+}
+
 func (e Error) Error() string {
 	if e.Message == "" {
 		return string(e.Code)

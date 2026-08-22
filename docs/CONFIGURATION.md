@@ -27,15 +27,15 @@ non-secret Project configuration:
     {
       "apiVersion": "devroom/v1alpha1",
       "kind": "Project",
-      "metadata": {"id": "max-os", "name": "max-os"},
+      "metadata": {"id": "sample-project", "name": "Sample Project"},
       "spec": {
         "repositories": [
           {
             "apiVersion": "devroom/v1alpha1",
             "kind": "Repository",
-            "metadata": {"id": "backend", "name": "backend"},
+            "metadata": {"id": "service-a", "name": "Service A"},
             "spec": {
-              "path": "C:\\work\\max-os-backend",
+              "path": "C:\\work\\sample-project\\service-a",
               "checksets": {"pre-pr": ["format", "unit", "postgresql-lifecycle"]}
             }
           }

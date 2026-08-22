@@ -15,7 +15,7 @@
 Outcome: opening the app in the morning shows what needs attention across
 registered projects without reading raw logs.
 
-## P1: max-os daily operations
+## P1: first configured release project
 
 - Approved pre-PR Checksets imported from existing documentation and verified
   against repository/CI configuration.

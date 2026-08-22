@@ -23,10 +23,10 @@ repeated failures into reviewable safeguards.
 ### Project
 
 A Project is the top-level unit selected by the user. It contains one or more
-repositories and optional capabilities. For example, `max-os` can contain three
-repositories plus Jenkins, stage/production release topology, and later a
-read-only Kubernetes connector. A small personal project may enable local Git
-diagnosis only.
+repositories and optional capabilities. For example, a generic
+`sample-project` can contain three repositories plus Jenkins, stage/production
+release topology, and later a read-only Kubernetes connector. A small personal
+project may enable local Git diagnosis only.
 
 Unsupported or disabled capabilities are hidden from that project's UI.
 

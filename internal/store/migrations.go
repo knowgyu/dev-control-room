@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 
 type Migration struct {
 	Version int
@@ -134,6 +134,20 @@ CREATE TABLE IF NOT EXISTS failure_fingerprints (
 CREATE INDEX IF NOT EXISTS idx_repositories_project ON repositories(project_id);
 CREATE INDEX IF NOT EXISTS idx_findings_project_state ON findings(project_id, state);
 CREATE INDEX IF NOT EXISTS idx_events_occurred_at ON events(occurred_at);
+		`,
+	},
+	{
+		Version: 2,
+		Name:    "query-performance-indexes",
+		SQL: `
+CREATE INDEX IF NOT EXISTS idx_observations_repository_collected_at
+    ON observations(project_id, repository_id, collected_at);
+CREATE INDEX IF NOT EXISTS idx_findings_repository_state
+    ON findings(project_id, repository_id, state, last_observed);
+CREATE INDEX IF NOT EXISTS idx_scan_runs_project_started_at
+    ON scan_runs(project_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_failure_fingerprints_last_seen
+    ON failure_fingerprints(last_seen);
 `,
 	},
 }
@@ -151,9 +165,26 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("configure sqlite busy timeout: %w", err)
+	}
+	var journalMode string
+	if err := db.QueryRowContext(ctx, `PRAGMA journal_mode = WAL`).Scan(&journalMode); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("enable sqlite WAL mode: %w", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		_ = db.Close()
+		return nil, fmt.Errorf("sqlite WAL mode is unavailable: %s", journalMode)
+	}
 	if err := Migrate(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("restrict sqlite database permissions: %w", err)
 	}
 	return db, nil
 }

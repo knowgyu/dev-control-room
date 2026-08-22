@@ -17,16 +17,18 @@ import (
 const (
 	APIVersion = "devroom/v1alpha1"
 
-	ProjectKind      = "Project"
-	RepositoryKind   = "Repository"
-	ObservationKind  = "Observation"
-	FindingKind      = "Finding"
-	ChecksetKind     = "Checkset"
-	ActionKind       = "Action"
-	ActionPlanKind   = "ActionPlan"
-	ApprovalKind     = "Approval"
-	AgentProfileKind = "AgentProfile"
-	EventKind        = "Event"
+	ProjectKind            = "Project"
+	RepositoryKind         = "Repository"
+	ObservationKind        = "Observation"
+	FindingKind            = "Finding"
+	ChecksetKind           = "Checkset"
+	ActionKind             = "Action"
+	ActionPlanKind         = "ActionPlan"
+	ApprovalKind           = "Approval"
+	AgentProfileKind       = "AgentProfile"
+	EventKind              = "Event"
+	ScanRunKind            = "ScanRun"
+	FailureFingerprintKind = "FailureFingerprint"
 )
 
 var (
@@ -334,6 +336,85 @@ type EventSpec struct {
 	OccurredAt   time.Time      `json:"occurredAt"`
 }
 
+// ScanRun records one bounded collection/reconciliation pass. Trigger is
+// deliberately descriptive metadata; manual and scheduled runs use the same
+// scan implementation and differ only in this field.
+type ScanRun struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta  `json:"metadata"`
+	Spec     ScanRunSpec `json:"spec"`
+}
+
+type ScanRunSpec struct {
+	ProjectID       string     `json:"projectId,omitempty"`
+	Trigger         string     `json:"trigger"`
+	Status          string     `json:"status"`
+	StartedAt       time.Time  `json:"startedAt"`
+	CompletedAt     *time.Time `json:"completedAt,omitempty"`
+	RepositoryCount int        `json:"repositoryCount"`
+	FindingCount    int        `json:"findingCount"`
+}
+
+const (
+	ScanRunning   = "running"
+	ScanSucceeded = "succeeded"
+	ScanFailed    = "failed"
+)
+
+type FailureFingerprint struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta             `json:"metadata"`
+	Spec     FailureFingerprintSpec `json:"spec"`
+}
+
+type FailureFingerprintSpec struct {
+	Fingerprint     string    `json:"fingerprint"`
+	Category        string    `json:"category"`
+	FirstSeen       time.Time `json:"firstSeen"`
+	LastSeen        time.Time `json:"lastSeen"`
+	OccurrenceCount int       `json:"occurrenceCount"`
+	EvidenceRefs    []string  `json:"evidenceRefs,omitempty"`
+}
+
+const (
+	FindingDirty          = "dirty_state"
+	FindingUpstreamDrift  = "upstream_drift"
+	FindingDetachedHead   = "detached_head"
+	FindingMissingRemote  = "missing_remote"
+	FindingStaleScan      = "stale_scan"
+	FindingUnsafeCleanup  = "unsafe_cleanup"
+	FindingCollectorError = "collector_error"
+)
+
+func (s ScanRun) Validate() error {
+	if err := validateResource(s.TypeMeta, ScanRunKind, s.Metadata); err != nil {
+		return err
+	}
+	if s.Spec.ProjectID != "" && !validIdentifier(s.Spec.ProjectID) {
+		return errors.New("scan run has an invalid project identifier")
+	}
+	if s.Spec.Trigger == "" || (s.Spec.Status != ScanRunning && s.Spec.Status != ScanSucceeded && s.Spec.Status != ScanFailed) || s.Spec.StartedAt.IsZero() {
+		return errors.New("scan run trigger, status, and start time are required")
+	}
+	if s.Spec.CompletedAt != nil && s.Spec.CompletedAt.Before(s.Spec.StartedAt) {
+		return errors.New("scan run completion cannot precede start")
+	}
+	return nil
+}
+
+func (f FailureFingerprint) Validate() error {
+	if err := validateResource(f.TypeMeta, FailureFingerprintKind, f.Metadata); err != nil {
+		return err
+	}
+	if strings.TrimSpace(f.Spec.Fingerprint) == "" || strings.TrimSpace(f.Spec.Category) == "" || f.Spec.FirstSeen.IsZero() || f.Spec.LastSeen.IsZero() || f.Spec.OccurrenceCount < 1 {
+		return errors.New("failure fingerprint fields are required")
+	}
+	if f.Spec.LastSeen.Before(f.Spec.FirstSeen) {
+		return errors.New("failure fingerprint last seen cannot precede first seen")
+	}
+	return nil
+}
+
 func NewProject(id, name string, repositories []Repository) Project {
 	return Project{
 		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ProjectKind},
@@ -359,6 +440,9 @@ func RepositoryKey(projectID, repositoryID string) string {
 func (p Project) Validate() error {
 	if err := validateResource(p.TypeMeta, ProjectKind, p.Metadata); err != nil {
 		return err
+	}
+	if len(p.Spec.Repositories) == 0 {
+		return errors.New("project requires at least one repository")
 	}
 	seen := make(map[string]struct{}, len(p.Spec.Repositories))
 	for _, repository := range p.Spec.Repositories {

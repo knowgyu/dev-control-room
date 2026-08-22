@@ -14,6 +14,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/masking"
+	"github.com/knowgyu/dev-control-room/internal/store"
 )
 
 func TestRequireLoopback(t *testing.T) {
@@ -76,6 +77,48 @@ func TestConfigV1MigrationDropsPersistedMutationToken(t *testing.T) {
 	}
 	if string(saved) == legacy || string(saved) == "" || contains(string(saved), "secret-token-canary") || contains(string(saved), "workbenches") {
 		t.Fatalf("legacy secret or terminology survived migration: %s", saved)
+	}
+}
+
+func TestProjectConfigMigrationResumesAfterPartialImport(t *testing.T) {
+	home := t.TempDir()
+	first := domain.NewProject("first", "First", []domain.Repository{domain.NewRepository("repo-1", "First", t.TempDir())})
+	second := domain.NewProject("second", "Second", []domain.Repository{domain.NewRepository("repo-1", "Second", t.TempDir())})
+	config := defaultConfig()
+	config.Projects = []domain.Project{first, second}
+	if err := saveConfig(home, config); err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.Open(context.Background(), filepath.Join(home, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistence, err := store.New(database, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.SaveProject(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	projects, err := service.Projects(context.Background())
+	if err != nil || len(projects) != 2 {
+		t.Fatalf("partial config migration did not resume: %#v, %v", projects, err)
+	}
+	migratedConfig, err := loadConfig(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migratedConfig.Projects) != 0 {
+		t.Fatalf("migrated projects remained in config: %#v", migratedConfig.Projects)
 	}
 }
 

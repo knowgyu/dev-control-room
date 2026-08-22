@@ -50,7 +50,7 @@ Work:
 
 Exit criteria:
 
-- A `max-os` Project can contain three real Windows repository paths.
+- A sample Project can contain three Windows repository paths.
 - Scheduled and manual scans produce the same normalized findings.
 - CLI JSON is covered by golden/schema tests.
 - Restarting the service retains Projects, history, and finding lifecycle.
@@ -103,13 +103,13 @@ Exit criteria:
 - Secret-canary tests prove that stdout/stderr/event/API/CLI surfaces are masked.
 - A caller cannot bypass required approval through HTTP or CLI.
 
-## Milestone 4: max-os release and cleanup
+## Milestone 4: configured release project and cleanup
 
 Goal: support the first high-value project-specific operations.
 
 Work:
 
-- Onboard actual `max-os` repository paths and confirmed branch topology.
+- Onboard user-selected repository paths and a confirmed branch topology.
 - Convert reviewed Obsidian PowerShell procedures into version-controlled
   scripts or typed Action definitions.
 - Add local sync, fast-forward prechecks, backend/frontend separation,

@@ -8,7 +8,7 @@ import (
 )
 
 func TestProjectContractAndValidation(t *testing.T) {
-	project := NewProject("max-os", "max-os", []Repository{
+	project := NewProject("sample-project", "Sample Project", []Repository{
 		NewRepository("backend", "Backend", `C:\work\backend`),
 		NewRepository("frontend", "Frontend", `C:\work\frontend`),
 	})
@@ -129,7 +129,7 @@ func TestHighImpactActionRequiresFreshIndependentApproval(t *testing.T) {
 		t.Fatal("expected agent approval to fail")
 	}
 	valid := selfApproved
-	valid.Spec.ApprovedBy = &Actor{Kind: ActorHuman, ID: "knowgyu"}
+	valid.Spec.ApprovedBy = &Actor{Kind: ActorHuman, ID: "local-user"}
 	if err := valid.ValidateFor(plan); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestSingleHumanCanApproveOwnRequestAndApprovalBindsToPlanDigest(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	human := Actor{Kind: ActorHuman, ID: "knowgyu"}
+	human := Actor{Kind: ActorHuman, ID: "local-user"}
 	approval := Approval{
 		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ApprovalKind},
 		Metadata: ObjectMeta{ID: "approval-1", Name: "production approval"},
@@ -182,8 +182,8 @@ func TestApprovalMustMatchActionPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requester := Actor{Kind: ActorHuman, ID: "knowgyu"}
-	approver := Actor{Kind: ActorHuman, ID: "knowgyu"}
+	requester := Actor{Kind: ActorHuman, ID: "local-user"}
+	approver := Actor{Kind: ActorHuman, ID: "local-user"}
 	approval := Approval{
 		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ApprovalKind},
 		Metadata: ObjectMeta{ID: "approval-1", Name: "unexpected approval"},

@@ -29,8 +29,9 @@ The pre-Milestone-0 prototype used only the Go standard library and browser APIs
 
 ### `modernc.org/sqlite` `v1.38.2`
 
-- Purpose: CGo-free SQLite driver used by the forward-only database migration
-  harness and the planned local event/state store.
+- Purpose: CGo-free SQLite driver used by the forward-only migration harness and
+  the local Project, Repository, Observation, Finding, Event, ScanRun, and
+  FailureFingerprint repositories.
 - License: BSD-3-Clause for the Go driver; SQLite itself is public domain.
 - Network behavior: none at runtime. The driver is an in-process database
   implementation and does not contact a hosted service or send telemetry.
@@ -79,5 +80,15 @@ The Apache-2.0 entry above is explicitly reviewed and is permitted by this
 policy. License names were checked against the pinned upstream license files;
 the exact module graph is reproducible with `go list -m all` and integrity
 checks with `go mod verify`. No copyleft, telemetry, credential-uploading, or
-hosted-service dependency is present. No other dependency is added in
-Milestone 0.
+hosted-service dependency is present.
+
+## Milestone 1 license and indirect-dependency audit
+
+Audited 2026-08-22 before the Milestone 1 implementation commit. Milestone 1
+adds no module to `go.mod` or `go.sum`; the complete indirect graph above is
+unchanged and remains limited to the reviewed `modernc.org/sqlite` support
+modules. The new collector, CLI, HTTP adapter, UI, and SQLite repositories use
+the Go standard library and existing dependencies only. `go list -m all` and
+`go mod verify` are part of the Milestone 1 verification record, and any future
+module addition must append its exact version, license, runtime network
+behavior, and removal path here before code is merged.

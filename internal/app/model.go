@@ -13,14 +13,21 @@ type Config struct {
 }
 
 type RepositoryState struct {
-	Path      string    `json:"path"`
-	Branch    string    `json:"branch,omitempty"`
-	Origin    string    `json:"origin,omitempty"`
-	Dirty     bool      `json:"dirty"`
-	Ahead     int       `json:"ahead"`
-	Behind    int       `json:"behind"`
-	Error     string    `json:"error,omitempty"`
-	ScannedAt time.Time `json:"scanned_at"`
+	Path          string    `json:"path"`
+	TopLevel      string    `json:"top_level,omitempty"`
+	Branch        string    `json:"branch,omitempty"`
+	Origin        string    `json:"origin,omitempty"`
+	Detached      bool      `json:"detached"`
+	Dirty         bool      `json:"dirty"`
+	Ahead         int       `json:"ahead"`
+	Behind        int       `json:"behind"`
+	Upstream      string    `json:"upstream,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	Capabilities  []string  `json:"capabilities,omitempty"`
+	WorktreeCount int       `json:"worktree_count"`
+	UnsafeCleanup bool      `json:"unsafe_cleanup"`
+	Error         string    `json:"error,omitempty"`
+	ScannedAt     time.Time `json:"scanned_at"`
 }
 
 type ProjectState struct {

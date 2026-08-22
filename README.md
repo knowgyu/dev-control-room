@@ -11,8 +11,8 @@ source of truth.
 
 ## What it should solve
 
-- Group several repositories under one project, such as the three repositories
-  belonging to `max-os`.
+- Group several repositories under one project, such as a generic
+  `sample-project` composed of multiple repositories.
 - Show actionable findings by severity instead of making the user read logs.
 - Diagnose Git, worktrees, pull requests, CI, local tools, PowerShell profiles,
   and environment configuration on a schedule.
@@ -38,12 +38,12 @@ source of truth.
 
 ## Repository status
 
-Milestone 0 now establishes the versioned Project/domain contracts, shared
-application interfaces, stable CLI/HTTP envelope, configuration migration,
-SQLite migration harness, and masking boundary. The existing local-Git doctor
-and JSONL event ledger remain explicitly marked spike adapters until the
-Milestone 1 persistence and collector work is accepted. Milestone 1 has not
-been started.
+Milestone 1 now provides SQLite-backed Project and Repository CRUD, secret-free
+Project export/import, durable observations/findings/events/scan runs, bounded
+local Git/worktree collection, deterministic findings, and shared CLI/HTTP/UI
+application services. The former JSONL ledger and in-memory snapshot spike
+adapters are no longer used. Milestone 2 environment diagnostics and Windows
+scheduling have not been started.
 
 The target stack is a small Go service and CLI, an embedded local web UI,
 SQLite-backed state, PowerShell 7.6 runbooks, and Windows Task Scheduler for
