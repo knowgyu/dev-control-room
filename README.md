@@ -52,6 +52,7 @@ CLI/application contracts exist.
 
 ## Start here
 
+- [Current state and implementation handoff](docs/HANDOFF.md)
 - [Product definition](docs/PRODUCT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Configuration and secrets](docs/CONFIGURATION.md)
