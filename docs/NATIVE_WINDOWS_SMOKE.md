@@ -19,9 +19,16 @@ The following gates passed:
   Yes creates only a digest-bound approval/audit; no Action process starts);
 - Task Scheduler dry-run and status (`exists:false`, exit 0; no task mutation).
 
-The detailed append-only Windows run log remains in the native checkout's
-`docs/NATIVE_WINDOWS_SMOKE.md`. Earlier failed and unavailable runs in that
-log are historical; the `3dbc90d` section is the authoritative final result.
+The required command gates all exited 0: `go test ./...`,
+`CGO_ENABLED=1 go test -race ./...`, `go vet ./...`, `go build ./...`, and
+`go mod verify`. The focused UI, Worktree, Action, ProcessRunner, and
+Scheduler commands also exited 0. This summary is based on the operator's
+native run; the raw append-only log is not present in this WSL checkout.
+
+The detailed append-only Windows run log remains in the native checkout at
+`C:\Users\knowgyu\workspace_window\dev-control-room\docs\NATIVE_WINDOWS_SMOKE.md`.
+Earlier failed and unavailable runs in that log are historical; the `3dbc90d`
+section is the authoritative final result.
 
 ## Scope boundary
 
