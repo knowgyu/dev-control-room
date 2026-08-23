@@ -22,6 +22,9 @@ type QueryService interface {
 	Worktree(context.Context, string, string, string) (domain.Worktree, error)
 	Proposals(context.Context, string, string, string) ([]domain.Proposal, error)
 	Proposal(context.Context, string) (domain.Proposal, error)
+	Checksets(context.Context, string, string) ([]domain.Checkset, error)
+	Checkset(context.Context, string) (domain.Checkset, error)
+	CheckRuns(context.Context, string) ([]domain.CheckRun, error)
 	Findings(context.Context, string, string) ([]domain.Finding, error)
 	Finding(context.Context, string) (domain.Finding, error)
 	Events(context.Context, int) ([]domain.Event, error)
@@ -43,6 +46,9 @@ type CommandService interface {
 	Discover(context.Context, string, string, string) (domain.Discovery, error)
 	ApplyProposal(context.Context, string) (domain.Proposal, error)
 	RejectProposal(context.Context, string) (domain.Proposal, error)
+	CreateCheckset(context.Context, CreateChecksetInput) (domain.Checkset, error)
+	ApplyCheckset(context.Context, string) (domain.Checkset, error)
+	RunCheckset(context.Context, string) (domain.CheckRun, error)
 	ExportProject(context.Context, string) ([]byte, error)
 	ImportProject(context.Context, []byte) (domain.Project, error)
 	AddAgentProfile(context.Context, AddAgentProfileInput) (domain.AgentProfile, error)
@@ -84,6 +90,13 @@ type UpdateProjectInput struct {
 type UpdateRepositoryInput struct {
 	Name string
 	Path string
+}
+
+type CreateChecksetInput struct {
+	ID         string
+	Name       string
+	ProposalID string
+	Steps      []domain.CheckStep
 }
 
 type AddAgentProfileInput struct {

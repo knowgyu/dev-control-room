@@ -91,6 +91,30 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(item))
 	})
+	mux.HandleFunc("GET /api/projects/{projectID}/repositories/{repositoryID}/checksets", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.Checksets(request.Context(), request.PathValue("projectID"), request.PathValue("repositoryID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/checksets/{checksetID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.Checkset(request.Context(), request.PathValue("checksetID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/checksets/{checksetID}/runs", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.CheckRuns(request.Context(), request.PathValue("checksetID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
 	mux.HandleFunc("GET /api/projects/{projectID}/export", func(response http.ResponseWriter, request *http.Request) {
 		data, err := service.ExportProject(request.Context(), request.PathValue("projectID"))
 		if err != nil {
@@ -184,6 +208,35 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 	}))
 	mux.HandleFunc("POST /api/proposals/{proposalID}/reject", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		item, err := service.RejectProposal(request.Context(), request.PathValue("proposalID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/checksets", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input CreateChecksetInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.CreateCheckset(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/checksets/{checksetID}/apply", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.ApplyCheckset(request.Context(), request.PathValue("checksetID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/checksets/{checksetID}/run", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.RunCheckset(request.Context(), request.PathValue("checksetID"))
 		if err != nil {
 			writeServiceError(response, err)
 			return

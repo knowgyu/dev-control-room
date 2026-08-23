@@ -872,6 +872,84 @@ func (s *Store) LoadSingleton(ctx context.Context, table string, target any) (bo
 	return true, nil
 }
 
+func (s *Store) SaveCheckset(ctx context.Context, checkset domain.Checkset) error {
+	if err := checkset.Validate(); err != nil {
+		return fmt.Errorf("validate checkset: %w", err)
+	}
+	object, err := s.maskedJSON(checkset)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO checksets(id, project_id, repository_id, object_json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET object_json=excluded.object_json`, checkset.Metadata.ID, checkset.Spec.ProjectID, checkset.Spec.RepositoryID, object)
+	return err
+}
+
+func (s *Store) GetCheckset(ctx context.Context, id string) (domain.Checkset, error) {
+	var object string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM checksets WHERE id = ?`, id).Scan(&object); err != nil {
+		return domain.Checkset{}, err
+	}
+	var checkset domain.Checkset
+	if err := json.Unmarshal([]byte(object), &checkset); err != nil {
+		return domain.Checkset{}, fmt.Errorf("decode checkset: %w", err)
+	}
+	return checkset, nil
+}
+
+func (s *Store) ListChecksets(ctx context.Context, projectID, repositoryID string) ([]domain.Checkset, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_json FROM checksets WHERE project_id = ? AND repository_id = ? ORDER BY id`, projectID, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []domain.Checkset{}
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			return nil, err
+		}
+		var item domain.Checkset
+		if err := json.Unmarshal([]byte(object), &item); err != nil {
+			return nil, fmt.Errorf("decode checkset: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) SaveCheckRun(ctx context.Context, run domain.CheckRun) error {
+	if err := run.Validate(); err != nil {
+		return fmt.Errorf("validate check run: %w", err)
+	}
+	object, err := s.maskedJSON(run)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO check_runs(id, checkset_id, project_id, repository_id, worktree_id, started_at, completed_at, status, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.Metadata.ID, run.Spec.ChecksetID, run.Spec.ProjectID, run.Spec.RepositoryID, run.Spec.WorktreeID, run.Spec.StartedAt.UTC().Format(timeFormat), run.Spec.CompletedAt.UTC().Format(timeFormat), run.Spec.Status, object)
+	return err
+}
+
+func (s *Store) ListCheckRuns(ctx context.Context, checksetID string) ([]domain.CheckRun, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_json FROM check_runs WHERE checkset_id = ? ORDER BY started_at DESC, id DESC`, checksetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []domain.CheckRun{}
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			return nil, err
+		}
+		var item domain.CheckRun
+		if err := json.Unmarshal([]byte(object), &item); err != nil {
+			return nil, fmt.Errorf("decode check run: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) maskedJSON(value any) (string, error) {
 	data, err := json.Marshal(value)
 	if err != nil {

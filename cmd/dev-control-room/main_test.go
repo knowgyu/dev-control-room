@@ -39,6 +39,14 @@ func TestWriteCLIErrorDoesNotExposeInternalDetails(t *testing.T) {
 	}
 }
 
+func TestCheckRunExitCodes(t *testing.T) {
+	for status, want := range map[domain.CheckRunStatus]int{domain.CheckPassed: 0, domain.CheckFailed: 3, domain.CheckUnavailable: 6, domain.CheckTimedOut: 6, domain.CheckCancelled: 5} {
+		if got := checkRunExitCode(status); got != want {
+			t.Fatalf("%s exit = %d, want %d", status, got, want)
+		}
+	}
+}
+
 func TestVersionJSONReportsCurrentMilestone(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runVersionTo([]string{"--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) {

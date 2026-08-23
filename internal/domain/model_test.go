@@ -115,6 +115,22 @@ func TestProposalRequiresBoundedEvidenceAndReviewState(t *testing.T) {
 	}
 }
 
+func TestChecksetRejectsShellAndUnknownDependencies(t *testing.T) {
+	checkset := Checkset{TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ChecksetKind}, Metadata: ObjectMeta{ID: "checks-1", Name: "Checks"}, Spec: ChecksetSpec{ProjectID: "project-1", RepositoryID: "repo-1", WorktreeID: "primary", Head: "abc", ProposalID: "proposal-1", Name: "Checks", State: ChecksetDraft, Steps: []CheckStep{{ID: "test", Name: "Test", Command: CheckCommand{Executable: "git", Arguments: []string{"status", "--porcelain"}, TimeoutSeconds: 5}}}}}
+	if err := checkset.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	checkset.Spec.Steps[0].Command.Executable = "sh"
+	if err := checkset.Validate(); err == nil {
+		t.Fatal("shell executable accepted")
+	}
+	checkset.Spec.Steps[0].Command.Executable = "git"
+	checkset.Spec.Steps[0].DependsOn = []string{"missing"}
+	if err := checkset.Validate(); err == nil {
+		t.Fatal("missing dependency accepted")
+	}
+}
+
 func TestHighImpactActionRequiresFreshIndependentApproval(t *testing.T) {
 	plan := ActionPlan{
 		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind},

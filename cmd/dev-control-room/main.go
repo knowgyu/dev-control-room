@@ -39,6 +39,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runProject(args[1:], stdout, stderr)
 	case "proposal":
 		return runProposal(args[1:], stdout, stderr)
+	case "check":
+		return runCheck(args[1:], stdout, stderr)
 	case "finding":
 		return runFinding(args[1:], stdout, stderr)
 	case "event":
@@ -278,6 +280,105 @@ func runProposal(args []string, stdout, stderr io.Writer) int {
 		return emitObject(stdout, item, jsonOutput)
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown proposal command: "+subcommand))
+	}
+}
+
+func runCheck(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("check requires list, show, create, apply, run, or runs"))
+	}
+	subcommand := args[0]
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	ctx := context.Background()
+	switch subcommand {
+	case "list":
+		if len(args) != 2 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("check list requires project and repository ids"))
+		}
+		items, err := service.Checksets(ctx, args[0], args[1])
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, items, jsonOutput)
+	case "show", "apply", "run", "runs":
+		if len(args) != 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("check "+subcommand+" requires a checkset id"))
+		}
+		if subcommand == "show" {
+			item, err := service.Checkset(ctx, args[0])
+			if err != nil {
+				return writeCLIErrorTo(stderr, err)
+			}
+			return emitObject(stdout, item, jsonOutput)
+		}
+		if subcommand == "apply" {
+			item, err := service.ApplyCheckset(ctx, args[0])
+			if err != nil {
+				return writeCLIErrorTo(stderr, err)
+			}
+			return emitObject(stdout, item, jsonOutput)
+		}
+		if subcommand == "run" {
+			item, err := service.RunCheckset(ctx, args[0])
+			if err != nil {
+				return writeCLIErrorTo(stderr, err)
+			}
+			if exit := emitObject(stdout, item, jsonOutput); exit != int(contract.ExitSuccess) {
+				return exit
+			}
+			return checkRunExitCode(item.Spec.Status)
+		}
+		items, err := service.CheckRuns(ctx, args[0])
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, items, jsonOutput)
+	case "create":
+		if len(args) != 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("check create requires a JSON input file"))
+		}
+		data, err := os.ReadFile(args[0])
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		var input app.CreateChecksetInput
+		if err := json.Unmarshal(data, &input); err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("invalid checkset JSON input"))
+		}
+		item, err := service.CreateCheckset(ctx, input)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	default:
+		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown check command: "+subcommand))
+	}
+}
+
+func checkRunExitCode(status domain.CheckRunStatus) int {
+	switch status {
+	case domain.CheckPassed, domain.CheckSkipped:
+		return int(contract.ExitSuccess)
+	case domain.CheckFailed:
+		return int(contract.ExitCheckFailed)
+	case domain.CheckUnavailable, domain.CheckTimedOut:
+		return int(contract.ExitUnavailable)
+	case domain.CheckCancelled:
+		return int(contract.ExitExecutionError)
+	default:
+		return int(contract.ExitExecutionError)
 	}
 }
 

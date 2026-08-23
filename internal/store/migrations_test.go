@@ -28,7 +28,7 @@ func TestMigrateCreatesContractSchemaAndIsIdempotent(t *testing.T) {
 	if version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
 	}
-	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "actions", "action_plans", "approvals", "agent_profiles", "events", "scan_runs", "failure_fingerprints", "environment_health", "scheduler_state", "proposals"} {
+	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "check_runs", "actions", "action_plans", "approvals", "agent_profiles", "events", "scan_runs", "failure_fingerprints", "environment_health", "scheduler_state", "proposals"} {
 		var count int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -36,6 +36,62 @@ func TestMigrateCreatesContractSchemaAndIsIdempotent(t *testing.T) {
 		if count != 1 {
 			t.Fatalf("table %q was not created", table)
 		}
+	}
+}
+
+func TestMigrationEightAppliesForwardFromVersionSeven(t *testing.T) {
+	db := openUnmigratedTestDatabase(t, "check-runs-v7-forward")
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:7] {
+		if _, err := db.Exec(migration.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)`, migration.Version, migration.Name, migrationChecksum(migration.SQL)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='check_runs'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("check_runs migration = %d, %v", count, err)
+	}
+}
+
+func TestCheckRunsEnforceReferencesAndCascadeWithCheckset(t *testing.T) {
+	db, err := Open(context.Background(), filepath.Join(t.TempDir(), "check-runs.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO check_runs(id, checkset_id, project_id, repository_id, worktree_id, started_at, completed_at, status, object_json) VALUES ('bad','missing','missing','repo','primary','now','now','passed','{}')`); err == nil {
+		t.Fatal("missing check run references accepted")
+	}
+	if _, err := db.Exec(`INSERT INTO projects(id, api_version, kind, name, spec_json) VALUES ('p','v','Project','p','{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO repositories(project_id,id,api_version,kind,name,spec_json) VALUES ('p','r','v','Repository','r','{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO worktrees(project_id,repository_id,id,association_fingerprint,canonical_path,trust,is_primary,last_observed,object_json) VALUES ('p','r','primary',NULL,'/fixture','verified_read_only',1,'now','{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO checksets(id,project_id,repository_id,object_json) VALUES ('c','p','r','{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO check_runs(id,checkset_id,project_id,repository_id,worktree_id,started_at,completed_at,status,object_json) VALUES ('run','c','p','r','primary','now','now','passed','{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM checksets WHERE id = 'c'`); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM check_runs WHERE id = 'run'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("check run cascade = %d, %v", count, err)
 	}
 }
 

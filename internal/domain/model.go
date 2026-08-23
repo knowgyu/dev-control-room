@@ -27,6 +27,7 @@ const (
 	ObservationKind         = "Observation"
 	FindingKind             = "Finding"
 	ChecksetKind            = "Checkset"
+	CheckRunKind            = "CheckRun"
 	ActionKind              = "Action"
 	ActionPlanKind          = "ActionPlan"
 	ApprovalKind            = "Approval"
@@ -222,6 +223,7 @@ type ProposalSpec struct {
 	SourceDigest string        `json:"sourceDigest"`
 	CommandKind  string        `json:"commandKind"`
 	Command      string        `json:"command"`
+	TypedCommand *CheckCommand `json:"typedCommand,omitempty"`
 	Inference    string        `json:"inference"`
 	State        ProposalState `json:"state"`
 	CreatedAt    time.Time     `json:"createdAt"`
@@ -237,6 +239,9 @@ func (p Proposal) Validate() error {
 	}
 	if p.Spec.State != ProposalPending && p.Spec.State != ProposalApplied && p.Spec.State != ProposalRejected && p.Spec.State != ProposalStale {
 		return errors.New("proposal has an invalid lifecycle state")
+	}
+	if p.Spec.TypedCommand != nil && !validCheckCommand(*p.Spec.TypedCommand) {
+		return errors.New("proposal typed command is invalid")
 	}
 	if (p.Spec.State == ProposalApplied || p.Spec.State == ProposalRejected) != (p.Spec.ReviewedAt != nil) {
 		return errors.New("reviewed proposals require a review time")
@@ -344,18 +349,76 @@ type Checkset struct {
 }
 
 type ChecksetSpec struct {
-	ProjectID    string      `json:"projectId"`
-	RepositoryID string      `json:"repositoryId,omitempty"`
-	Name         string      `json:"name"`
-	Steps        []CheckStep `json:"steps"`
+	ProjectID    string        `json:"projectId"`
+	RepositoryID string        `json:"repositoryId"`
+	WorktreeID   string        `json:"worktreeId"`
+	Head         string        `json:"head"`
+	ProposalID   string        `json:"proposalId"`
+	Name         string        `json:"name"`
+	State        ChecksetState `json:"state"`
+	Steps        []CheckStep   `json:"steps"`
 }
 
+type ChecksetState string
+
+const (
+	ChecksetDraft   ChecksetState = "draft"
+	ChecksetApplied ChecksetState = "applied"
+)
+
 type CheckStep struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	DependsOn   []string `json:"dependsOn,omitempty"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Description string       `json:"description,omitempty"`
+	DependsOn   []string     `json:"dependsOn,omitempty"`
+	Command     CheckCommand `json:"command"`
 }
+
+// CheckCommand is an argv command, never a shell command. WorkingDirectory is
+// deliberately fixed to the Checkset's verified Worktree.
+type CheckCommand struct {
+	Executable     string   `json:"executable"`
+	Arguments      []string `json:"arguments"`
+	Environment    []string `json:"environment,omitempty"`
+	TimeoutSeconds int      `json:"timeoutSeconds"`
+}
+
+type CheckRun struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta   `json:"metadata"`
+	Spec     CheckRunSpec `json:"spec"`
+}
+
+type CheckRunSpec struct {
+	ChecksetID   string         `json:"checksetId"`
+	ProjectID    string         `json:"projectId"`
+	RepositoryID string         `json:"repositoryId"`
+	WorktreeID   string         `json:"worktreeId"`
+	Head         string         `json:"head"`
+	StartedAt    time.Time      `json:"startedAt"`
+	CompletedAt  time.Time      `json:"completedAt"`
+	Status       CheckRunStatus `json:"status"`
+	Steps        []CheckStepRun `json:"steps"`
+}
+
+type CheckStepRun struct {
+	StepID   string         `json:"stepId"`
+	Status   CheckRunStatus `json:"status"`
+	ExitCode int            `json:"exitCode,omitempty"`
+	Stdout   string         `json:"stdout,omitempty"`
+	Stderr   string         `json:"stderr,omitempty"`
+}
+
+type CheckRunStatus string
+
+const (
+	CheckPassed      CheckRunStatus = "passed"
+	CheckFailed      CheckRunStatus = "failed"
+	CheckSkipped     CheckRunStatus = "skipped"
+	CheckUnavailable CheckRunStatus = "unavailable"
+	CheckCancelled   CheckRunStatus = "cancelled"
+	CheckTimedOut    CheckRunStatus = "timed_out"
+)
 
 func (c Checkset) Validate() error {
 	if err := validateResource(c.TypeMeta, ChecksetKind, c.Metadata); err != nil {
@@ -364,12 +427,15 @@ func (c Checkset) Validate() error {
 	if err := validateProjectRepository(c.Spec.ProjectID, c.Spec.RepositoryID); err != nil {
 		return err
 	}
-	if strings.TrimSpace(c.Spec.Name) == "" || len(c.Spec.Steps) == 0 {
+	if !validIdentifier(c.Spec.WorktreeID) || strings.TrimSpace(c.Spec.Head) == "" || !validIdentifier(c.Spec.ProposalID) {
+		return errors.New("checkset worktree, head, and proposal are required")
+	}
+	if strings.TrimSpace(c.Spec.Name) == "" || len(c.Spec.Steps) == 0 || (c.Spec.State != ChecksetDraft && c.Spec.State != ChecksetApplied) {
 		return errors.New("checkset name and at least one step are required")
 	}
 	seen := make(map[string]struct{}, len(c.Spec.Steps))
 	for _, step := range c.Spec.Steps {
-		if !validIdentifier(step.ID) || strings.TrimSpace(step.Name) == "" {
+		if !validIdentifier(step.ID) || strings.TrimSpace(step.Name) == "" || !validCheckCommand(step.Command) {
 			return errors.New("checkset steps require valid unique ids and names")
 		}
 		if _, exists := seen[step.ID]; exists {
@@ -377,7 +443,92 @@ func (c Checkset) Validate() error {
 		}
 		seen[step.ID] = struct{}{}
 	}
+	for _, step := range c.Spec.Steps {
+		for _, dependency := range step.DependsOn {
+			if dependency == step.ID || !validIdentifier(dependency) {
+				return errors.New("checkset step dependencies must name another valid step")
+			}
+			if _, ok := seen[dependency]; !ok {
+				return errors.New("checkset step dependency is missing")
+			}
+		}
+	}
+	visiting, visited := map[string]bool{}, map[string]bool{}
+	var visit func(string) bool
+	visit = func(id string) bool {
+		if visiting[id] {
+			return false
+		}
+		if visited[id] {
+			return true
+		}
+		visiting[id] = true
+		for _, step := range c.Spec.Steps {
+			if step.ID == id {
+				for _, dependency := range step.DependsOn {
+					if !visit(dependency) {
+						return false
+					}
+				}
+			}
+		}
+		visiting[id], visited[id] = false, true
+		return true
+	}
+	for _, step := range c.Spec.Steps {
+		if !visit(step.ID) {
+			return errors.New("checkset step dependencies cannot cycle")
+		}
+	}
 	return nil
+}
+
+func validCheckCommand(command CheckCommand) bool {
+	if command.Executable != "git" || command.TimeoutSeconds < 1 || command.TimeoutSeconds > 300 {
+		return false
+	}
+	for _, argument := range command.Arguments {
+		if strings.ContainsRune(argument, '\x00') {
+			return false
+		}
+	}
+	if len(command.Arguments) == 0 {
+		return false
+	}
+	for _, name := range command.Environment {
+		if !environmentNamePattern.MatchString(name) {
+			return false
+		}
+	}
+	switch command.Arguments[0] {
+	case "status":
+		return len(command.Arguments) == 2 && command.Arguments[1] == "--porcelain"
+	case "diff":
+		return len(command.Arguments) == 2 && (command.Arguments[1] == "--check" || command.Arguments[1] == "--exit-code")
+	case "config":
+		return len(command.Arguments) == 3 && command.Arguments[1] == "--get" && commandNamePattern.MatchString(command.Arguments[2])
+	default:
+		return false
+	}
+}
+
+func (r CheckRun) Validate() error {
+	if err := validateResource(r.TypeMeta, CheckRunKind, r.Metadata); err != nil {
+		return err
+	}
+	if err := validateProjectRepository(r.Spec.ProjectID, r.Spec.RepositoryID); err != nil || !validIdentifier(r.Spec.ChecksetID) || !validIdentifier(r.Spec.WorktreeID) || strings.TrimSpace(r.Spec.Head) == "" || r.Spec.StartedAt.IsZero() || r.Spec.CompletedAt.IsZero() || r.Spec.CompletedAt.Before(r.Spec.StartedAt) || !validCheckRunStatus(r.Spec.Status) {
+		return errors.New("check run scope, timing, and status are required")
+	}
+	for _, step := range r.Spec.Steps {
+		if !validIdentifier(step.StepID) || !validCheckRunStatus(step.Status) {
+			return errors.New("check run steps require valid ids and statuses")
+		}
+	}
+	return nil
+}
+
+func validCheckRunStatus(status CheckRunStatus) bool {
+	return status == CheckPassed || status == CheckFailed || status == CheckSkipped || status == CheckUnavailable || status == CheckCancelled || status == CheckTimedOut
 }
 
 type Action struct {

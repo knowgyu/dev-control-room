@@ -13,11 +13,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/knowgyu/dev-control-room/internal/checkset"
 	"github.com/knowgyu/dev-control-room/internal/collector"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/discovery"
@@ -288,6 +290,156 @@ func (a *App) Proposal(ctx context.Context, id string) (domain.Proposal, error) 
 		}
 	}
 	return proposal, nil
+}
+
+func (a *App) Checksets(ctx context.Context, projectID, repositoryID string) ([]domain.Checkset, error) {
+	if _, err := a.Repository(ctx, projectID, repositoryID); err != nil {
+		return nil, err
+	}
+	return a.store.ListChecksets(ctx, projectID, repositoryID)
+}
+
+func (a *App) Checkset(ctx context.Context, id string) (domain.Checkset, error) {
+	item, err := a.store.GetCheckset(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Checkset{}, contract.NotFound("checkset not found")
+	}
+	return item, err
+}
+
+func (a *App) CheckRuns(ctx context.Context, checksetID string) ([]domain.CheckRun, error) {
+	if _, err := a.Checkset(ctx, checksetID); err != nil {
+		return nil, err
+	}
+	return a.store.ListCheckRuns(ctx, checksetID)
+}
+
+func (a *App) CreateCheckset(ctx context.Context, input CreateChecksetInput) (domain.Checkset, error) {
+	if strings.TrimSpace(input.ID) == "" || safeID.MatchString(input.ID) {
+		return domain.Checkset{}, contract.InvalidInput("checkset id is invalid")
+	}
+	proposal, err := a.Proposal(ctx, input.ProposalID)
+	if err != nil {
+		return domain.Checkset{}, err
+	}
+	if proposal.Spec.State != domain.ProposalApplied {
+		return domain.Checkset{}, contract.InvalidInput("checkset requires an applied proposal")
+	}
+	if proposal.Spec.TypedCommand == nil || len(input.Steps) == 0 {
+		return domain.Checkset{}, contract.InvalidInput("checkset command must exactly match reviewed typed proposal evidence")
+	}
+	for _, step := range input.Steps {
+		if !reflect.DeepEqual(step.Command, *proposal.Spec.TypedCommand) {
+			return domain.Checkset{}, contract.InvalidInput("checkset command must exactly match reviewed typed proposal evidence")
+		}
+	}
+	if stale, err := a.proposalStale(ctx, proposal); err != nil {
+		return domain.Checkset{}, contract.Unavailable("proposal evidence cannot be verified")
+	} else if stale {
+		return domain.Checkset{}, contract.InvalidInput("checkset proposal evidence is stale")
+	}
+	item := domain.Checkset{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ChecksetKind}, Metadata: domain.ObjectMeta{ID: input.ID, Name: input.Name}, Spec: domain.ChecksetSpec{ProjectID: proposal.Spec.ProjectID, RepositoryID: proposal.Spec.RepositoryID, WorktreeID: proposal.Spec.WorktreeID, Head: proposal.Spec.Head, ProposalID: proposal.Metadata.ID, Name: input.Name, State: domain.ChecksetDraft, Steps: input.Steps}}
+	if err := item.Validate(); err != nil {
+		return domain.Checkset{}, contract.InvalidInput(err.Error())
+	}
+	if err := a.store.SaveCheckset(ctx, item); err != nil {
+		return domain.Checkset{}, err
+	}
+	return item, nil
+}
+
+func (a *App) ApplyCheckset(ctx context.Context, id string) (domain.Checkset, error) {
+	item, err := a.Checkset(ctx, id)
+	if err != nil {
+		return domain.Checkset{}, err
+	}
+	if item.Spec.State != domain.ChecksetDraft {
+		return domain.Checkset{}, contract.InvalidInput("only draft checksets can be applied")
+	}
+	item.Spec.State = domain.ChecksetApplied
+	if err := a.store.SaveCheckset(ctx, item); err != nil {
+		return domain.Checkset{}, err
+	}
+	return item, nil
+}
+
+func (a *App) RunCheckset(ctx context.Context, id string) (domain.CheckRun, error) {
+	item, err := a.Checkset(ctx, id)
+	if err != nil {
+		return domain.CheckRun{}, err
+	}
+	if err := item.Validate(); err != nil {
+		return domain.CheckRun{}, contract.InvalidInput("stored checkset is invalid")
+	}
+	if item.Spec.State != domain.ChecksetApplied {
+		return domain.CheckRun{}, contract.InvalidInput("only applied checksets can run")
+	}
+	proposal, err := a.Proposal(ctx, item.Spec.ProposalID)
+	if err != nil || proposal.Spec.State != domain.ProposalApplied {
+		return domain.CheckRun{}, contract.Unavailable("checkset proposal evidence is unavailable")
+	}
+	if stale, err := a.proposalStale(ctx, proposal); err != nil || stale {
+		return domain.CheckRun{}, contract.Unavailable("checkset proposal evidence is no longer current")
+	}
+	worktree, changed, err := a.discoveryWorktree(ctx, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID)
+	if err != nil || changed || worktree.Head != item.Spec.Head {
+		return domain.CheckRun{}, contract.Unavailable("checkset worktree evidence is no longer current")
+	}
+	started := time.Now().UTC()
+	run := domain.CheckRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.CheckRunKind}, Metadata: domain.ObjectMeta{ID: eventID("check-run"), Name: item.Metadata.Name}, Spec: domain.CheckRunSpec{ChecksetID: item.Metadata.ID, ProjectID: item.Spec.ProjectID, RepositoryID: item.Spec.RepositoryID, WorktreeID: item.Spec.WorktreeID, Head: worktree.Head, StartedAt: started, Status: domain.CheckPassed, Steps: make([]domain.CheckStepRun, 0, len(item.Spec.Steps))}}
+	states := make(map[string]domain.CheckRunStatus, len(item.Spec.Steps))
+	remaining := append([]domain.CheckStep(nil), item.Spec.Steps...)
+	for len(remaining) != 0 {
+		index := -1
+		for candidate, step := range remaining {
+			ready := true
+			for _, dependency := range step.DependsOn {
+				if _, done := states[dependency]; !done {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				index = candidate
+				break
+			}
+		}
+		if index < 0 {
+			return domain.CheckRun{}, contract.InvalidInput("checkset dependencies cannot be scheduled")
+		}
+		step := remaining[index]
+		remaining = append(remaining[:index], remaining[index+1:]...)
+		stepRun := domain.CheckStepRun{StepID: step.ID}
+		blocked := false
+		for _, dependency := range step.DependsOn {
+			if states[dependency] != domain.CheckPassed {
+				blocked = true
+				break
+			}
+		}
+		if blocked {
+			stepRun.Status = domain.CheckSkipped
+		} else {
+			stepRun = checkset.Run(ctx, worktree.Path, step.Command, a.masker)
+			stepRun.StepID = step.ID
+		}
+		states[step.ID] = stepRun.Status
+		run.Spec.Steps = append(run.Spec.Steps, stepRun)
+		if stepRun.Status != domain.CheckPassed && run.Spec.Status == domain.CheckPassed {
+			run.Spec.Status = stepRun.Status
+		}
+		if stepRun.Status == domain.CheckCancelled || stepRun.Status == domain.CheckTimedOut {
+			for _, pending := range remaining {
+				run.Spec.Steps = append(run.Spec.Steps, domain.CheckStepRun{StepID: pending.ID, Status: domain.CheckSkipped})
+			}
+			break
+		}
+	}
+	run.Spec.CompletedAt = time.Now().UTC()
+	if err := a.store.SaveCheckRun(context.WithoutCancel(ctx), run); err != nil {
+		return domain.CheckRun{}, err
+	}
+	return run, nil
 }
 
 // Discover persists only evidence-derived proposals. It never runs a proposed
@@ -895,13 +1047,34 @@ func normalizeAppID(value string) string {
 func eventID(prefix string) string { return fmt.Sprintf("%s-%d", prefix, time.Now().UTC().UnixNano()) }
 
 func newProposal(projectID, repositoryID, worktreeID, branch, head string, candidate discovery.Candidate, discoveredAt time.Time) domain.Proposal {
-	identity := projectID + "\x00" + repositoryID + "\x00" + worktreeID + "\x00" + head + "\x00" + candidate.SourcePath + "\x00" + candidate.SourceDigest + "\x00" + candidate.CommandKind + "\x00" + candidate.Command
+	typed := reviewedTypedCommand(candidate)
+	typedIdentity := ""
+	if typed != nil {
+		typedIdentity = typed.Executable + "\x00" + strings.Join(typed.Arguments, "\x00")
+	}
+	identity := projectID + "\x00" + repositoryID + "\x00" + worktreeID + "\x00" + head + "\x00" + candidate.SourcePath + "\x00" + candidate.SourceDigest + "\x00" + candidate.CommandKind + "\x00" + candidate.Command + "\x00" + typedIdentity
 	sum := sha256.Sum256([]byte(identity))
 	return domain.Proposal{
 		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ProposalKind},
 		Metadata: domain.ObjectMeta{ID: "proposal-" + hex.EncodeToString(sum[:])[:48], Name: candidate.Name},
-		Spec:     domain.ProposalSpec{ProjectID: projectID, RepositoryID: repositoryID, WorktreeID: worktreeID, Branch: branch, Head: head, SourcePath: candidate.SourcePath, SourceDigest: candidate.SourceDigest, CommandKind: candidate.CommandKind, Command: candidate.Command, Inference: "deterministic", State: domain.ProposalPending, CreatedAt: discoveredAt},
+		Spec:     domain.ProposalSpec{ProjectID: projectID, RepositoryID: repositoryID, WorktreeID: worktreeID, Branch: branch, Head: head, SourcePath: candidate.SourcePath, SourceDigest: candidate.SourceDigest, CommandKind: candidate.CommandKind, Command: candidate.Command, TypedCommand: typed, Inference: "deterministic", State: domain.ProposalPending, CreatedAt: discoveredAt},
 	}
+}
+
+func reviewedTypedCommand(candidate discovery.Candidate) *domain.CheckCommand {
+	if candidate.CommandKind != "github_actions_run" {
+		return nil
+	}
+	for command, arguments := range map[string][]string{
+		"git status --porcelain": []string{"status", "--porcelain"},
+		"git diff --check":       []string{"diff", "--check"},
+		"git diff --exit-code":   []string{"diff", "--exit-code"},
+	} {
+		if candidate.Command == command {
+			return &domain.CheckCommand{Executable: "git", Arguments: arguments, TimeoutSeconds: 30}
+		}
+	}
+	return nil
 }
 
 func discoveryID(projectID, repositoryID, worktreeID, head string, discoveredAt time.Time) string {

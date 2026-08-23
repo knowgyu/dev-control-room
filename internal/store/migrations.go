@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 7
+const CurrentSchemaVersion = 8
 
 type Migration struct {
 	Version int
@@ -255,6 +255,25 @@ CREATE TABLE IF NOT EXISTS proposals (
  FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_proposals_scope_state ON proposals(project_id, repository_id, worktree_id, state, created_at);
+`,
+	},
+	{
+		Version: 8,
+		Name:    "checkset-runs",
+		SQL: `
+CREATE TABLE IF NOT EXISTS check_runs (
+ id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+ checkset_id TEXT NOT NULL REFERENCES checksets(id) ON DELETE CASCADE,
+ project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ repository_id TEXT NOT NULL,
+ worktree_id TEXT NOT NULL,
+ started_at TEXT NOT NULL,
+ completed_at TEXT NOT NULL,
+ status TEXT NOT NULL CHECK (status IN ('passed', 'failed', 'skipped', 'unavailable', 'cancelled', 'timed_out')),
+ object_json TEXT NOT NULL,
+ FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_check_runs_checkset_started ON check_runs(checkset_id, started_at DESC);
 `,
 	},
 }
