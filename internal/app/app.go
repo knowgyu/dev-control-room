@@ -26,6 +26,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/discovery"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/environment"
+	"github.com/knowgyu/dev-control-room/internal/folderpicker"
 	"github.com/knowgyu/dev-control-room/internal/masking"
 	"github.com/knowgyu/dev-control-room/internal/reconcile"
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
@@ -799,6 +800,108 @@ func (a *App) AddProject(ctx context.Context, input AddProjectInput) (domain.Pro
 	return project, nil
 }
 
+func (a *App) DiscoverRepositories(_ context.Context, root string) ([]RepositoryCandidate, error) {
+	paths, err := collector.DiscoverGitRoots(root)
+	if err != nil {
+		return nil, contract.InvalidInput(err.Error())
+	}
+	items := make([]RepositoryCandidate, 0, len(paths))
+	for _, path := range paths {
+		items = append(items, RepositoryCandidate{Name: filepath.Base(path), Path: path})
+	}
+	return items, nil
+}
+
+func (a *App) PickDirectory(_ context.Context) (string, error) {
+	path, err := folderpicker.Pick()
+	if err != nil {
+		if errors.Is(err, folderpicker.ErrCancelled) {
+			return "", nil
+		}
+		if errors.Is(err, folderpicker.ErrUnavailable) {
+			return "", contract.CodedError{Code: contract.ErrorUnavailable, Message: "native folder picker is unavailable"}
+		}
+		return "", err
+	}
+	return path, nil
+}
+
+func (a *App) AddProjectTree(ctx context.Context, input AddProjectTreeInput) (domain.Project, error) {
+	root, err := registeredDirectory(input.Root)
+	if err != nil {
+		return domain.Project{}, contract.InvalidInput(err.Error())
+	}
+	paths := input.Paths
+	if len(paths) == 0 {
+		paths, err = collector.DiscoverGitRoots(root)
+		if err != nil {
+			return domain.Project{}, contract.InvalidInput(err.Error())
+		}
+	}
+	canonicalPaths := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, value := range paths {
+		path, pathErr := registeredDirectory(value)
+		if pathErr != nil || !pathWithin(root, path) {
+			return domain.Project{}, contract.InvalidInput("repository path must be an existing directory below the selected folder")
+		}
+		if _, exists := seen[strings.ToLower(path)]; exists {
+			continue
+		}
+		seen[strings.ToLower(path)] = struct{}{}
+		canonicalPaths = append(canonicalPaths, path)
+	}
+	if len(canonicalPaths) == 0 {
+		return domain.Project{}, contract.InvalidInput("no Git repositories were found below the selected folder")
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = filepath.Base(root)
+	}
+	id := normalizeAppID(name)
+	if id == "" {
+		return domain.Project{}, contract.InvalidInput("project name must contain letters or numbers")
+	}
+	projects, err := a.store.ListProjects(ctx)
+	if err != nil {
+		return domain.Project{}, err
+	}
+	for _, item := range projects {
+		if item.Metadata.ID == id {
+			return domain.Project{}, contract.Conflict("project already exists")
+		}
+		for _, repository := range item.Spec.Repositories {
+			for _, path := range canonicalPaths {
+				if strings.EqualFold(repository.Spec.Path, path) {
+					return domain.Project{}, contract.Conflict("repository path is already registered")
+				}
+			}
+		}
+	}
+	repositories := make([]domain.Repository, 0, len(canonicalPaths))
+	usedIDs := make(map[string]int, len(canonicalPaths))
+	for _, path := range canonicalPaths {
+		base := normalizeAppID(filepath.Base(path))
+		if base == "" {
+			base = "repo"
+		}
+		usedIDs[base]++
+		repositoryID := base
+		if usedIDs[base] > 1 {
+			repositoryID = fmt.Sprintf("%s-%d", base, usedIDs[base])
+		}
+		repositories = append(repositories, domain.NewRepository(repositoryID, filepath.Base(path), path))
+	}
+	project := domain.NewProject(id, name, repositories)
+	if err := a.store.SaveProject(ctx, project); err != nil {
+		return domain.Project{}, err
+	}
+	if err := a.recordEvent(projectEvent("project.added", project.Metadata.ID, fmt.Sprintf("Project added with %d repositories", len(repositories)))); err != nil {
+		return domain.Project{}, err
+	}
+	return project, nil
+}
+
 func (a *App) UpdateProject(ctx context.Context, id string, input UpdateProjectInput) (domain.Project, error) {
 	project, err := a.Project(ctx, id)
 	if err != nil {
@@ -1045,6 +1148,11 @@ func registeredDirectory(value string) (string, error) {
 		return "", errors.New("path could not be resolved")
 	}
 	return filepath.Clean(canonical), nil
+}
+
+func pathWithin(root, candidate string) bool {
+	relative, err := filepath.Rel(root, candidate)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 
 func normalizeAppID(value string) string {

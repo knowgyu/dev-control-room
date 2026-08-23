@@ -54,6 +54,11 @@ SQLite-backed state, PowerShell 7.6 runbooks, and Windows Task Scheduler for
 startup and catch-up scheduling. A stdio MCP adapter is planned after the stable
 CLI/application contracts exist.
 
+The UI registration flow can open the native Windows folder picker and discover
+Git repositories below a selected workspace. Discovery is bounded, read-only,
+does not follow symlinks, and requires explicit repository selection before
+anything is registered.
+
 ## Start here
 
 - [Current state and implementation handoff](docs/HANDOFF.md)

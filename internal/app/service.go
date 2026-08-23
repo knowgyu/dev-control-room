@@ -42,6 +42,9 @@ type CommandService interface {
 	QueueScan(context.Context, string) error
 	RunScan(context.Context, string) error
 	AddProject(context.Context, AddProjectInput) (domain.Project, error)
+	AddProjectTree(context.Context, AddProjectTreeInput) (domain.Project, error)
+	DiscoverRepositories(context.Context, string) ([]RepositoryCandidate, error)
+	PickDirectory(context.Context) (string, error)
 	UpdateProject(context.Context, string, UpdateProjectInput) (domain.Project, error)
 	RemoveProject(context.Context, string) error
 	AddRepository(context.Context, AddRepositoryInput) (domain.Repository, error)
@@ -84,6 +87,17 @@ type Health struct {
 type AddProjectInput struct {
 	Name string
 	Path string
+}
+
+type AddProjectTreeInput struct {
+	Name  string
+	Root  string
+	Paths []string
+}
+
+type RepositoryCandidate struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 type AddRepositoryInput struct {
