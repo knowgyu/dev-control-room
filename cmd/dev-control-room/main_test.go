@@ -170,3 +170,71 @@ func TestProjectWorktreeListJSONUsesReadOnlyEnvelope(t *testing.T) {
 		t.Fatalf("CLI show differs: %s (%v)", stdout.String(), err)
 	}
 }
+
+func TestActionCLIUsesBrokerApprovalBoundary(t *testing.T) {
+	home := t.TempDir()
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := filepath.Dir(filepath.Dir(workingDirectory))
+	service, err := app.New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.AddProject(context.Background(), app.AddProjectInput{Name: "Action CLI", Path: repository})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	planArgs := []string{"action", "plan", "--home", home, "--json", "--id", "plan-cli", "--name", "Production", "--project", project.Metadata.ID, "--repository", "repo-1", "--worktree", "primary", "--type", "release.production", "--input", "commit=abc123"}
+	if code := run(planArgs, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("plan failed: %d %s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(append(planArgs, "--agent-id", "forged-agent"), &stdout, &stderr); code != int(contract.ExitInvalidInput) {
+		t.Fatalf("plan accepted caller actor metadata: %d %s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"action", "admit", "plan-cli", "--home", home, "--json", "--holder", "runner-1", "--idempotency-key", "request-1"}, &stdout, &stderr); code != int(contract.ExitPolicyDenied) {
+		t.Fatalf("unapproved admission exit = %d: %s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"action", "approve", "plan-cli", "--home", home, "--json", "--id", "approval-cli"}, &stdout, &stderr); code != int(contract.ExitInvalidInput) {
+		t.Fatalf("approval surface remained available: %d %s", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"action", "status", "plan-cli", "--home", home, "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) || !strings.Contains(stdout.String(), `"admission":"approval_required"`) {
+		t.Fatalf("status = %d: %s %s", code, stdout.String(), stderr.String())
+	}
+	var cliStatus contract.Envelope[app.ActionApprovalStatus]
+	if err := json.Unmarshal(stdout.Bytes(), &cliStatus); err != nil || cliStatus.Schema != contract.EnvelopeSchema || cliStatus.Data == nil {
+		t.Fatalf("CLI status envelope = %s (%v)", stdout.String(), err)
+	}
+	if (*cliStatus.Data).Plan.Spec.RequestedBy != (domain.Actor{Kind: domain.ActorSystem, ID: "adapter"}) {
+		t.Fatalf("CLI accepted forged actor metadata: %#v", (*cliStatus.Data).Plan.Spec.RequestedBy)
+	}
+	service, err = app.New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/actions/plans/plan-cli", nil))
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var httpStatus contract.Envelope[app.ActionApprovalStatus]
+	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &httpStatus) != nil || httpStatus.Schema != cliStatus.Schema || httpStatus.Data == nil || !reflect.DeepEqual(*httpStatus.Data, *cliStatus.Data) {
+		t.Fatalf("CLI/HTTP status envelopes differ: cli=%s http=%s", stdout.String(), recorder.Body.String())
+	}
+}

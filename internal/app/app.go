@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/knowgyu/dev-control-room/internal/action"
 	"github.com/knowgyu/dev-control-room/internal/checkset"
 	"github.com/knowgyu/dev-control-room/internal/collector"
 	"github.com/knowgyu/dev-control-room/internal/contract"
@@ -40,6 +41,7 @@ type App struct {
 	mutationToken string
 	masker        *masking.Masker
 	store         *store.Store
+	broker        *action.Broker
 	collector     collector.GitCollector
 	doctor        environment.Doctor
 	scheduler     scheduler.Adapter
@@ -69,6 +71,11 @@ func New(home, listen string) (*App, error) {
 		_ = database.Close()
 		return nil, err
 	}
+	broker, err := action.New(persistence, nil)
+	if err != nil {
+		_ = persistence.Close()
+		return nil, err
+	}
 	// M0 stored registered projects in config.json. Import them once into the
 	// durable M1 repository. Import is idempotent so an interrupted multi-project
 	// migration resumes on the next start instead of silently skipping entries.
@@ -93,7 +100,7 @@ func New(home, listen string) (*App, error) {
 	}
 	service := &App{
 		home: home, listen: listen, config: config, mutationToken: randomToken(), masker: masker,
-		store: persistence, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), scheduler: scheduler.NewAdapter(), scanNow: make(chan string, 1),
+		store: persistence, broker: broker, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), scheduler: scheduler.NewAdapter(), scanNow: make(chan string, 1),
 	}
 	var scheduled scheduler.Result
 	if found, err := persistence.LoadSingleton(context.Background(), "scheduler_state", &scheduled); err != nil {

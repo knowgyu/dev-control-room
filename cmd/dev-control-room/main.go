@@ -41,6 +41,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runProposal(args[1:], stdout, stderr)
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "action":
+		return runAction(args[1:], stdout, stderr)
 	case "finding":
 		return runFinding(args[1:], stdout, stderr)
 	case "event":
@@ -364,6 +366,79 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return emitObject(stdout, item, jsonOutput)
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown check command: "+subcommand))
+	}
+}
+
+func runAction(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("action requires plan, status, or admit"))
+	}
+	command := args[0]
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	ctx := context.Background()
+	switch command {
+	case "plan":
+		flags := flag.NewFlagSet("action plan", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		id := flags.String("id", "", "plan id")
+		name := flags.String("name", "", "plan name")
+		projectID := flags.String("project", "", "project id")
+		repositoryID := flags.String("repository", "", "repository id")
+		worktreeID := flags.String("worktree", "", "worktree id")
+		actionType := flags.String("type", "", "reviewed action type")
+		var inputs stringList
+		flags.Var(&inputs, "input", "reviewed input as key=value")
+		if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("action plan accepts only flags"))
+		}
+		values, err := inputs.Map()
+		if err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+		}
+		plan, err := service.PlanAction(ctx, app.ActionPlanInput{ID: *id, Name: *name, ProjectID: *projectID, RepositoryID: *repositoryID, WorktreeID: *worktreeID, ActionType: *actionType, Inputs: values})
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, plan, jsonOutput)
+	case "status":
+		if len(args) != 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("action status requires a plan id"))
+		}
+		status, err := service.ActionStatus(ctx, args[0])
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, status, jsonOutput)
+	case "admit":
+		if len(args) < 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("action admit requires a plan id"))
+		}
+		flags := flag.NewFlagSet("action admit", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		holder := flags.String("holder", "", "execution holder id")
+		idempotencyKey := flags.String("idempotency-key", "", "unique admission request id")
+		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("action admit accepts only flags after the plan id"))
+		}
+		admission, err := service.AdmitAction(ctx, args[0], *holder, *idempotencyKey)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, admission, jsonOutput)
+	default:
+		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown action command: "+command))
 	}
 }
 
@@ -863,6 +938,30 @@ func splitCSV(value string) []string {
 		}
 	}
 	return result
+}
+
+type stringList []string
+
+func (values *stringList) String() string { return strings.Join(*values, ",") }
+
+func (values *stringList) Set(value string) error {
+	*values = append(*values, value)
+	return nil
+}
+
+func (values stringList) Map() (map[string]string, error) {
+	result := make(map[string]string, len(values))
+	for _, value := range values {
+		key, item, ok := strings.Cut(value, "=")
+		if !ok || strings.TrimSpace(key) == "" || strings.TrimSpace(item) == "" {
+			return nil, errors.New("action input must be key=value")
+		}
+		if _, exists := result[key]; exists {
+			return nil, errors.New("action input keys must be unique")
+		}
+		result[key] = item
+	}
+	return result, nil
 }
 
 func openCLIService(home string) (*app.App, error) { return app.New(home, "127.0.0.1:0") }

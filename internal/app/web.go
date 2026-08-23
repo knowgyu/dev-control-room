@@ -183,12 +183,49 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(profile))
 	})
+	mux.HandleFunc("GET /api/actions/plans/{planID}", func(response http.ResponseWriter, request *http.Request) {
+		status, err := service.ActionStatus(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(status))
+	})
 	mux.HandleFunc("POST /api/scan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		if err := service.QueueScan(request.Context(), "manual"); err != nil {
 			writeServiceError(response, err)
 			return
 		}
 		writeEnvelope(response, http.StatusAccepted, contract.Success(map[string]string{"status": "queued"}))
+	}))
+	mux.HandleFunc("POST /api/actions/plans", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input ActionPlanInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		plan, err := service.PlanAction(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(plan))
+	}))
+	mux.HandleFunc("POST /api/actions/plans/{planID}/admit", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Holder         string `json:"holder"`
+			IdempotencyKey string `json:"idempotencyKey"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		admission, err := service.AdmitAction(request.Context(), request.PathValue("planID"), input.Holder, input.IdempotencyKey)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(admission))
 	}))
 	mux.HandleFunc("POST /api/projects/{projectID}/repositories/{repositoryID}/worktrees/{worktreeID}/discover", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		item, err := service.Discover(request.Context(), request.PathValue("projectID"), request.PathValue("repositoryID"), request.PathValue("worktreeID"))

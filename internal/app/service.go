@@ -2,7 +2,11 @@ package app
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
+	"github.com/knowgyu/dev-control-room/internal/action"
+	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/environment"
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
@@ -31,6 +35,7 @@ type QueryService interface {
 	EnvironmentHealth(context.Context, bool) (environment.Health, error)
 	AgentProfiles(context.Context) ([]domain.AgentProfile, error)
 	AgentProfile(context.Context, string) (domain.AgentProfile, error)
+	ActionStatus(context.Context, string) (ActionApprovalStatus, error)
 }
 
 type CommandService interface {
@@ -55,6 +60,10 @@ type CommandService interface {
 	UpdateAgentProfile(context.Context, string, UpdateAgentProfileInput) (domain.AgentProfile, error)
 	RemoveAgentProfile(context.Context, string) error
 	Schedule(context.Context, scheduler.Operation) (scheduler.Result, error)
+	PlanAction(context.Context, ActionPlanInput) (domain.ActionPlan, error)
+	AdmitAction(context.Context, string, string, string) (action.Admission, error)
+	RenewAction(context.Context, action.Admission) (action.Admission, error)
+	ReleaseAction(context.Context, action.Admission) error
 }
 
 type ApplicationService interface {
@@ -97,6 +106,64 @@ type CreateChecksetInput struct {
 	Name       string
 	ProposalID string
 	Steps      []domain.CheckStep
+}
+
+// ActionPlanInput deliberately excludes policy and approval fields. The
+// broker derives those values from its reviewed server-owned definition.
+type ActionPlanInput struct {
+	ID, Name, ProjectID, RepositoryID, WorktreeID, ActionType string
+	Inputs                                                    map[string]string
+}
+
+func (a *App) PlanAction(ctx context.Context, input ActionPlanInput) (domain.ActionPlan, error) {
+	plan, err := a.broker.Plan(ctx, action.PlanRequest{ID: input.ID, Name: input.Name, ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, ActionType: input.ActionType, Inputs: input.Inputs, RequestedBy: domain.Actor{Kind: domain.ActorSystem, ID: "adapter"}})
+	return plan, classifyActionError(err)
+}
+
+type ActionApprovalStatus struct {
+	Plan      domain.ActionPlan      `json:"plan"`
+	Approvals []domain.Approval      `json:"approvals"`
+	Events    []domain.ActionEvent   `json:"events"`
+	Admission action.AdmissionStatus `json:"admission"`
+}
+
+func (a *App) ActionStatus(ctx context.Context, planID string) (ActionApprovalStatus, error) {
+	status, err := a.broker.Status(ctx, planID)
+	if err != nil {
+		return ActionApprovalStatus{}, classifyActionError(err)
+	}
+	return ActionApprovalStatus{Plan: status.Plan, Approvals: status.Approvals, Events: status.Events, Admission: status.Admission}, nil
+}
+
+func (a *App) AdmitAction(ctx context.Context, planID, holder, idempotencyKey string) (action.Admission, error) {
+	admission, err := a.broker.Admit(ctx, planID, holder, idempotencyKey)
+	return admission, classifyActionError(err)
+}
+
+func (a *App) RenewAction(ctx context.Context, admission action.Admission) (action.Admission, error) {
+	renewed, err := a.broker.Renew(ctx, admission)
+	return renewed, classifyActionError(err)
+}
+
+func (a *App) ReleaseAction(ctx context.Context, admission action.Admission) error {
+	return classifyActionError(a.broker.Release(ctx, admission))
+}
+
+func classifyActionError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, action.ErrApprovalRequired), errors.Is(err, action.ErrPolicyDenied):
+		return contract.CodedError{Code: contract.ErrorPolicyDenied, Message: "action requires a current human approval"}
+	case errors.Is(err, action.ErrUnknownAction):
+		return contract.InvalidInput("action type is not reviewed")
+	case errors.Is(err, action.ErrLockConflict), errors.Is(err, action.ErrIdempotencyConflict):
+		return contract.Conflict("action admission conflicts with an active request")
+	case errors.Is(err, sql.ErrNoRows):
+		return contract.NotFound("action plan not found")
+	default:
+		return err
+	}
 }
 
 type AddAgentProfileInput struct {
