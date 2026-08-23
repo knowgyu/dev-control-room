@@ -56,7 +56,7 @@ func TestVersionJSONReportsCurrentMilestone(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if !envelope.OK || envelope.Data == nil || (*envelope.Data)["milestone"] != "2" || (*envelope.Data)["version"] != version {
+	if !envelope.OK || envelope.Data == nil || (*envelope.Data)["milestone"] != "3" || (*envelope.Data)["version"] != version {
 		t.Fatalf("unexpected version envelope: %#v", envelope)
 	}
 }

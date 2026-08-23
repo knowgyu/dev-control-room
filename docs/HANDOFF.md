@@ -63,10 +63,9 @@ changes. AI is a client, never the source of truth or a privileged actor.
 - Company repository names, paths, endpoints, tokens, and runbooks are not
   committed to this repository. Tests use generic fixtures only.
 
-Current contract versions (the binary string remains the existing compatibility
-value while Milestones 0–3 are accepted):
+Current contract versions:
 
-- binary version: `0.3.0-milestone-2`;
+- binary version: `0.3.0`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;

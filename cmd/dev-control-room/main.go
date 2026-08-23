@@ -22,7 +22,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
-const version = "0.3.0-milestone-2"
+const version = "0.3.0"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -68,7 +68,7 @@ func runVersionTo(args []string, stdout, stderr io.Writer) int {
 	if len(remaining) != 0 {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("version does not accept positional arguments"))
 	}
-	data := map[string]string{"version": version, "milestone": "2", "cli_schema": contract.EnvelopeSchema, "api_version": domain.APIVersion}
+	data := map[string]string{"version": version, "milestone": "3", "cli_schema": contract.EnvelopeSchema, "api_version": domain.APIVersion}
 	if jsonOutput {
 		return encodeSuccess(stdout, data)
 	}
