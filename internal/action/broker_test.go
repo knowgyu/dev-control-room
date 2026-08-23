@@ -2,6 +2,7 @@ package action
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -171,6 +172,29 @@ func TestAdmitAuditFailureReleasesLeaseAndIdempotency(t *testing.T) {
 	lock := store.ActionLock{Scope: scope(plan), ActionPlanID: plan.Metadata.ID, ActionPlanDigest: digest, Holder: "other", ExpiresAt: now.Add(time.Minute)}
 	if err := persistence.AcquireActionLock(ctx, lock, *now); err != nil {
 		t.Fatalf("lock was not released: %v", err)
+	}
+}
+
+func TestStatusIsReadOnlyAndReportsNotFound(t *testing.T) {
+	broker, persistence, _ := actionFixture(t)
+	ctx := context.Background()
+	if _, err := broker.Status(ctx, "missing"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing status = %v", err)
+	}
+	plan, err := broker.Plan(ctx, PlanRequest{ID: "plan", Name: "Production", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeApprovals, _ := persistence.ListApprovals(ctx, plan.Metadata.ID)
+	beforeEvents, _ := persistence.ListActionEvents(ctx, plan.Metadata.ID)
+	status, err := broker.Status(ctx, plan.Metadata.ID)
+	if err != nil || status.Admission != AdmissionApprovalRequired || len(status.Approvals) != len(beforeApprovals) || len(status.Events) != len(beforeEvents) {
+		t.Fatalf("read-only status = %#v, %v", status, err)
+	}
+	afterApprovals, _ := persistence.ListApprovals(ctx, plan.Metadata.ID)
+	afterEvents, _ := persistence.ListActionEvents(ctx, plan.Metadata.ID)
+	if len(afterApprovals) != len(beforeApprovals) || len(afterEvents) != len(beforeEvents) {
+		t.Fatal("status mutated approval or audit state")
 	}
 }
 

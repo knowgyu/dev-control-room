@@ -92,6 +92,53 @@ type Admission struct {
 	Lock store.ActionLock
 }
 
+type AdmissionStatus string
+
+const (
+	AdmissionEligible         AdmissionStatus = "eligible"
+	AdmissionPolicyDenied     AdmissionStatus = "policy_denied"
+	AdmissionApprovalRequired AdmissionStatus = "approval_required"
+)
+
+// Status is a persisted, read-only snapshot for adapters. Eligible means the
+// current policy and approval evidence permit a later Admit call; it neither
+// acquires a lock nor grants any authority itself.
+type Status struct {
+	Plan      domain.ActionPlan
+	Approvals []domain.Approval
+	Events    []domain.ActionEvent
+	Admission AdmissionStatus
+}
+
+func (b *Broker) Status(ctx context.Context, planID string) (Status, error) {
+	plan, err := b.store.GetActionPlan(ctx, planID)
+	if err != nil {
+		return Status{}, err
+	}
+	approvals, err := b.store.ListApprovals(ctx, planID)
+	if err != nil {
+		return Status{}, err
+	}
+	events, err := b.store.ListActionEvents(ctx, planID)
+	if err != nil {
+		return Status{}, err
+	}
+	status := AdmissionEligible
+	if plan.Spec.PolicyDecision == domain.PolicyDenied {
+		status = AdmissionPolicyDenied
+	} else if plan.Spec.ApprovalRequired {
+		status = AdmissionApprovalRequired
+		now := b.now().UTC()
+		for _, approval := range approvals {
+			if approval.Spec.Status == domain.ApprovalGranted && approval.ValidateForAt(plan, now) == nil {
+				status = AdmissionEligible
+				break
+			}
+		}
+	}
+	return Status{Plan: plan, Approvals: approvals, Events: events, Admission: status}, nil
+}
+
 func (b *Broker) Admit(ctx context.Context, planID, holder, idempotencyKey string) (Admission, error) {
 	plan, err := b.store.GetActionPlan(ctx, planID)
 	if err != nil {
