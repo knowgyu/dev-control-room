@@ -5,8 +5,10 @@ Updated: 2026-08-23
 ## Accepted baseline
 
 The final native Windows 11 acceptance was run from the separate NTFS checkout
-at commit `3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4` (also `origin/main`). The
-environment was PowerShell 7.6.4, Go 1.26.7, Windows amd64, and `gcc` on PATH.
+at product baseline commit `3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`. Later
+release/docs commits preserved that product code and did not claim to rerun the
+interactive native gate. The environment was PowerShell 7.6.4, Go 1.26.7,
+Windows amd64, and `gcc` on PATH.
 
 The following gates passed:
 

@@ -88,8 +88,9 @@ The current documentation handoff is the later docs-only commit on `main` and
 `origin/main`; inspect status, remotes, and user-created branches/worktrees
 again before changing code.
 
-Native Windows acceptance at this commit passed on Windows 11 / PowerShell
-7.6.4 with Go 1.26.7 and `gcc`; see `docs/NATIVE_WINDOWS_SMOKE.md`.
+Native Windows acceptance passed at the product baseline above on Windows 11 /
+PowerShell 7.6.4 with Go 1.26.7 and `gcc`; later release/docs commits did not
+claim to rerun that native gate. See `docs/NATIVE_WINDOWS_SMOKE.md`.
 
 The final portability/acceptance sequence is `27b5aa3` (trusted-human
 ceremony), `b8ab439` (Scheduler status), `b7b2491` (linked Worktree fixture),
