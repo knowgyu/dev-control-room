@@ -210,6 +210,25 @@ func (r *recordingGitRunner) Run(_ context.Context, _ string, args []string, dir
 	return CommandResult{}, nil
 }
 
+type proofFailureRunner struct{}
+
+func (proofFailureRunner) Run(ctx context.Context, executable string, args []string, directory string) (CommandResult, error) {
+	if len(args) == 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
+		return CommandResult{ExitCode: 1}, errors.New("temporary worktree proof failure")
+	}
+	return (ProcessRunner{}).Run(ctx, executable, args, directory)
+}
+
+func TestWorktreeDetailsPreservesCanonicalPathOnProofFailure(t *testing.T) {
+	repository := t.TempDir()
+	gitTest(t, repository, "init", "--initial-branch=main")
+	advertised := repository + string(os.PathSeparator) + "."
+	items, complete := NewGitCollector(proofFailureRunner{}).WorktreeDetails(context.Background(), repository, []Worktree{{Path: advertised}})
+	if complete || len(items) != 1 || items[0].Error == "" || items[0].Path != repository {
+		t.Fatalf("proof failure did not retain canonical path: %#v complete=%v", items, complete)
+	}
+}
+
 func TestWorktreeForeignCommonDirectoryDoesNotReadState(t *testing.T) {
 	registered, foreign := t.TempDir(), t.TempDir()
 	for _, path := range []string{filepath.Join(registered, ".git"), filepath.Join(foreign, ".git")} {

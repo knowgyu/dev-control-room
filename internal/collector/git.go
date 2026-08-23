@@ -386,6 +386,7 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 			complete = false
 			continue
 		}
+		item.Path = candidate
 		top, topErr := c.required(ctx, candidate, "rev-parse", "--show-toplevel")
 		candidateCommon, commonErr := c.gitDirectory(ctx, candidate, "--git-common-dir")
 		gitDir, gitErr := c.gitDirectory(ctx, candidate, "--git-dir")
@@ -394,7 +395,6 @@ func (c GitCollector) WorktreeDetails(ctx context.Context, registeredPath string
 			item.Error = "worktree association could not be verified"
 			continue
 		}
-		item.Path = candidate
 		item.Primary = sameDirectory(candidate, registeredCanonical)
 		item.Trust = "verified_read_only"
 		item.AssociationFingerprint = associationFingerprint(common, gitDir)
