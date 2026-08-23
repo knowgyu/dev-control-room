@@ -84,9 +84,10 @@ ad732f6 feat: implement milestone 2 environment doctor and scheduling boundary
 c8d71c7 chore: establish milestone 0 foundation
 ```
 
-The current handoff is `main` at `3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`,
-verified against `origin/main`, with a clean worktree. Inspect status, remotes,
-and user-created branches/worktrees again before changing code.
+The native-accepted product baseline is `3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`.
+The current documentation handoff is the later docs-only commit on `main` and
+`origin/main`; inspect status, remotes, and user-created branches/worktrees
+again before changing code.
 
 Native Windows acceptance at this commit passed on Windows 11 / PowerShell
 7.6.4 with Go 1.26.7 and `gcc`; see `docs/NATIVE_WINDOWS_SMOKE.md`.

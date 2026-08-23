@@ -38,11 +38,11 @@ entries; durable, evidence-bound proposals; stale detection; and review-only
 apply/reject transitions through the shared CLI/HTTP application service.
 It neither executes commands nor creates Checksets.
 
-The Git handoff is complete on `main` at
-`3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`, also verified as `origin/main`.
-No G001/G002 work was rerun. The final linked-Worktree proof repair and native
-Windows acceptance are included in this commit; proposal text remains
-non-executable.
+The Git handoff is complete on `main` and `origin/main` at the later docs-only
+handoff commit. The native-accepted product baseline is
+`3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`. No G001/G002 work was rerun. The
+final linked-Worktree proof repair and native Windows acceptance are included
+in that baseline; proposal text remains non-executable.
 
 ## Next implementation order
 

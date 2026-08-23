@@ -1,8 +1,10 @@
 # Milestone 2 verification
 
-Milestone 2 adds read-only environment/profile diagnostics and a typed,
-fixture-only Windows scheduling boundary. Milestone 3 execution features and
-later integrations were not started.
+Historical record: Milestone 2 originally added read-only environment/profile
+diagnostics and a typed, fixture-only Windows scheduling boundary. At that
+time Milestone 3 execution features and later integrations were not started;
+the later native acceptance follow-up below updates the current repository
+status without rewriting this original record.
 
 ## Implemented scope
 
