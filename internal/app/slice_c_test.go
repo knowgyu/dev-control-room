@@ -255,8 +255,12 @@ type linkedProofFailureRunner struct {
 }
 
 func (runner linkedProofFailureRunner) Run(ctx context.Context, executable string, args []string, directory string) (collector.CommandResult, error) {
-	if filepath.Clean(directory) == filepath.Clean(runner.linked) && len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
-		return collector.CommandResult{ExitCode: 1}, errors.New("temporary linked worktree proof failure")
+	if len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
+		directoryInfo, directoryErr := os.Stat(directory)
+		linkedInfo, linkedErr := os.Stat(runner.linked)
+		if directoryErr == nil && linkedErr == nil && os.SameFile(directoryInfo, linkedInfo) {
+			return collector.CommandResult{ExitCode: 1}, errors.New("temporary linked worktree proof failure")
+		}
 	}
 	return (collector.ProcessRunner{}).Run(ctx, executable, args, directory)
 }

@@ -19,6 +19,7 @@ const (
 	dispatchPropertyGet         = 2
 	dispatchPropertyPut         = 4
 	dispatchPropertyPutID int32 = -3
+	dispEException              = 0x80020009
 
 	vtEmpty    = 0
 	vtI4       = 3
@@ -75,6 +76,20 @@ type dispParams struct {
 	NamedArgs     *int32
 	ArgCount      uint32
 	NamedArgCount uint32
+}
+
+// excepInfo matches the Win32 EXCEPINFO layout used by IDispatch.Invoke.
+// Its BSTR fields are allocated by COM and must be released by the caller.
+type excepInfo struct {
+	Code        uint16
+	Reserved    uint16
+	Source      uintptr
+	Description uintptr
+	HelpFile    uintptr
+	HelpContext uint32
+	ReservedPtr uintptr
+	Deferred    uintptr
+	SCode       int32
 }
 
 type dispatch struct{ ptr unsafe.Pointer }
@@ -637,12 +652,33 @@ func (d *dispatch) invoke(name string, flags uint16, args ...variant) (variant, 
 		params.NamedArgs, params.NamedArgCount = &named, 1
 	}
 	var output variant
+	var exception excepInfo
+	defer exception.release()
 	var argumentError uint32
-	result, _, _ = syscall.SyscallN(vtable[6], uintptr(d.ptr), uintptr(dispid), uintptr(unsafe.Pointer(&iidNull)), 0x0400, uintptr(flags), uintptr(unsafe.Pointer(&params)), uintptr(unsafe.Pointer(&output)), 0, uintptr(unsafe.Pointer(&argumentError)))
+	result, _, _ = syscall.SyscallN(vtable[6], uintptr(d.ptr), uintptr(dispid), uintptr(unsafe.Pointer(&iidNull)), 0x0400, uintptr(flags), uintptr(unsafe.Pointer(&params)), uintptr(unsafe.Pointer(&output)), uintptr(unsafe.Pointer(&exception)), uintptr(unsafe.Pointer(&argumentError)))
 	if result != 0 {
-		return variant{}, fmt.Errorf("Task Scheduler Invoke %s argument %d: %w", name, argumentError, hresult(result))
+		return variant{}, fmt.Errorf("Task Scheduler Invoke %s argument %d: %w", name, argumentError, normalizeDispatchException(hresult(result), exception.SCode))
 	}
 	return output, nil
+}
+
+func (info *excepInfo) release() {
+	if info == nil {
+		return
+	}
+	for _, value := range []*uintptr{&info.Source, &info.Description, &info.HelpFile} {
+		if *value != 0 {
+			sysFreeString.Call(*value)
+			*value = 0
+		}
+	}
+}
+
+func normalizeDispatchException(result hresult, scode int32) hresult {
+	if uint32(result) == dispEException && scode != 0 {
+		return hresult(uint32(scode))
+	}
+	return result
 }
 
 func emptyVariant() variant         { return variant{VT: vtEmpty} }
