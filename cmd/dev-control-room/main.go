@@ -37,6 +37,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runServe(args[1:], stdout, stderr)
 	case "project":
 		return runProject(args[1:], stdout, stderr)
+	case "proposal":
+		return runProposal(args[1:], stdout, stderr)
 	case "finding":
 		return runFinding(args[1:], stdout, stderr)
 	case "event":
@@ -102,7 +104,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 
 func runProject(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("project requires list, show, add, update, remove, repository, export, import, or scan"))
+		return writeCLIErrorTo(stderr, contract.InvalidInput("project requires list, show, add, update, remove, repository, worktree, discover, export, import, or scan"))
 	}
 	subcommand := args[0]
 	args = args[1:]
@@ -111,6 +113,9 @@ func runProject(args []string, stdout, stderr io.Writer) int {
 	}
 	if subcommand == "worktree" {
 		return runWorktree(args, stdout, stderr)
+	}
+	if subcommand == "discover" {
+		return runDiscover(args, stdout, stderr)
 	}
 	jsonOutput, args, err := parseJSONFlag(args)
 	if err != nil {
@@ -189,6 +194,90 @@ func runProject(args []string, stdout, stderr io.Writer) int {
 		return emitObject(stdout, map[string]string{"status": "completed"}, jsonOutput)
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown project command: "+subcommand))
+	}
+}
+
+func runDiscover(args []string, stdout, stderr io.Writer) int {
+	jsonOutput, args, err := parseJSONFlag(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if len(args) != 3 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("project discover requires project, repository, and worktree ids"))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	item, err := service.Discover(context.Background(), args[0], args[1], args[2])
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, item, jsonOutput)
+}
+
+func runProposal(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("proposal requires list, show, apply, or reject"))
+	}
+	subcommand := args[0]
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	ctx := context.Background()
+	switch subcommand {
+	case "list":
+		if len(args) < 2 || len(args) > 3 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("proposal list requires project and repository ids, plus optional worktree id"))
+		}
+		worktreeID := ""
+		if len(args) == 3 {
+			worktreeID = args[2]
+		}
+		items, err := service.Proposals(ctx, args[0], args[1], worktreeID)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		if jsonOutput {
+			return encodeSuccess(stdout, items)
+		}
+		for _, item := range items {
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", item.Metadata.ID, item.Spec.State, item.Spec.SourcePath, item.Spec.Command)
+		}
+		return int(contract.ExitSuccess)
+	case "show", "apply", "reject":
+		if len(args) != 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("proposal "+subcommand+" requires an id"))
+		}
+		var item domain.Proposal
+		if subcommand == "show" {
+			item, err = service.Proposal(ctx, args[0])
+		} else if subcommand == "apply" {
+			item, err = service.ApplyProposal(ctx, args[0])
+		} else {
+			item, err = service.RejectProposal(ctx, args[0])
+		}
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	default:
+		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown proposal command: "+subcommand))
 	}
 }
 

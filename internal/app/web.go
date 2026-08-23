@@ -75,6 +75,22 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(item))
 	})
+	mux.HandleFunc("GET /api/projects/{projectID}/repositories/{repositoryID}/proposals", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.Proposals(request.Context(), request.PathValue("projectID"), request.PathValue("repositoryID"), request.URL.Query().Get("worktree_id"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/proposals/{proposalID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.Proposal(request.Context(), request.PathValue("proposalID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
 	mux.HandleFunc("GET /api/projects/{projectID}/export", func(response http.ResponseWriter, request *http.Request) {
 		data, err := service.ExportProject(request.Context(), request.PathValue("projectID"))
 		if err != nil {
@@ -149,6 +165,30 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 			return
 		}
 		writeEnvelope(response, http.StatusAccepted, contract.Success(map[string]string{"status": "queued"}))
+	}))
+	mux.HandleFunc("POST /api/projects/{projectID}/repositories/{repositoryID}/worktrees/{worktreeID}/discover", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.Discover(request.Context(), request.PathValue("projectID"), request.PathValue("repositoryID"), request.PathValue("worktreeID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/proposals/{proposalID}/apply", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.ApplyProposal(request.Context(), request.PathValue("proposalID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/proposals/{proposalID}/reject", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.RejectProposal(request.Context(), request.PathValue("proposalID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
 	}))
 	mux.HandleFunc("POST /api/projects", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input struct {

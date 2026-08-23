@@ -20,6 +20,8 @@ type QueryService interface {
 	Repository(context.Context, string, string) (domain.Repository, error)
 	Worktrees(context.Context, string, string) ([]domain.Worktree, error)
 	Worktree(context.Context, string, string, string) (domain.Worktree, error)
+	Proposals(context.Context, string, string, string) ([]domain.Proposal, error)
+	Proposal(context.Context, string) (domain.Proposal, error)
 	Findings(context.Context, string, string) ([]domain.Finding, error)
 	Finding(context.Context, string) (domain.Finding, error)
 	Events(context.Context, int) ([]domain.Event, error)
@@ -38,6 +40,9 @@ type CommandService interface {
 	UpdateRepository(context.Context, string, string, UpdateRepositoryInput) (domain.Repository, error)
 	RemoveRepository(context.Context, string, string) error
 	AcknowledgeFinding(context.Context, string) error
+	Discover(context.Context, string, string, string) (domain.Discovery, error)
+	ApplyProposal(context.Context, string) (domain.Proposal, error)
+	RejectProposal(context.Context, string) (domain.Proposal, error)
 	ExportProject(context.Context, string) ([]byte, error)
 	ImportProject(context.Context, []byte) (domain.Project, error)
 	AddAgentProfile(context.Context, AddAgentProfileInput) (domain.AgentProfile, error)

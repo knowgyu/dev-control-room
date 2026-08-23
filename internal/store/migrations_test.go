@@ -28,7 +28,7 @@ func TestMigrateCreatesContractSchemaAndIsIdempotent(t *testing.T) {
 	if version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
 	}
-	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "actions", "action_plans", "approvals", "agent_profiles", "events", "scan_runs", "failure_fingerprints", "environment_health", "scheduler_state"} {
+	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "actions", "action_plans", "approvals", "agent_profiles", "events", "scan_runs", "failure_fingerprints", "environment_health", "scheduler_state", "proposals"} {
 		var count int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -87,8 +87,8 @@ func TestMigrationFourAppliesForwardFromVersionTwo(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 6 {
-		t.Fatalf("forward migration did not reach version 6: %d, %v", version, err)
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("forward migration did not reach version %d: %d, %v", CurrentSchemaVersion, version, err)
 	}
 	for _, table := range []string{"environment_health", "scheduler_state"} {
 		var count int
@@ -96,7 +96,7 @@ func TestMigrationFourAppliesForwardFromVersionTwo(t *testing.T) {
 			t.Fatalf("forward migration did not create %s: %d, %v", table, count, err)
 		}
 	}
-	for _, table := range []string{"worktrees", "worktree_observations"} {
+	for _, table := range []string{"worktrees", "worktree_observations", "proposals"} {
 		var count int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("forward migration did not create %s: %d, %v", table, count, err)

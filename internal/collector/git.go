@@ -141,6 +141,7 @@ type Worktree struct {
 type State struct {
 	Path                        string       `json:"path"`
 	TopLevel                    string       `json:"topLevel,omitempty"`
+	Head                        string       `json:"head,omitempty"`
 	Branch                      string       `json:"branch,omitempty"`
 	Detached                    bool         `json:"detached"`
 	Dirty                       bool         `json:"dirty"`
@@ -181,6 +182,11 @@ func (c GitCollector) Collect(ctx context.Context, path string) (State, error) {
 	if !sameDirectory(path, state.TopLevel) {
 		state.Error = "registered path is not the Git worktree root"
 		return state, errors.New("registered path is not the Git worktree root")
+	}
+	state.Head, err = c.required(ctx, path, "rev-parse", "HEAD")
+	if err != nil {
+		state.Error = "Git HEAD could not be read"
+		return state, err
 	}
 	state.Branch, err = c.optional(ctx, path, "symbolic-ref", "--short", "-q", "HEAD")
 	if err != nil || state.Branch == "" {

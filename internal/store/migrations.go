@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 6
+const CurrentSchemaVersion = 7
 
 type Migration struct {
 	Version int
@@ -236,6 +236,25 @@ UPDATE worktrees SET is_primary = 0 WHERE id <> 'primary' AND is_primary <> 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_worktrees_one_primary ON worktrees(project_id, repository_id) WHERE is_primary = 1;
 CREATE INDEX IF NOT EXISTS idx_worktrees_path_fingerprint ON worktrees(project_id, repository_id, path_fingerprint);
 DROP TABLE worktrees_v6_conflict_guard;
+`,
+	},
+	{
+		Version: 7,
+		Name:    "discovery-proposals",
+		SQL: `
+CREATE TABLE IF NOT EXISTS proposals (
+ id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+ project_id TEXT NOT NULL,
+ repository_id TEXT NOT NULL,
+ worktree_id TEXT NOT NULL,
+ state TEXT NOT NULL CHECK (state IN ('pending', 'applied', 'rejected', 'stale')),
+ source_path TEXT NOT NULL,
+ source_digest TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ object_json TEXT NOT NULL,
+ FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_proposals_scope_state ON proposals(project_id, repository_id, worktree_id, state, created_at);
 `,
 	},
 }

@@ -20,6 +20,7 @@ import (
 
 	"github.com/knowgyu/dev-control-room/internal/collector"
 	"github.com/knowgyu/dev-control-room/internal/contract"
+	"github.com/knowgyu/dev-control-room/internal/discovery"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/environment"
 	"github.com/knowgyu/dev-control-room/internal/masking"
@@ -244,6 +245,194 @@ func (a *App) Worktree(ctx context.Context, projectID, repositoryID, worktreeID 
 		return domain.Worktree{}, contract.NotFound("worktree not found")
 	}
 	return item, err
+}
+
+func (a *App) Proposals(ctx context.Context, projectID, repositoryID, worktreeID string) ([]domain.Proposal, error) {
+	if _, err := a.Worktree(ctx, projectID, repositoryID, worktreeID); err != nil && worktreeID != "" {
+		return nil, err
+	}
+	if _, err := a.Repository(ctx, projectID, repositoryID); err != nil {
+		return nil, err
+	}
+	items, err := a.store.ListProposals(ctx, projectID, repositoryID, worktreeID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range items {
+		if items[index].Spec.State == domain.ProposalPending {
+			if stale, err := a.proposalStale(ctx, items[index]); err != nil {
+				return nil, err
+			} else if stale {
+				items[index].Spec.State = domain.ProposalStale
+			}
+		}
+	}
+	return items, nil
+}
+
+func (a *App) Proposal(ctx context.Context, id string) (domain.Proposal, error) {
+	proposal, err := a.store.GetProposal(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Proposal{}, contract.NotFound("proposal not found")
+	}
+	if err != nil {
+		return domain.Proposal{}, err
+	}
+	if proposal.Spec.State == domain.ProposalPending {
+		stale, err := a.proposalStale(ctx, proposal)
+		if err != nil {
+			return domain.Proposal{}, err
+		}
+		if stale {
+			proposal.Spec.State = domain.ProposalStale
+		}
+	}
+	return proposal, nil
+}
+
+// Discover persists only evidence-derived proposals. It never runs a proposed
+// command, writes the selected worktree, or scans paths outside it.
+func (a *App) Discover(ctx context.Context, projectID, repositoryID, worktreeID string) (domain.Discovery, error) {
+	worktree, changed, err := a.discoveryWorktree(ctx, projectID, repositoryID, worktreeID)
+	if err != nil {
+		return domain.Discovery{}, contract.Unavailable("selected worktree could not be revalidated")
+	}
+	if changed {
+		return domain.Discovery{}, contract.Unavailable("selected worktree identity no longer matches current Git evidence")
+	}
+	candidates, err := discovery.Discover(worktree.Path)
+	if err != nil {
+		return domain.Discovery{}, contract.Unavailable("selected worktree sources could not be read")
+	}
+	now := time.Now().UTC()
+	proposalIDs := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		proposal := newProposal(projectID, repositoryID, worktreeID, worktree.Branch, worktree.Head, candidate, now)
+		if err := a.store.SaveProposal(ctx, proposal); err != nil {
+			return domain.Discovery{}, err
+		}
+		proposalIDs = append(proposalIDs, proposal.Metadata.ID)
+	}
+	result := domain.Discovery{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.DiscoveryKind},
+		Metadata: domain.ObjectMeta{ID: discoveryID(projectID, repositoryID, worktreeID, worktree.Head, now), Name: "deterministic repository discovery"},
+		Spec:     domain.DiscoverySpec{ProjectID: projectID, RepositoryID: repositoryID, WorktreeID: worktreeID, Branch: worktree.Branch, Head: worktree.Head, DiscoveredAt: now, ProposalIDs: proposalIDs},
+	}
+	if err := result.Validate(); err != nil {
+		return domain.Discovery{}, err
+	}
+	if err := a.recordEvent(domain.Event{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.EventKind}, Metadata: domain.ObjectMeta{ID: eventID("discovery"), Name: "repository discovery"}, Spec: domain.EventSpec{ProjectID: projectID, RepositoryID: repositoryID, EventType: "proposal.discovered", Actor: "service", Summary: fmt.Sprintf("discovered %d proposal(s) in %s", len(proposalIDs), worktreeID), Data: map[string]any{"worktree_id": worktreeID, "proposal_count": len(proposalIDs)}, OccurredAt: now}}); err != nil {
+		return domain.Discovery{}, err
+	}
+	return result, nil
+}
+
+func (a *App) ApplyProposal(ctx context.Context, id string) (domain.Proposal, error) {
+	return a.reviewProposal(ctx, id, domain.ProposalApplied)
+}
+
+func (a *App) RejectProposal(ctx context.Context, id string) (domain.Proposal, error) {
+	return a.reviewProposal(ctx, id, domain.ProposalRejected)
+}
+
+func (a *App) reviewProposal(ctx context.Context, id string, state domain.ProposalState) (domain.Proposal, error) {
+	proposal, err := a.Proposal(ctx, id)
+	if err != nil {
+		return domain.Proposal{}, err
+	}
+	if proposal.Spec.State != domain.ProposalPending {
+		if proposal.Spec.State == domain.ProposalStale {
+			stored, err := a.store.GetProposal(ctx, proposal.Metadata.ID)
+			if err != nil {
+				return domain.Proposal{}, err
+			}
+			if stored.Spec.State == domain.ProposalPending {
+				stored.Spec.State = domain.ProposalStale
+				if err := a.store.MarkProposalStale(ctx, stored); err != nil {
+					return domain.Proposal{}, err
+				}
+			}
+		}
+		return domain.Proposal{}, contract.InvalidInput("only pending proposals can be reviewed")
+	}
+	now := time.Now().UTC()
+	proposal.Spec.State = state
+	proposal.Spec.ReviewedAt = &now
+	event := domain.Event{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.EventKind}, Metadata: domain.ObjectMeta{ID: eventID("proposal-review"), Name: "proposal review"}, Spec: domain.EventSpec{ProjectID: proposal.Spec.ProjectID, RepositoryID: proposal.Spec.RepositoryID, EventType: "proposal." + string(state), Actor: "user", Summary: fmt.Sprintf("proposal %s", state), Data: map[string]any{"proposal_id": proposal.Metadata.ID, "worktree_id": proposal.Spec.WorktreeID}, OccurredAt: now}}
+	updated, err := a.store.ReviewProposal(ctx, proposal, event)
+	if err != nil {
+		return domain.Proposal{}, err
+	}
+	if !updated {
+		return domain.Proposal{}, contract.Conflict("proposal has already been reviewed")
+	}
+	return proposal, nil
+}
+
+func (a *App) proposalStale(ctx context.Context, proposal domain.Proposal) (bool, error) {
+	worktree, changed, err := a.discoveryWorktree(ctx, proposal.Spec.ProjectID, proposal.Spec.RepositoryID, proposal.Spec.WorktreeID)
+	if err != nil {
+		return false, contract.Unavailable("proposal worktree could not be revalidated")
+	}
+	if changed {
+		return true, nil
+	}
+	if worktree.Head != proposal.Spec.Head {
+		return true, nil
+	}
+	candidates, err := discovery.Discover(worktree.Path)
+	if err != nil {
+		return false, contract.Unavailable("proposal source could not be revalidated")
+	}
+	for _, candidate := range candidates {
+		if candidate.SourcePath == proposal.Spec.SourcePath && candidate.SourceDigest == proposal.Spec.SourceDigest {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// discoveryWorktree replays the Git common-directory proof from Slice B before
+// using a persisted worktree identity for any source read.
+func (a *App) discoveryWorktree(ctx context.Context, projectID, repositoryID, worktreeID string) (collector.Worktree, bool, error) {
+	stored, err := a.Worktree(ctx, projectID, repositoryID, worktreeID)
+	if err != nil {
+		if contract.Classify(err).Code == contract.ErrorNotFound {
+			return collector.Worktree{}, true, nil
+		}
+		return collector.Worktree{}, false, err
+	}
+	if stored.Spec.Trust != domain.WorktreeTrustVerifiedReadOnly || stored.Spec.TombstonedAt != nil || stored.Spec.PathFingerprint == "" || stored.Spec.AssociationFingerprint == "" {
+		return collector.Worktree{}, true, nil
+	}
+	repository, err := a.Repository(ctx, projectID, repositoryID)
+	if err != nil {
+		return collector.Worktree{}, false, err
+	}
+	state, err := a.collector.Collect(ctx, repository.Spec.Path)
+	if err != nil {
+		return collector.Worktree{}, false, err
+	}
+	if !state.WorktreeEnumerationComplete {
+		return collector.Worktree{}, false, errors.New("Git worktree enumeration is incomplete")
+	}
+	worktrees, _ := a.collector.WorktreeDetails(ctx, repository.Spec.Path, state.Worktrees)
+	for _, current := range worktrees {
+		if current.ID != worktreeID {
+			if current.Error != "" && worktreePathFingerprint(current.Path) == stored.Spec.PathFingerprint {
+				return collector.Worktree{}, false, errors.New("selected worktree association proof is incomplete")
+			}
+			continue
+		}
+		if current.Error != "" {
+			return collector.Worktree{}, false, errors.New("selected worktree association proof is incomplete")
+		}
+		if current.Trust != string(domain.WorktreeTrustVerifiedReadOnly) || current.Prunable || current.Primary != stored.Spec.Primary || worktreePathFingerprint(current.Path) != stored.Spec.PathFingerprint || current.AssociationFingerprint != stored.Spec.AssociationFingerprint {
+			break
+		}
+		return current, false, nil
+	}
+	return collector.Worktree{}, true, nil
 }
 
 func (a *App) Findings(ctx context.Context, projectID, repositoryID string) ([]domain.Finding, error) {
@@ -704,6 +893,21 @@ func normalizeAppID(value string) string {
 }
 
 func eventID(prefix string) string { return fmt.Sprintf("%s-%d", prefix, time.Now().UTC().UnixNano()) }
+
+func newProposal(projectID, repositoryID, worktreeID, branch, head string, candidate discovery.Candidate, discoveredAt time.Time) domain.Proposal {
+	identity := projectID + "\x00" + repositoryID + "\x00" + worktreeID + "\x00" + head + "\x00" + candidate.SourcePath + "\x00" + candidate.SourceDigest + "\x00" + candidate.CommandKind + "\x00" + candidate.Command
+	sum := sha256.Sum256([]byte(identity))
+	return domain.Proposal{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ProposalKind},
+		Metadata: domain.ObjectMeta{ID: "proposal-" + hex.EncodeToString(sum[:])[:48], Name: candidate.Name},
+		Spec:     domain.ProposalSpec{ProjectID: projectID, RepositoryID: repositoryID, WorktreeID: worktreeID, Branch: branch, Head: head, SourcePath: candidate.SourcePath, SourceDigest: candidate.SourceDigest, CommandKind: candidate.CommandKind, Command: candidate.Command, Inference: "deterministic", State: domain.ProposalPending, CreatedAt: discoveredAt},
+	}
+}
+
+func discoveryID(projectID, repositoryID, worktreeID, head string, discoveredAt time.Time) string {
+	sum := sha256.Sum256([]byte(projectID + "\x00" + repositoryID + "\x00" + worktreeID + "\x00" + head + "\x00" + discoveredAt.Format(time.RFC3339Nano)))
+	return "discovery-" + hex.EncodeToString(sum[:])[:48]
+}
 
 func scanID(projectID string, started time.Time) string {
 	sum := sha256.Sum256([]byte(projectID + started.Format(time.RFC3339Nano)))

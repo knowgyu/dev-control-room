@@ -69,7 +69,7 @@ Current contract versions:
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
-- SQLite schema: version 6;
+- SQLite schema: version 7;
 - Go module target: Go 1.23.
 
 ## Repository state at this handoff
@@ -167,6 +167,19 @@ See `docs/MILESTONE_2_VERIFICATION.md`.
 Commit `874a069` updates the target design; it does not implement the features
 below.
 
+## Slice C implementation accepted
+
+Slice C now persists versioned deterministic discovery proposals for one
+selected verified Worktree. The bounded scanner reads package scripts and
+unambiguous single-line GitHub Actions `run:` entries only; it never executes
+or reconstructs commands. Proposals retain scope, HEAD, source path/digest,
+and deterministic command identity. Pending proposals become stale after a
+Worktree/HEAD/source change; applying or rejecting records review only and
+does not create a Checkset. CLI and loopback HTTP use the shared application
+service. See `docs/SLICE_C_VERIFICATION.md` for the concrete boundary and WSL
+verification evidence. Independent code review is approved and architecture
+review is clear. Native Windows runtime smoke remains pending.
+
 ### Repository and Worktree identity
 
 Repository is the logical source-control identity. Worktree is a concrete
@@ -215,8 +228,6 @@ separate improvements, not falsely labelled discoveries.
 
 ## What has not started
 
-- Per-worktree state model, UI drill-down, and explicit execution scope.
-- Deterministic repository/CI discovery and proposal persistence.
 - Checkset execution.
 - Action Broker execution, approvals UI, locks, idempotency, and postchecks.
 - Configured release procedures, Jenkins triggers, or cleanup execution.
@@ -266,15 +277,19 @@ roadmap into one undifferentiated implementation.
 
 See `docs/SLICE_B_VERIFICATION.md`.
 
-### Slice C: deterministic discovery and proposals
+### Slice C: deterministic discovery and proposals (implemented; independently reviewed)
 
-- Define versioned Discovery and Proposal schemas before implementation.
-- Select a specific Worktree and record HEAD/source digests.
-- Start with a deliberately small ecosystem set inferred from fixtures, such as
-  package scripts and CI references; do not build a universal parser at once.
-- Add proposal list/show/apply/reject and stale detection.
-- Keep discovery read-only and AI-free first; add the optional AI drafting
-  boundary only after the deterministic contract is stable.
+- Versioned `Discovery` response and persistent `Proposal` contracts bind each
+  record to Project, Repository, Worktree, branch, HEAD, source path/digest,
+  and command identity.
+- The initial parser set is intentionally package scripts and unambiguous
+  single-line GitHub Actions `run:` entries; malformed or multiline input is
+  skipped, not guessed.
+- `project discover` and `proposal list|show|apply|reject` use the shared
+  application service; source/HEAD/worktree changes make pending proposals
+  stale. Applying is review-only until Slice D.
+
+See `docs/SLICE_C_VERIFICATION.md`.
 
 ### Slice D: Check runner
 
@@ -326,6 +341,7 @@ actually needs them.
 - `internal/app/config.go`: user-local config and forward migration.
 - `internal/app/web.go`: loopback HTTP adapter and embedded UI.
 - `internal/collector/git.go`: bounded Git and current coarse worktree collector.
+- `internal/discovery/discovery.go`: bounded deterministic repository/CI source reader.
 - `internal/reconcile/findings.go`: deterministic Git Findings.
 - `internal/environment/doctor.go`: tool/profile/environment diagnostics.
 - `internal/environment/process_windows.go`: Windows process-tree isolation.

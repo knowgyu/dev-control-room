@@ -22,6 +22,8 @@ const (
 	RepositoryKind          = "Repository"
 	WorktreeKind            = "Worktree"
 	WorktreeObservationKind = "WorktreeObservation"
+	DiscoveryKind           = "Discovery"
+	ProposalKind            = "Proposal"
 	ObservationKind         = "Observation"
 	FindingKind             = "Finding"
 	ChecksetKind            = "Checkset"
@@ -158,6 +160,91 @@ type WorktreeObservationSpec struct {
 	WorktreeID   string    `json:"worktreeId"`
 	CollectedAt  time.Time `json:"collectedAt"`
 	Object       Worktree  `json:"object"`
+}
+
+// Discovery records one bounded, read-only inspection of a selected Worktree.
+// It is a response contract; Proposal is the durable review object.
+type Discovery struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta    `json:"metadata"`
+	Spec     DiscoverySpec `json:"spec"`
+}
+
+type DiscoverySpec struct {
+	ProjectID    string    `json:"projectId"`
+	RepositoryID string    `json:"repositoryId"`
+	WorktreeID   string    `json:"worktreeId"`
+	Branch       string    `json:"branch,omitempty"`
+	Head         string    `json:"head"`
+	DiscoveredAt time.Time `json:"discoveredAt"`
+	ProposalIDs  []string  `json:"proposalIds"`
+}
+
+func (d Discovery) Validate() error {
+	if err := validateResource(d.TypeMeta, DiscoveryKind, d.Metadata); err != nil {
+		return err
+	}
+	if err := validateProjectRepository(d.Spec.ProjectID, d.Spec.RepositoryID); err != nil || !validIdentifier(d.Spec.WorktreeID) || strings.TrimSpace(d.Spec.Head) == "" || d.Spec.DiscoveredAt.IsZero() {
+		return errors.New("discovery scope, head, and collection time are required")
+	}
+	for _, id := range d.Spec.ProposalIDs {
+		if !validIdentifier(id) {
+			return errors.New("discovery proposal ids must be valid")
+		}
+	}
+	return nil
+}
+
+type ProposalState string
+
+const (
+	ProposalPending  ProposalState = "pending"
+	ProposalApplied  ProposalState = "applied"
+	ProposalRejected ProposalState = "rejected"
+	ProposalStale    ProposalState = "stale"
+)
+
+// Proposal is immutable discovery evidence until its lifecycle state changes.
+// Command is descriptive only in Slice C; no discovered command is executed.
+type Proposal struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta   `json:"metadata"`
+	Spec     ProposalSpec `json:"spec"`
+}
+
+type ProposalSpec struct {
+	ProjectID    string        `json:"projectId"`
+	RepositoryID string        `json:"repositoryId"`
+	WorktreeID   string        `json:"worktreeId"`
+	Branch       string        `json:"branch,omitempty"`
+	Head         string        `json:"head"`
+	SourcePath   string        `json:"sourcePath"`
+	SourceDigest string        `json:"sourceDigest"`
+	CommandKind  string        `json:"commandKind"`
+	Command      string        `json:"command"`
+	Inference    string        `json:"inference"`
+	State        ProposalState `json:"state"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	ReviewedAt   *time.Time    `json:"reviewedAt,omitempty"`
+}
+
+func (p Proposal) Validate() error {
+	if err := validateResource(p.TypeMeta, ProposalKind, p.Metadata); err != nil {
+		return err
+	}
+	if err := validateProjectRepository(p.Spec.ProjectID, p.Spec.RepositoryID); err != nil || !validIdentifier(p.Spec.WorktreeID) || strings.TrimSpace(p.Spec.Head) == "" || !validRelativePath(p.Spec.SourcePath) || !planDigestPattern.MatchString(p.Spec.SourceDigest) || strings.TrimSpace(p.Spec.CommandKind) == "" || strings.TrimSpace(p.Spec.Command) == "" || p.Spec.Inference != "deterministic" || p.Spec.CreatedAt.IsZero() {
+		return errors.New("proposal scope, source evidence, deterministic command, and creation time are required")
+	}
+	if p.Spec.State != ProposalPending && p.Spec.State != ProposalApplied && p.Spec.State != ProposalRejected && p.Spec.State != ProposalStale {
+		return errors.New("proposal has an invalid lifecycle state")
+	}
+	if (p.Spec.State == ProposalApplied || p.Spec.State == ProposalRejected) != (p.Spec.ReviewedAt != nil) {
+		return errors.New("reviewed proposals require a review time")
+	}
+	if p.Spec.ReviewedAt != nil && p.Spec.ReviewedAt.Before(p.Spec.CreatedAt) {
+		return errors.New("proposal review cannot precede discovery")
+	}
+	return nil
 }
 
 func (o WorktreeObservation) Validate() error {
@@ -815,6 +902,14 @@ func validIdentifier(value string) bool {
 
 func validOptionalIdentifier(value string) bool {
 	return value == "" || validIdentifier(value)
+}
+
+func validRelativePath(value string) bool {
+	if strings.Contains(value, "\\") {
+		return false
+	}
+	value = filepath.ToSlash(value)
+	return value != "" && !strings.HasPrefix(value, "/") && !strings.Contains(value, "\x00") && !strings.HasPrefix(value, "../") && value != ".." && !strings.Contains(value, "/../")
 }
 
 func validateProjectRepository(projectID, repositoryID string) error {

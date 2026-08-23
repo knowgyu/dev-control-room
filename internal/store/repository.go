@@ -369,6 +369,155 @@ func (s *Store) GetWorktree(ctx context.Context, projectID, repositoryID, id str
 	return domain.Worktree{}, sql.ErrNoRows
 }
 
+func (s *Store) SaveProposal(ctx context.Context, proposal domain.Proposal) error {
+	if err := proposal.Validate(); err != nil {
+		return fmt.Errorf("validate proposal: %w", err)
+	}
+	object, err := s.maskedJSON(proposal)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO proposals(id, project_id, repository_id, worktree_id, state, source_path, source_digest, created_at, object_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO NOTHING`,
+		proposal.Metadata.ID, proposal.Spec.ProjectID, proposal.Spec.RepositoryID, proposal.Spec.WorktreeID,
+		proposal.Spec.State, s.masker.Mask(proposal.Spec.SourcePath), proposal.Spec.SourceDigest, proposal.Spec.CreatedAt.UTC().Format(timeFormat), object)
+	if err != nil {
+		return fmt.Errorf("save proposal: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListProposals(ctx context.Context, projectID, repositoryID, worktreeID string) ([]domain.Proposal, error) {
+	query := `SELECT object_json FROM proposals WHERE project_id = ? AND repository_id = ?`
+	args := []any{projectID, repositoryID}
+	if worktreeID != "" {
+		query += ` AND worktree_id = ?`
+		args = append(args, worktreeID)
+	}
+	query += ` ORDER BY created_at DESC, id DESC`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list proposals: %w", err)
+	}
+	defer rows.Close()
+	items := make([]domain.Proposal, 0)
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			return nil, fmt.Errorf("scan proposal: %w", err)
+		}
+		var item domain.Proposal
+		if err := json.Unmarshal([]byte(object), &item); err != nil {
+			return nil, fmt.Errorf("decode proposal: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list proposal rows: %w", err)
+	}
+	return items, nil
+}
+
+func (s *Store) GetProposal(ctx context.Context, id string) (domain.Proposal, error) {
+	var object string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM proposals WHERE id = ?`, id).Scan(&object); err != nil {
+		return domain.Proposal{}, err
+	}
+	var proposal domain.Proposal
+	if err := json.Unmarshal([]byte(object), &proposal); err != nil {
+		return domain.Proposal{}, fmt.Errorf("decode proposal: %w", err)
+	}
+	return proposal, nil
+}
+
+func (s *Store) UpdateProposal(ctx context.Context, proposal domain.Proposal) error {
+	if err := proposal.Validate(); err != nil {
+		return fmt.Errorf("validate proposal: %w", err)
+	}
+	object, err := s.maskedJSON(proposal)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE proposals SET state = ?, object_json = ? WHERE id = ?`, proposal.Spec.State, object, proposal.Metadata.ID)
+	if err != nil {
+		return fmt.Errorf("update proposal: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ReviewProposal accepts exactly one pending-to-terminal review transition and
+// writes its audit event in the same transaction.
+func (s *Store) ReviewProposal(ctx context.Context, proposal domain.Proposal, event domain.Event) (bool, error) {
+	if err := proposal.Validate(); err != nil {
+		return false, fmt.Errorf("validate proposal: %w", err)
+	}
+	if proposal.Spec.State != domain.ProposalApplied && proposal.Spec.State != domain.ProposalRejected {
+		return false, errors.New("proposal review requires an applied or rejected state")
+	}
+	if err := event.Validate(); err != nil {
+		return false, fmt.Errorf("validate proposal review event: %w", err)
+	}
+	object, err := s.maskedJSON(proposal)
+	if err != nil {
+		return false, err
+	}
+	eventObject, err := s.maskedJSON(event)
+	if err != nil {
+		return false, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin proposal review: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE proposals SET state = ?, object_json = ? WHERE id = ? AND state = ?`, proposal.Spec.State, object, proposal.Metadata.ID, domain.ProposalPending)
+	if err != nil {
+		return false, fmt.Errorf("review proposal: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read proposal review result: %w", err)
+	}
+	if count == 0 {
+		return false, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO events(id, project_id, repository_id, event_type, occurred_at, object_json)
+VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id, repository_id=excluded.repository_id,
+event_type=excluded.event_type, occurred_at=excluded.occurred_at, object_json=excluded.object_json`,
+		event.Metadata.ID, event.Spec.ProjectID, event.Spec.RepositoryID, event.Spec.EventType, event.Spec.OccurredAt.UTC().Format(timeFormat), eventObject); err != nil {
+		return false, fmt.Errorf("save proposal review event: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit proposal review: %w", err)
+	}
+	return true, nil
+}
+
+func (s *Store) MarkProposalStale(ctx context.Context, proposal domain.Proposal) error {
+	if proposal.Spec.State != domain.ProposalStale {
+		return errors.New("proposal stale transition requires stale state")
+	}
+	if err := proposal.Validate(); err != nil {
+		return fmt.Errorf("validate proposal: %w", err)
+	}
+	object, err := s.maskedJSON(proposal)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE proposals SET state = ?, object_json = ? WHERE id = ? AND state = ?`, domain.ProposalStale, object, proposal.Metadata.ID, domain.ProposalPending)
+	if err != nil {
+		return fmt.Errorf("mark proposal stale: %w", err)
+	}
+	return nil
+}
+
 func worktreeObservationID(item domain.Worktree) string {
 	sum := sha256.Sum256([]byte(item.Spec.ProjectID + "\x00" + item.Spec.RepositoryID + "\x00" + item.Metadata.ID + "\x00" + item.Spec.LastObserved.UTC().Format(time.RFC3339Nano)))
 	return "worktree-observation-" + hex.EncodeToString(sum[:])[:48]

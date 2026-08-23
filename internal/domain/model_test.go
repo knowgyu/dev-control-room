@@ -94,6 +94,27 @@ func TestRepositoryIdentifiersAreProjectScopedAndValidated(t *testing.T) {
 	}
 }
 
+func TestProposalRequiresBoundedEvidenceAndReviewState(t *testing.T) {
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	proposal := Proposal{
+		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ProposalKind},
+		Metadata: ObjectMeta{ID: "proposal-1", Name: "package script test"},
+		Spec:     ProposalSpec{ProjectID: "project-1", RepositoryID: "repo-1", WorktreeID: "primary", Head: "abc", SourcePath: "package.json", SourceDigest: "sha256:" + strings.Repeat("a", 64), CommandKind: "package_script", Command: "npm run test", Inference: "deterministic", State: ProposalPending, CreatedAt: now},
+	}
+	if err := proposal.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	proposal.Spec.SourcePath = "../outside"
+	if err := proposal.Validate(); err == nil {
+		t.Fatal("proposal accepted source outside selected worktree")
+	}
+	proposal.Spec.SourcePath = "package.json"
+	proposal.Spec.State = ProposalApplied
+	if err := proposal.Validate(); err == nil {
+		t.Fatal("applied proposal without review time was accepted")
+	}
+}
+
 func TestHighImpactActionRequiresFreshIndependentApproval(t *testing.T) {
 	plan := ActionPlan{
 		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind},
