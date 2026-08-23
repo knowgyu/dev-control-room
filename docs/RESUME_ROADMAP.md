@@ -44,9 +44,10 @@ handoff commit. The native-accepted product baseline is
 final linked-Worktree proof repair and native Windows acceptance are included
 in that baseline; proposal text remains non-executable.
 
-The first public package is released as `v0.3.0` for Windows amd64. The tagged
-release commit is `92ee8d0`; the asset is
-`dev-control-room_0.3.0_windows_amd64.exe` with its SHA-256 in `SHA256SUMS`.
+The current Windows amd64 package is released as `v0.3.1` from tagged commit
+`4bcd8c6`; the asset is `dev-control-room_0.3.1_windows_amd64.exe` with its
+SHA-256 in `SHA256SUMS`. Environment Health duplicate display is tracked as
+GitHub issue #1 and is intentionally not changed in this release.
 
 ## Next implementation order
 
