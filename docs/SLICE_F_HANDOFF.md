@@ -1,8 +1,8 @@
 # Slice F handoff: Action execution contract
 
 Status: execution contract and trusted-human approval ceremony are implemented
-and WSL/cross-verified; Action process execution and native Windows acceptance
-remain pending.
+and accepted on WSL and native Windows at `3dbc90d`; Action process execution
+remains pending.
 
 Schema v11 persists exact Worktree execution-trust snapshots. Server-owned
 Action definitions produce digest-bound typed executable identity, argv,
@@ -19,5 +19,6 @@ Only a later execution owner may revalidate and launch a typed Action.
 
 The portability repairs passed WSL tests, race tests, vet, module verification,
 Linux build, Windows amd64/arm64 cross-builds, and diff checks. Native Windows
-interactive-modal validation, full tests/vet, Task Scheduler COM smoke, and
-race testing with `gcc` remain unverified.
+interactive-modal validation, full tests/vet/build/module/race, loopback UI,
+Worktree fail-closed, and Scheduler dry-run/status also passed. No Action
+process was launched; Scheduler install/uninstall was not performed.

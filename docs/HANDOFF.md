@@ -63,7 +63,8 @@ changes. AI is a client, never the source of truth or a privileged actor.
 - Company repository names, paths, endpoints, tokens, and runbooks are not
   committed to this repository. Tests use generic fixtures only.
 
-Current contract versions:
+Current contract versions (the binary string remains the existing compatibility
+value while Milestones 0–3 are accepted):
 
 - binary version: `0.3.0-milestone-2`;
 - API objects: `devroom/v1alpha1`;
@@ -83,9 +84,18 @@ ad732f6 feat: implement milestone 2 environment doctor and scheduling boundary
 c8d71c7 chore: establish milestone 0 foundation
 ```
 
-At preparation time, only local `main` exists and no Git remote is configured.
-Before starting, inspect `git status`, remotes, and any user-created branches or
-worktrees rather than assuming they are unchanged.
+The current handoff is `main` at `3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`,
+verified against `origin/main`, with a clean worktree. Inspect status, remotes,
+and user-created branches/worktrees again before changing code.
+
+Native Windows acceptance at this commit passed on Windows 11 / PowerShell
+7.6.4 with Go 1.26.7 and `gcc`; see `docs/NATIVE_WINDOWS_SMOKE.md`.
+
+The final portability/acceptance sequence is `27b5aa3` (trusted-human
+ceremony), `b8ab439` (Scheduler status), `b7b2491` (linked Worktree fixture),
+and `3dbc90d` (canonical Worktree path on proof failure). Earlier verification
+documents retain the evidence and limitations known at their original dates;
+the later native result supersedes only their “pending native smoke” status.
 
 ## Implemented milestones
 
@@ -156,9 +166,9 @@ only `DevControlRoom.Startup`, starts the exact typed `serve --home` command at
 logon and daily at local `03:00`, uses `StartWhenAvailable` for catch-up, and
 ignores a second instance. It runs as the interactive user at least privilege
 with no execution-time limit. `status` rejects a same-named task whose action,
-triggers, principal, execution limit, catch-up, or instance policy drifted. No native install, uninstall,
-or COM runtime smoke was authorized or performed in this WSL session, so real
-Task Scheduler behavior remains a native-Windows verification gap.
+triggers, principal, execution limit, catch-up, or instance policy drifted. The
+native acceptance run verified scheduler dry-run/status without installing or
+uninstalling a real task.
 
 See `docs/MILESTONE_2_VERIFICATION.md`.
 
@@ -177,8 +187,9 @@ and deterministic command identity. Pending proposals become stale after a
 Worktree/HEAD/source change; applying or rejecting records review only and
 does not create a Checkset. CLI and loopback HTTP use the shared application
 service. See `docs/SLICE_C_VERIFICATION.md` for the concrete boundary and WSL
-verification evidence. Independent code review is approved and architecture
-review is clear. Native Windows runtime smoke remains pending.
+verification evidence. Independent code review is approved, architecture
+review is clear, and the native Windows acceptance is recorded in
+`docs/NATIVE_WINDOWS_SMOKE.md`.
 
 ### Repository and Worktree identity
 
@@ -248,7 +259,7 @@ A long-running goal may continue through these slices, but each slice should
 remain independently reviewable, tested, and committed. Do not turn the entire
 roadmap into one undifferentiated implementation.
 
-### Slice A: native scheduler adapter (implemented; native smoke pending)
+### Slice A: native scheduler adapter (implemented and natively accepted)
 
 - Windows uses the Task Scheduler COM API, not PowerShell, `schtasks`, or shell
   execution; non-Windows keeps the fake/dry-run adapter.
@@ -259,9 +270,10 @@ roadmap into one undifferentiated implementation.
 - Install/update and uninstall are idempotent; install refuses to replace a
   same-named incompatible definition. Native status detects a missing task and
   rejects definition drift. Dry-run never opens Task Scheduler.
-- Native install/uninstall/status smoke remains explicitly authorization-gated.
+- Native acceptance covered dry-run/status only; install/uninstall remains
+  intentionally unperformed and authorization-gated.
 
-### Slice B: Worktree model and visibility (implemented; native smoke pending)
+### Slice B: Worktree model and visibility (implemented and natively accepted)
 
 - Schema v4 adds project/repository-scoped Worktree identities (v6 was corrected before Slice B acceptance to repair legacy primary rows and backfill path fingerprints); transient pre-acceptance v6 local databases must be recreated if their migration checksum mismatches) and immutable
   worktree observations without changing existing Repository identity/history.
@@ -292,16 +304,16 @@ See `docs/SLICE_B_VERIFICATION.md`.
 
 See `docs/SLICE_C_VERIFICATION.md`.
 
-### Slice D: Check runner (implemented; native smoke pending)
+### Slice D: Check runner (implemented and natively accepted)
 
 - Typed Checksets execute only applied, evidence-bound read-only commands in a
   selected Worktree, with typed argv, environment allowlist, dependency order,
   timeout/cancellation, process-tree containment, masking, and bounded evidence.
-- CLI and loopback HTTP call the same application-service methods. The embedded
-  UI Checkset flow and native Windows 11 / PowerShell 7.6 smoke remain pending.
+- CLI, loopback HTTP, and the embedded UI Checkset flow call the same
+  application-service methods. Native Windows 11 / PowerShell 7.6 smoke passed.
 - See `docs/SLICE_D_VERIFICATION.md` and commit `85bee90`.
 
-### Slice E: Action Broker and trusted-human approval (implemented; native acceptance pending)
+### Slice E: Action Broker and trusted-human approval (implemented and natively accepted)
 
 - Plans bind their complete target, inputs, executable identity, prechecks, and
   postchecks to a digest; the Broker enforces policy, locks, idempotency,
@@ -312,9 +324,10 @@ See `docs/SLICE_C_VERIFICATION.md`.
 - Non-Windows builds fail closed when native human approval is unavailable.
   A successful ceremony does not run an Action; process execution, target
   mutation, and postchecks remain separate, unimplemented work.
-- WSL/cross verification passed for the portability repairs. Native Windows
-  full tests/vet, interactive modal and loopback UI smoke, Scheduler COM smoke,
-  and race testing with `gcc` remain pending.
+- WSL/cross verification and native Windows full tests/vet/build/module/race,
+  interactive modal, loopback UI, Worktree fail-closed, and Scheduler
+  dry-run/status checks passed. No real Action process or Scheduler
+  install/uninstall was performed.
 
 Only after these slices should actual company-specific pre-PR, release,
 Jenkins, and cleanup procedures be onboarded in Milestone 4.

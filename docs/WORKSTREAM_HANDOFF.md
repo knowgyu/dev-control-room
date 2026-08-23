@@ -1,6 +1,6 @@
 # Normal-session workstream handoff
 
-Updated: 2026-08-23
+Updated: 2026-08-23 (native Windows acceptance integrated)
 
 This is a coordination record for ordinary Codex native subagents. It is not an
 OMX workflow state and must not activate or modify Ultragoal, Autopilot, or
@@ -8,25 +8,35 @@ Codex Goal artifacts.
 
 ## Current baseline
 
-- Milestones 0–2, 3A, and 3B are accepted. 3C has a verified CLI/HTTP typed
-  Checkset runner; its native Windows smoke remains pending.
+- Milestones 0–3 (3A–3D) are accepted at `3dbc90d`; the native Windows final
+  acceptance is summarized in `docs/NATIVE_WINDOWS_SMOKE.md`.
 - Slice 3D now includes the Action Broker, safe adapters, execution contract,
   and W5 trusted-human ceremony. It is not a generic shell and does not execute
   unreviewed repository text or any Action process.
 - The approval ceremony is UI-only and empty-body-only. Windows opens a native
   `MessageBoxW` from persisted-plan data; non-Windows fails closed. CLI/API/MCP
   agents and schedulers cannot grant approval.
-- Portability repairs are WSL/cross-verified only. Native Windows full
-  tests/vet, interactive modal and UI smoke, Scheduler COM smoke, and race with
-  `gcc` remain separate acceptance gates.
+- Portability repairs passed WSL/cross checks and native Windows full
+  tests/vet/build/module/race, interactive modal/UI, Worktree fail-closed,
+  Action non-execution, and Scheduler dry-run/status checks. Scheduler
+  install/uninstall and Action execution remain intentionally unperformed.
+
+## Next boundary
+
+The next implementation is a separately typed Action execution slice. It must
+revalidate the exact Worktree immediately before launch, keep argv and the
+allowlisted environment separate from shell text, record bounded output and
+postchecks, and remain behind the Action Broker. Only after that slice is
+accepted should Milestone 4 configured release/cleanup work begin. Milestones
+5 and 6 remain not started.
 
 ## Workstream ownership
 
 | Stream | Owner model / role | Exclusive files | Permitted outcome | Must not do |
 | --- | --- | --- | --- | --- |
-| W1 — 3C UI parity | Luna xhigh executor | `internal/app/web.go`, UI-specific tests | Expose Checkset list/create/apply/run/result through existing application-service methods. | Duplicate policy, call Store or process runner directly, change Checkset domain/store contracts. |
-| W2 — 3D Action core | Luna xhigh executor | `internal/action/**`, `internal/domain/model.go`, `internal/store/migrations.go`, `internal/store/repository.go`, Action-core tests | Typed plan/approval/lock/idempotency contracts and persistence only. | Add CLI/HTTP/UI adapters, mutate a target, or accept arbitrary shell input. |
-| W3 — adapter integration | Luna xhigh executor, after W1/W2 acceptance | `internal/app/app.go`, `internal/app/service.go`, `cmd/dev-control-room/main.go`, Action HTTP routes | Thin application-service wiring and approval-bypass regressions. | Start until W1/W2 handoffs are accepted; own W1/W2 files. |
+| W1 — 3C UI parity | Luna xhigh executor | `internal/app/web.go`, UI-specific tests | Completed and accepted; preserve the shared application-service boundary. | Reopen accepted Slice C work without a regression. |
+| W2 — 3D Action core | Luna xhigh executor | `internal/action/**`, `internal/domain/model.go`, `internal/store/migrations.go`, `internal/store/repository.go`, Action-core tests | Completed and accepted; planning/approval contracts only. | Add real Action execution or bypass the Broker. |
+| W3 — adapter integration | Luna xhigh executor | `internal/app/app.go`, `internal/app/service.go`, `cmd/dev-control-room/main.go`, Action HTTP routes | Completed and accepted; thin application-service wiring and approval-bypass regressions. | Duplicate policy or introduce a second service boundary. |
 | Vn — milestone verification | Terra high verifier/test engineer | Read-only by default | Verify the named completed stream against its acceptance contract; report exact evidence and gaps. | Edit product files, commit, push, or silently widen scope. |
 | Final integration | Sol verifier | Clean integrated worktree | Assess architecture, security invariants, docs, tests, and release readiness. | Implement or waive an unresolved finding. |
 

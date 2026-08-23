@@ -40,7 +40,9 @@ Focused coverage includes NUL paths, foreign-common-directory no-read,
 exit-128 failure propagation, linked registered-primary identity,
 verified/unverified recovery across restart, masked path persistence,
 Snapshot/HTTP/CLI list-and-show equivalence, UI dynamic-field escaping, and
-v3-to-v6 migration/FK/primary-conflict scope. Native Windows runtime validation
-remains pending; cross-build is not a Task Scheduler or Windows Git smoke.
+v3-to-v6 migration/FK/primary-conflict scope. The original WSL record did not
+include native runtime validation; that later gap was closed at
+`3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`, including linked Worktree proof and
+native Worktree fail-closed checks. See `docs/NATIVE_WINDOWS_SMOKE.md`.
 
 Pre-acceptance schema-v6 development databases created before its final correction must be recreated rather than bypassing migration checksum validation.

@@ -139,3 +139,13 @@ command output to non-secret version metadata, and connector checks retain only
 reference presence and non-secret prior validation status. Fixture tests use
 temporary directories and synthetic names; no user project path or credential
 was inspected.
+
+## Later native acceptance follow-up
+
+The native-toolchain gap above is historical for the original WSL milestone-2
+run. Subsequent slices integrated the Windows portability fixes, and the final
+native Windows acceptance at `3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4` passed
+`go test ./...`, `go test -race ./...` with `gcc`, `go vet ./...`, `go build
+./...`, `go mod verify`, and Scheduler dry-run/status. No real Scheduler
+install/uninstall was performed. The original record is intentionally retained;
+see `docs/NATIVE_WINDOWS_SMOKE.md` for current status.

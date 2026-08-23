@@ -1,8 +1,8 @@
 # Slice E handoff: Action Broker core
 
 Status: core, safe adapters, and the trusted-human approval ceremony are
-implemented and WSL/cross-verified; native Windows acceptance and Action
-execution remain pending.
+implemented and accepted on WSL and native Windows at `3dbc90d`; Action
+execution remains pending.
 
 This slice adds no Action execution, target mutation, shell, connector, or
 network surface. `internal/action.Broker` owns reviewed action-definition
@@ -36,7 +36,7 @@ trust snapshot; changed, tombstoned, or untrusted Worktrees fail closed. This
 does not launch a process or grant approval.
 
 The portability repairs passed WSL tests, race tests, vet, module verification,
-Linux build, Windows amd64/arm64 cross-builds, and `git diff --check`. They do
-not replace native acceptance: interactive Windows modal behavior, full Windows
-tests/vet, Task Scheduler COM smoke, and Windows race testing with `gcc` remain
-pending.
+Linux build, Windows amd64/arm64 cross-builds, and `git diff --check`. Native
+Windows full tests/vet/build/module/race, MessageBoxW behavior, loopback UI,
+Worktree fail-closed, Action non-execution, and Scheduler dry-run/status also
+passed. Scheduler install/uninstall and Action execution were not performed.

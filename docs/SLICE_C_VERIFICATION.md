@@ -68,6 +68,15 @@ PowerShell 7.6 runtime smoke has not been run from this WSL session. In
 particular, path handling and the loopback HTTP surface need that native smoke;
 cross-compilation is not a substitute.
 
+## Later native acceptance
+
+The gap above records the state when Slice C was first verified. It was closed
+by the native Windows acceptance at `3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`:
+the full test suite, race suite with `gcc`, vet, build, module verification,
+loopback/UI Checkset flow, linked Worktree proof, and fail-closed Action
+boundaries passed. See `docs/NATIVE_WINDOWS_SMOKE.md` for the consolidated
+acceptance summary.
+
 ## Deliberately deferred
 
 Make/Task/Just/build-language parsing, Jenkinsfile parsing, documentation
