@@ -31,6 +31,7 @@ const (
 	ActionKind              = "Action"
 	ActionPlanKind          = "ActionPlan"
 	ApprovalKind            = "Approval"
+	ActionEventKind         = "ActionEvent"
 	AgentProfileKind        = "AgentProfile"
 	EventKind               = "Event"
 	ScanRunKind             = "ScanRun"
@@ -566,7 +567,8 @@ type ActionPlan struct {
 
 type ActionPlanSpec struct {
 	ProjectID        string            `json:"projectId"`
-	RepositoryID     string            `json:"repositoryId,omitempty"`
+	RepositoryID     string            `json:"repositoryId"`
+	WorktreeID       string            `json:"worktreeId"`
 	ActionType       string            `json:"actionType"`
 	Risk             ActionRisk        `json:"risk"`
 	Inputs           map[string]string `json:"inputs,omitempty"`
@@ -574,6 +576,8 @@ type ActionPlanSpec struct {
 	Postconditions   []string          `json:"postconditions,omitempty"`
 	PolicyDecision   string            `json:"policyDecision"`
 	ApprovalRequired bool              `json:"approvalRequired"`
+	RequestedBy      Actor             `json:"requestedBy"`
+	RequestedAt      time.Time         `json:"requestedAt"`
 }
 
 type Approval struct {
@@ -590,6 +594,43 @@ type ApprovalSpec struct {
 	ApprovedBy       *Actor        `json:"approvedBy,omitempty"`
 	Reason           string        `json:"reason,omitempty"`
 	ExpiresAt        *time.Time    `json:"expiresAt,omitempty"`
+	DecidedAt        time.Time     `json:"decidedAt"`
+}
+
+// ActionEvent is an immutable audit record produced only by the broker core.
+type ActionEvent struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta      `json:"metadata"`
+	Spec     ActionEventSpec `json:"spec"`
+}
+
+type ActionEventSpec struct {
+	ActionPlanID     string    `json:"actionPlanId"`
+	ActionPlanDigest string    `json:"actionPlanDigest"`
+	EventType        string    `json:"eventType"`
+	Actor            Actor     `json:"actor"`
+	OccurredAt       time.Time `json:"occurredAt"`
+}
+
+// ActionDefinition is server-owned policy for one reviewed Action type.
+type ActionDefinition struct {
+	ActionType       string
+	Risk             ActionRisk
+	PolicyDecision   string
+	ApprovalRequired bool
+	Inputs           []string
+}
+
+var actionDefinitions = map[string]ActionDefinition{
+	"repository.refresh":  {ActionType: "repository.refresh", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed},
+	"release.production":  {ActionType: "release.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"commit"}},
+	"cleanup.destructive": {ActionType: "cleanup.destructive", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true},
+}
+
+func ActionDefinitionFor(actionType string) (ActionDefinition, bool) {
+	definition, ok := actionDefinitions[actionType]
+	definition.Inputs = append([]string(nil), definition.Inputs...)
+	return definition, ok
 }
 
 type ApprovalState string
@@ -843,23 +884,20 @@ func (a ActionPlan) Validate() error {
 	if err := validateResource(a.TypeMeta, ActionPlanKind, a.Metadata); err != nil {
 		return err
 	}
-	if !validIdentifier(a.Spec.ProjectID) || a.Spec.ActionType == "" || !validRisk(a.Spec.Risk) {
-		return errors.New("action plan project, action type, and risk are required")
+	if !validIdentifier(a.Spec.ProjectID) || !validIdentifier(a.Spec.RepositoryID) || !validIdentifier(a.Spec.WorktreeID) || !validActor(a.Spec.RequestedBy) || a.Spec.RequestedAt.IsZero() {
+		return errors.New("action plan requires an exact target and requester")
 	}
-	if !validOptionalIdentifier(a.Spec.RepositoryID) {
-		return errors.New("action plan has an invalid repository identifier")
+	definition, ok := ActionDefinitionFor(a.Spec.ActionType)
+	if !ok || a.Spec.Risk != definition.Risk || a.Spec.PolicyDecision != definition.PolicyDecision || a.Spec.ApprovalRequired != definition.ApprovalRequired {
+		return errors.New("action plan does not match a reviewed action definition")
 	}
-	if a.Spec.PolicyDecision != PolicyAllowed && a.Spec.PolicyDecision != PolicyDenied && a.Spec.PolicyDecision != PolicyApprovalRequired {
-		return errors.New("action plan has an invalid policy decision")
+	if len(a.Spec.Inputs) != len(definition.Inputs) {
+		return errors.New("action plan inputs do not match its reviewed definition")
 	}
-	if (a.Spec.Risk == RiskExternalChange || a.Spec.Risk == RiskHighImpact) && !a.Spec.ApprovalRequired {
-		return errors.New("external-change and high-impact actions always require approval")
-	}
-	if a.Spec.ApprovalRequired && a.Spec.PolicyDecision == PolicyAllowed {
-		return errors.New("an approval-required action cannot have an allowed policy decision")
-	}
-	if !a.Spec.ApprovalRequired && a.Spec.PolicyDecision == PolicyApprovalRequired {
-		return errors.New("approval-required policy decision needs approval_required=true")
+	for _, name := range definition.Inputs {
+		if strings.TrimSpace(a.Spec.Inputs[name]) == "" {
+			return errors.New("action plan is missing a reviewed input")
+		}
 	}
 	return nil
 }
@@ -893,8 +931,8 @@ func (a Approval) Validate() error {
 	if err := validateResource(a.TypeMeta, ApprovalKind, a.Metadata); err != nil {
 		return err
 	}
-	if !validIdentifier(a.Spec.ActionPlanID) || !planDigestPattern.MatchString(a.Spec.ActionPlanDigest) || !validActor(a.Spec.RequestedBy) || !validApprovalState(a.Spec.Status) {
-		return errors.New("approval action plan, digest, requester, and status are required")
+	if !validIdentifier(a.Spec.ActionPlanID) || !planDigestPattern.MatchString(a.Spec.ActionPlanDigest) || !validActor(a.Spec.RequestedBy) || !validApprovalState(a.Spec.Status) || a.Spec.DecidedAt.IsZero() {
+		return errors.New("approval action plan, digest, requester, decision time, and status are required")
 	}
 	switch a.Spec.Status {
 	case ApprovalPending:
@@ -940,6 +978,9 @@ func (a Approval) ValidateForAt(plan ActionPlan, now time.Time) error {
 	if a.Spec.ActionPlanDigest != digest {
 		return errors.New("approval action-plan digest does not match")
 	}
+	if a.Spec.DecidedAt.After(now) {
+		return errors.New("approval decision cannot be in the future")
+	}
 	if !plan.Spec.ApprovalRequired && a.Spec.Status == ApprovalGranted {
 		return errors.New("an action without required approval cannot receive a grant")
 	}
@@ -947,6 +988,16 @@ func (a Approval) ValidateForAt(plan ActionPlan, now time.Time) error {
 		if a.Spec.ExpiresAt == nil || !a.Spec.ExpiresAt.After(now) {
 			return errors.New("high-impact approval must have a future expiry")
 		}
+	}
+	return nil
+}
+
+func (e ActionEvent) Validate() error {
+	if err := validateResource(e.TypeMeta, ActionEventKind, e.Metadata); err != nil {
+		return err
+	}
+	if !validIdentifier(e.Spec.ActionPlanID) || !planDigestPattern.MatchString(e.Spec.ActionPlanDigest) || strings.TrimSpace(e.Spec.EventType) == "" || !validActor(e.Spec.Actor) || e.Spec.OccurredAt.IsZero() {
+		return errors.New("action event requires plan, digest, type, actor, and timestamp")
 	}
 	return nil
 }

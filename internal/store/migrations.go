@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 8
+const CurrentSchemaVersion = 10
 
 type Migration struct {
 	Version int
@@ -274,6 +274,54 @@ CREATE TABLE IF NOT EXISTS check_runs (
  FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_check_runs_checkset_started ON check_runs(checkset_id, started_at DESC);
+`,
+	},
+	{
+		Version: 9,
+		Name:    "action-broker-contracts",
+		SQL: `
+ALTER TABLE action_plans ADD COLUMN repository_id TEXT;
+ALTER TABLE action_plans ADD COLUMN worktree_id TEXT;
+ALTER TABLE action_plans ADD COLUMN digest TEXT;
+ALTER TABLE action_plans ADD COLUMN created_at TEXT;
+ALTER TABLE approvals ADD COLUMN action_plan_digest TEXT;
+ALTER TABLE approvals ADD COLUMN expires_at TEXT;
+CREATE TABLE IF NOT EXISTS action_locks (
+ scope TEXT PRIMARY KEY CHECK (length(trim(scope)) > 0),
+ action_plan_id TEXT NOT NULL REFERENCES action_plans(id) ON DELETE CASCADE,
+ action_plan_digest TEXT NOT NULL,
+ holder TEXT NOT NULL,
+ expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS action_idempotency (
+ idempotency_key TEXT PRIMARY KEY CHECK (length(trim(idempotency_key)) > 0),
+ action_plan_id TEXT NOT NULL REFERENCES action_plans(id) ON DELETE CASCADE,
+ action_plan_digest TEXT NOT NULL,
+ claimed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_plan_status ON approvals(action_plan_id, status);
+CREATE INDEX IF NOT EXISTS idx_action_locks_expires_at ON action_locks(expires_at);
+`,
+	},
+	{
+		Version: 10,
+		Name:    "action-broker-audit-and-authority",
+		SQL: `
+ALTER TABLE action_plans ADD COLUMN requester_kind TEXT;
+ALTER TABLE action_plans ADD COLUMN requester_id TEXT;
+ALTER TABLE action_plans ADD COLUMN requested_at TEXT;
+ALTER TABLE approvals ADD COLUMN decided_at TEXT;
+CREATE TABLE IF NOT EXISTS action_events (
+ id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+ action_plan_id TEXT NOT NULL REFERENCES action_plans(id) ON DELETE CASCADE,
+ action_plan_digest TEXT NOT NULL,
+ event_type TEXT NOT NULL,
+ actor_kind TEXT NOT NULL,
+ actor_id TEXT NOT NULL,
+ occurred_at TEXT NOT NULL,
+ object_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_action_events_plan_occurred ON action_events(action_plan_id, occurred_at);
 `,
 	},
 }

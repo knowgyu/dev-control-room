@@ -135,10 +135,7 @@ func TestHighImpactActionRequiresFreshIndependentApproval(t *testing.T) {
 	plan := ActionPlan{
 		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind},
 		Metadata: ObjectMeta{ID: "plan-1", Name: "production promotion"},
-		Spec: ActionPlanSpec{
-			ProjectID: "project-a", ActionType: "release.production", Risk: RiskHighImpact,
-			PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true,
-		},
+		Spec:     ActionPlanSpec{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", ActionType: "release.production", Risk: RiskHighImpact, Inputs: map[string]string{"commit": "abc123"}, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, RequestedBy: Actor{Kind: ActorAgent, ID: "claude"}, RequestedAt: time.Now().UTC()},
 	}
 	if err := plan.Validate(); err != nil {
 		t.Fatal(err)
@@ -160,6 +157,7 @@ func TestHighImpactActionRequiresFreshIndependentApproval(t *testing.T) {
 			RequestedBy: Actor{Kind: ActorAgent, ID: "claude"},
 			ApprovedBy:  &Actor{Kind: ActorAgent, ID: "claude"},
 			ExpiresAt:   futureTime(),
+			DecidedAt:   time.Now().UTC(),
 		},
 	}
 	if err := selfApproved.ValidateFor(plan); err == nil {
@@ -172,15 +170,18 @@ func TestHighImpactActionRequiresFreshIndependentApproval(t *testing.T) {
 	}
 }
 
+func TestActionPlanRejectsForgedProductionPolicy(t *testing.T) {
+	plan := ActionPlan{TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind}, Metadata: ObjectMeta{ID: "plan-1", Name: "Production"}, Spec: ActionPlanSpec{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", ActionType: "release.production", Risk: RiskSafeLocal, Inputs: map[string]string{"commit": "abc123"}, PolicyDecision: PolicyAllowed, RequestedBy: Actor{Kind: ActorAgent, ID: "agent"}, RequestedAt: time.Now().UTC()}}
+	if err := plan.Validate(); err == nil {
+		t.Fatal("forged low-risk production plan was accepted")
+	}
+}
+
 func TestSingleHumanCanApproveOwnRequestAndApprovalBindsToPlanDigest(t *testing.T) {
 	plan := ActionPlan{
 		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind},
 		Metadata: ObjectMeta{ID: "plan-1", Name: "production promotion"},
-		Spec: ActionPlanSpec{
-			ProjectID: "project-a", ActionType: "release.production", Risk: RiskHighImpact,
-			Inputs:         map[string]string{"target": "production", "commit": "abc123"},
-			PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true,
-		},
+		Spec:     ActionPlanSpec{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", ActionType: "release.production", Risk: RiskHighImpact, Inputs: map[string]string{"commit": "abc123"}, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, RequestedBy: Actor{Kind: ActorHuman, ID: "local-user"}, RequestedAt: time.Now().UTC()},
 	}
 	digest, err := plan.Digest()
 	if err != nil {
@@ -194,13 +195,14 @@ func TestSingleHumanCanApproveOwnRequestAndApprovalBindsToPlanDigest(t *testing.
 			ActionPlanID: plan.Metadata.ID, ActionPlanDigest: digest,
 			Status: ApprovalGranted, RequestedBy: human, ApprovedBy: &human,
 			ExpiresAt: futureTime(),
+			DecidedAt: time.Now().UTC(),
 		},
 	}
 	if err := approval.ValidateFor(plan); err != nil {
 		t.Fatalf("single human approval should be valid: %v", err)
 	}
 	mutated := plan
-	mutated.Spec.Inputs = map[string]string{"target": "production", "commit": "different"}
+	mutated.Spec.Inputs = map[string]string{"commit": "different"}
 	if err := approval.ValidateFor(mutated); err == nil {
 		t.Fatal("expected approval to reject a mutated action plan")
 	}
@@ -210,10 +212,7 @@ func TestApprovalMustMatchActionPlan(t *testing.T) {
 	plan := ActionPlan{
 		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind},
 		Metadata: ObjectMeta{ID: "plan-1", Name: "safe local action"},
-		Spec: ActionPlanSpec{
-			ProjectID: "project-a", ActionType: "local.format", Risk: RiskSafeLocal,
-			PolicyDecision: PolicyAllowed, ApprovalRequired: false,
-		},
+		Spec:     ActionPlanSpec{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", ActionType: "repository.refresh", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, ApprovalRequired: false, RequestedBy: Actor{Kind: ActorHuman, ID: "local-user"}, RequestedAt: time.Now().UTC()},
 	}
 	digest, err := plan.Digest()
 	if err != nil {
@@ -227,6 +226,7 @@ func TestApprovalMustMatchActionPlan(t *testing.T) {
 		Spec: ApprovalSpec{
 			ActionPlanID: "other-plan", ActionPlanDigest: digest, Status: ApprovalGranted,
 			RequestedBy: requester, ApprovedBy: &approver,
+			DecidedAt: time.Now().UTC(),
 		},
 	}
 	if err := approval.ValidateFor(plan); err == nil {

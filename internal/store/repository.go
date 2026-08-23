@@ -26,6 +26,14 @@ type Store struct {
 	masker *masking.Masker
 }
 
+var (
+	ErrActionPlanImmutable      = errors.New("action plan is immutable")
+	ErrApprovalImmutable        = errors.New("approval is immutable")
+	ErrActionEventImmutable     = errors.New("action event is immutable")
+	ErrActionLockHeld           = errors.New("action lock is held")
+	ErrActionIdempotencyClaimed = errors.New("action idempotency key is already claimed")
+)
+
 func New(db *sql.DB, masker *masking.Masker) (*Store, error) {
 	if db == nil {
 		return nil, errors.New("database is required")
@@ -948,6 +956,317 @@ func (s *Store) ListCheckRuns(ctx context.Context, checksetID string) ([]domain.
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// SaveActionPlan persists one immutable, typed plan. It never replaces a
+// plan with the same ID because that would invalidate a previously reviewed
+// approval without changing its reference.
+func (s *Store) SaveActionPlan(ctx context.Context, plan domain.ActionPlan) error {
+	if err := plan.Validate(); err != nil {
+		return fmt.Errorf("validate action plan: %w", err)
+	}
+	if plan.Spec.RepositoryID != "" {
+		worktree, err := s.GetWorktree(ctx, plan.Spec.ProjectID, plan.Spec.RepositoryID, plan.Spec.WorktreeID)
+		if err != nil {
+			return fmt.Errorf("get action plan worktree: %w", err)
+		}
+		if worktree.Spec.TombstonedAt != nil {
+			return errors.New("action plan worktree is no longer active")
+		}
+	}
+	object, err := s.maskedJSON(plan)
+	if err != nil {
+		return err
+	}
+	var persisted domain.ActionPlan
+	if err := json.Unmarshal([]byte(object), &persisted); err != nil {
+		return fmt.Errorf("decode masked action plan: %w", err)
+	}
+	digest, err := persisted.Digest()
+	if err != nil {
+		return fmt.Errorf("digest action plan: %w", err)
+	}
+	result, err := s.db.ExecContext(ctx, `
+INSERT INTO action_plans(id, project_id, repository_id, worktree_id, action_type, risk, policy_decision, digest, created_at, requester_kind, requester_id, requested_at, object_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO NOTHING`,
+		persisted.Metadata.ID, persisted.Spec.ProjectID, persisted.Spec.RepositoryID, persisted.Spec.WorktreeID,
+		persisted.Spec.ActionType, persisted.Spec.Risk, persisted.Spec.PolicyDecision, digest, time.Now().UTC().Format(timeFormat),
+		persisted.Spec.RequestedBy.Kind, persisted.Spec.RequestedBy.ID, persisted.Spec.RequestedAt.UTC().Format(timeFormat), object)
+	if err != nil {
+		return fmt.Errorf("save action plan: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count != 0 {
+		return nil
+	}
+	var existingDigest string
+	if err := s.db.QueryRowContext(ctx, `SELECT digest FROM action_plans WHERE id = ?`, persisted.Metadata.ID).Scan(&existingDigest); err != nil {
+		return fmt.Errorf("read existing action plan: %w", err)
+	}
+	if existingDigest != digest {
+		return ErrActionPlanImmutable
+	}
+	return nil
+}
+
+func (s *Store) GetActionPlan(ctx context.Context, id string) (domain.ActionPlan, error) {
+	var object string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM action_plans WHERE id = ?`, id).Scan(&object); err != nil {
+		return domain.ActionPlan{}, err
+	}
+	var plan domain.ActionPlan
+	if err := json.Unmarshal([]byte(object), &plan); err != nil {
+		return domain.ActionPlan{}, fmt.Errorf("decode action plan: %w", err)
+	}
+	return plan, nil
+}
+
+func (s *Store) SaveApproval(ctx context.Context, approval domain.Approval) error {
+	return s.SaveApprovalAt(ctx, approval, time.Now().UTC())
+}
+
+func (s *Store) SaveApprovalAt(ctx context.Context, approval domain.Approval, now time.Time) error {
+	if err := approval.Validate(); err != nil {
+		return fmt.Errorf("validate approval: %w", err)
+	}
+	plan, err := s.GetActionPlan(ctx, approval.Spec.ActionPlanID)
+	if err != nil {
+		return fmt.Errorf("get approval action plan: %w", err)
+	}
+	if err := approval.ValidateForAt(plan, now); err != nil {
+		return fmt.Errorf("validate approval for plan: %w", err)
+	}
+	object, err := s.maskedJSON(approval)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `
+INSERT INTO approvals(id, action_plan_id, action_plan_digest, status, expires_at, decided_at, object_json)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO NOTHING`, approval.Metadata.ID, approval.Spec.ActionPlanID, approval.Spec.ActionPlanDigest,
+		approval.Spec.Status, nullableTime(approval.Spec.ExpiresAt), approval.Spec.DecidedAt.UTC().Format(timeFormat), object)
+	if err != nil {
+		return fmt.Errorf("save approval: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count != 0 {
+		return nil
+	}
+	var existing string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM approvals WHERE id = ?`, approval.Metadata.ID).Scan(&existing); err != nil {
+		return fmt.Errorf("read existing approval: %w", err)
+	}
+	if existing != object {
+		return ErrApprovalImmutable
+	}
+	return nil
+}
+
+func (s *Store) ListApprovals(ctx context.Context, actionPlanID string) ([]domain.Approval, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_json FROM approvals WHERE action_plan_id = ? ORDER BY id`, actionPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("list approvals: %w", err)
+	}
+	defer rows.Close()
+	items := []domain.Approval{}
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			return nil, fmt.Errorf("scan approval: %w", err)
+		}
+		var approval domain.Approval
+		if err := json.Unmarshal([]byte(object), &approval); err != nil {
+			return nil, fmt.Errorf("decode approval: %w", err)
+		}
+		items = append(items, approval)
+	}
+	return items, rows.Err()
+}
+
+type ActionLock struct {
+	Scope, ActionPlanID, ActionPlanDigest, Holder string
+	ExpiresAt                                     time.Time
+}
+
+func (s *Store) AcquireActionLock(ctx context.Context, lock ActionLock, now time.Time) error {
+	if strings.TrimSpace(lock.Scope) == "" || strings.TrimSpace(lock.ActionPlanID) == "" || strings.TrimSpace(lock.ActionPlanDigest) == "" || strings.TrimSpace(lock.Holder) == "" || !lock.ExpiresAt.After(now) {
+		return errors.New("action lock fields are invalid")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin action lock: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM action_locks WHERE scope = ? AND expires_at <= ?`, lock.Scope, now.UTC().Format(timeFormat)); err != nil {
+		return fmt.Errorf("expire action lock: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO action_locks(scope, action_plan_id, action_plan_digest, holder, expires_at) VALUES (?, ?, ?, ?, ?)`, lock.Scope, lock.ActionPlanID, lock.ActionPlanDigest, lock.Holder, lock.ExpiresAt.UTC().Format(timeFormat)); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return ErrActionLockHeld
+		}
+		return fmt.Errorf("acquire action lock: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ReleaseActionLock(ctx context.Context, lock ActionLock) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM action_locks WHERE scope = ? AND action_plan_id = ? AND action_plan_digest = ? AND holder = ?`, lock.Scope, lock.ActionPlanID, lock.ActionPlanDigest, lock.Holder)
+	if err != nil {
+		return fmt.Errorf("release action lock: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ClaimActionIdempotency(ctx context.Context, key, planID, digest string, now time.Time) error {
+	if !validActionIdempotencyKey(key) || strings.TrimSpace(planID) == "" || strings.TrimSpace(digest) == "" {
+		return errors.New("action idempotency fields are invalid")
+	}
+	result, err := s.db.ExecContext(ctx, `INSERT INTO action_idempotency(idempotency_key, action_plan_id, action_plan_digest, claimed_at) VALUES (?, ?, ?, ?) ON CONFLICT(idempotency_key) DO NOTHING`, key, planID, digest, now.UTC().Format(timeFormat))
+	if err != nil {
+		return fmt.Errorf("claim action idempotency: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrActionIdempotencyClaimed
+	}
+	return nil
+}
+
+func (s *Store) ReleaseActionIdempotency(ctx context.Context, key, planID, digest string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM action_idempotency WHERE idempotency_key = ? AND action_plan_id = ? AND action_plan_digest = ?`, key, planID, digest)
+	if err != nil {
+		return fmt.Errorf("release action idempotency: %w", err)
+	}
+	return nil
+}
+
+// SaveApprovalAndActionEvent is the broker's all-or-nothing human decision
+// record: an immutable approval is never committed without its audit event.
+func (s *Store) SaveApprovalAndActionEvent(ctx context.Context, approval domain.Approval, event domain.ActionEvent, now time.Time) error {
+	if err := approval.Validate(); err != nil {
+		return fmt.Errorf("validate approval: %w", err)
+	}
+	if err := event.Validate(); err != nil {
+		return fmt.Errorf("validate action event: %w", err)
+	}
+	plan, err := s.GetActionPlan(ctx, approval.Spec.ActionPlanID)
+	if err != nil {
+		return fmt.Errorf("get approval action plan: %w", err)
+	}
+	if err := approval.ValidateForAt(plan, now); err != nil {
+		return fmt.Errorf("validate approval for plan: %w", err)
+	}
+	digest, err := plan.Digest()
+	if err != nil {
+		return fmt.Errorf("digest action plan: %w", err)
+	}
+	if event.Spec.ActionPlanID != plan.Metadata.ID || event.Spec.ActionPlanDigest != digest {
+		return errors.New("approval audit event does not match plan")
+	}
+	approvalJSON, err := s.maskedJSON(approval)
+	if err != nil {
+		return err
+	}
+	eventJSON, err := s.maskedJSON(event)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin approval audit: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO approvals(id, action_plan_id, action_plan_digest, status, expires_at, decided_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?)`, approval.Metadata.ID, approval.Spec.ActionPlanID, approval.Spec.ActionPlanDigest, approval.Spec.Status, nullableTime(approval.Spec.ExpiresAt), approval.Spec.DecidedAt.UTC().Format(timeFormat), approvalJSON); err != nil {
+		return fmt.Errorf("save approval: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO action_events(id, action_plan_id, action_plan_digest, event_type, actor_kind, actor_id, occurred_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, event.Metadata.ID, event.Spec.ActionPlanID, event.Spec.ActionPlanDigest, event.Spec.EventType, event.Spec.Actor.Kind, event.Spec.Actor.ID, event.Spec.OccurredAt.UTC().Format(timeFormat), eventJSON); err != nil {
+		return fmt.Errorf("save action event: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit approval audit: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) RenewActionLock(ctx context.Context, lock ActionLock, now time.Time, expiresAt time.Time) (ActionLock, error) {
+	if !expiresAt.After(now) {
+		return ActionLock{}, errors.New("action lock renewal must extend into the future")
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE action_locks SET expires_at = ?
+WHERE scope = ? AND action_plan_id = ? AND action_plan_digest = ? AND holder = ? AND expires_at > ?`,
+		expiresAt.UTC().Format(timeFormat), lock.Scope, lock.ActionPlanID, lock.ActionPlanDigest, lock.Holder, now.UTC().Format(timeFormat))
+	if err != nil {
+		return ActionLock{}, fmt.Errorf("renew action lock: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ActionLock{}, ErrActionLockHeld
+	}
+	lock.ExpiresAt = expiresAt
+	return lock, nil
+}
+
+func (s *Store) SaveActionEvent(ctx context.Context, event domain.ActionEvent) error {
+	if err := event.Validate(); err != nil {
+		return fmt.Errorf("validate action event: %w", err)
+	}
+	plan, err := s.GetActionPlan(ctx, event.Spec.ActionPlanID)
+	if err != nil {
+		return fmt.Errorf("get action event plan: %w", err)
+	}
+	digest, err := plan.Digest()
+	if err != nil {
+		return fmt.Errorf("digest action event plan: %w", err)
+	}
+	if event.Spec.ActionPlanDigest != digest {
+		return errors.New("action event digest does not match plan")
+	}
+	object, err := s.maskedJSON(event)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `
+INSERT INTO action_events(id, action_plan_id, action_plan_digest, event_type, actor_kind, actor_id, occurred_at, object_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO NOTHING`, event.Metadata.ID, event.Spec.ActionPlanID, event.Spec.ActionPlanDigest,
+		event.Spec.EventType, event.Spec.Actor.Kind, event.Spec.Actor.ID, event.Spec.OccurredAt.UTC().Format(timeFormat), object)
+	if err != nil {
+		return fmt.Errorf("save action event: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrActionEventImmutable
+	}
+	return nil
+}
+
+func (s *Store) ListActionEvents(ctx context.Context, actionPlanID string) ([]domain.ActionEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_json FROM action_events WHERE action_plan_id = ? ORDER BY occurred_at, id`, actionPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("list action events: %w", err)
+	}
+	defer rows.Close()
+	items := []domain.ActionEvent{}
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			return nil, fmt.Errorf("scan action event: %w", err)
+		}
+		var event domain.ActionEvent
+		if err := json.Unmarshal([]byte(object), &event); err != nil {
+			return nil, fmt.Errorf("decode action event: %w", err)
+		}
+		items = append(items, event)
+	}
+	return items, rows.Err()
+}
+
+func nullableTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.UTC().Format(timeFormat)
+}
+
+func validActionIdempotencyKey(value string) bool {
+	return len(value) <= 128 && strings.TrimSpace(value) == value && value != "" && !strings.ContainsAny(value, "\x00\r\n")
 }
 
 func (s *Store) maskedJSON(value any) (string, error) {
