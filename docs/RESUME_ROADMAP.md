@@ -23,8 +23,8 @@ do not follow stale goal/stop-hook prompts.
 | 2 — environment Doctor and scheduling | implemented | `docs/MILESTONE_2_VERIFICATION.md`; native scheduler adapter is implemented, but native Windows runtime smoke remains pending. |
 | 3A — worktree identity | accepted | `docs/SLICE_B_VERIFICATION.md`; explicit primary/linked Worktree discovery and read-only visibility. |
 | 3B — deterministic discovery proposals | accepted and handed off | `4126649`; `docs/SLICE_C_VERIFICATION.md`. |
-| 3C — typed Checkset runner | implemented; acceptance gaps remain | `85bee90`; `docs/SLICE_D_VERIFICATION.md`. CLI and loopback HTTP use the application service. Embedded UI parity and native Windows smoke remain. |
-| 3D — Action Broker | core implementation in progress; adapters not started | Policy, approval, lock, idempotency, and revalidation remain separate from the 3C runner. |
+| 3C — typed Checkset runner | implemented and WSL-verified; native smoke pending | CLI, loopback HTTP, and embedded UI use the application service. Native Windows smoke remains. |
+| 3D — Action Broker | core accepted in WSL; adapters/execution not started | Policy, approval, lock, idempotency, and revalidation remain separate from the 3C runner. |
 | 4 — configured release and cleanup | not started | No project-specific onboarding, release mutation, or cleanup execution. |
 | 5 — Guidance, Agent Handoff, MCP | not started | Future thin adapters over the application service. |
 | 6 — repeated-failure safeguards | not started | No safeguard activation or learning implementation. |
@@ -48,8 +48,8 @@ executable.
 3C now has typed executable/arguments, an allowlisted child environment,
 trusted Worktree binding, dependency ordering, timeout/cancellation,
 process-tree containment, masking, bounded evidence, and normalized Checkset
-results. Its remaining acceptance work is the embedded UI flow that calls the
-same application-service methods as CLI/HTTP, plus native Windows smoke.
+results. CLI, HTTP, and embedded UI now call the same application-service
+methods; only native Windows smoke remains.
 
 The next core slice is 3D: separate Action planning and execution; risk policy;
 digest-bound human approval; locks, idempotency, cancellation, immutable

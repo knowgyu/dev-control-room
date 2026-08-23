@@ -10,8 +10,8 @@ HEAD, revalidates current Git identity, uses argv (never a shell), an
 allowlisted child environment, per-step timeout, bounded stdout/stderr, and
 masking before persistence or HTTP/CLI output.
 
-CLI exposes `check list|show|create|apply|run|runs`; loopback HTTP exposes the
-same application-service operations. The embedded UI is intentionally deferred.
+CLI exposes `check list|show|create|apply|run|runs`; loopback HTTP and the
+embedded UI expose the same application-service operations.
 
 Regression coverage in `internal/app/slice_d_test.go` covers proposal/checkset
 lifecycle, draft-run rejection, Worktree-bound successful execution and changed

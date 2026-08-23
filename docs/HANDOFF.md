@@ -290,7 +290,7 @@ See `docs/SLICE_B_VERIFICATION.md`.
 
 See `docs/SLICE_C_VERIFICATION.md`.
 
-### Slice D: Check runner (implemented; UI parity and native smoke pending)
+### Slice D: Check runner (implemented; native smoke pending)
 
 - Typed Checksets execute only applied, evidence-bound read-only commands in a
   selected Worktree, with typed argv, environment allowlist, dependency order,
