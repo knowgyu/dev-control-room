@@ -38,12 +38,16 @@ source of truth.
 
 ## Repository status
 
-Milestone 2 now adds SQLite-backed Agent Profile CRUD, read-only Environment
-Doctor health summaries, connector-reference presence checks, shared CLI/HTTP/UI
-health surfaces, and a fixture-only typed Windows scheduling boundary. The
-former JSONL ledger and in-memory snapshot spike adapters are no longer used.
-Milestone 3 Checkset execution and Action broker execution have not been
-started.
+Milestones 0–3 are implemented and accepted, including SQLite-backed Agent
+Profile CRUD, Environment Doctor, Worktree-aware Git observation, deterministic
+discovery proposals, typed read-only Checksets, and the Action Broker's
+planning/approval boundary. Native Windows acceptance passed at `3dbc90d`.
+
+Real Action process execution, target mutation, postchecks, Scheduler
+install/uninstall, configured release/cleanup (Milestone 4), Guidance/Agent
+Handoff/MCP (Milestone 5), and repeated-failure safeguards (Milestone 6) have
+not started. The former JSONL ledger and in-memory snapshot spike adapters are
+no longer used.
 
 The target stack is a small Go service and CLI, an embedded local web UI,
 SQLite-backed state, PowerShell 7.6 runbooks, and Windows Task Scheduler for
