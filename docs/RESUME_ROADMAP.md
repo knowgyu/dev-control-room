@@ -24,7 +24,7 @@ do not follow stale goal/stop-hook prompts.
 | 3A — worktree identity | accepted | `docs/SLICE_B_VERIFICATION.md`; explicit primary/linked Worktree discovery and read-only visibility. |
 | 3B — deterministic discovery proposals | accepted and handed off | `4126649`; `docs/SLICE_C_VERIFICATION.md`. |
 | 3C — typed Checkset runner | implemented and WSL-verified; native smoke pending | CLI, loopback HTTP, and embedded UI use the application service. Native Windows smoke remains. |
-| 3D — Action Broker | core and safe adapters accepted in WSL; execution not started | CLI/HTTP expose plan, read-only status, and non-admitting protected-plan checks through the application service. Approval grant and execution remain unavailable until a trusted-human authority slice. |
+| 3D — Action Broker | core, safe adapters, and execution contract accepted in WSL; execution not started | Typed executable/evidence and exact Worktree trust snapshots are fail-closed. Approval grant and execution remain unavailable until a trusted-human authority slice. |
 | 4 — configured release and cleanup | not started | No project-specific onboarding, release mutation, or cleanup execution. |
 | 5 — Guidance, Agent Handoff, MCP | not started | Future thin adapters over the application service. |
 | 6 — repeated-failure safeguards | not started | No safeguard activation or learning implementation. |

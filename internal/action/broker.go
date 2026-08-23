@@ -15,11 +15,13 @@ import (
 )
 
 var (
-	ErrPolicyDenied        = errors.New("action policy denies this plan")
-	ErrApprovalRequired    = errors.New("action requires a current human approval")
-	ErrLockConflict        = errors.New("action target is locked or expired")
-	ErrIdempotencyConflict = errors.New("action idempotency key was already used")
-	ErrUnknownAction       = errors.New("action type is not reviewed")
+	ErrPolicyDenied          = errors.New("action policy denies this plan")
+	ErrApprovalRequired      = errors.New("action requires a current human approval")
+	ErrLockConflict          = errors.New("action target is locked or expired")
+	ErrIdempotencyConflict   = errors.New("action idempotency key was already used")
+	ErrUnknownAction         = errors.New("action type is not reviewed")
+	ErrWorktreeUntrusted     = errors.New("action worktree is not trusted for execution")
+	ErrExecutionContextStale = errors.New("action worktree execution context is stale")
 )
 
 const leaseDuration = 5 * time.Minute
@@ -52,8 +54,20 @@ func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPl
 	if !ok {
 		return domain.ActionPlan{}, ErrUnknownAction
 	}
+	worktree, err := b.store.GetWorktree(ctx, request.ProjectID, request.RepositoryID, request.WorktreeID)
+	if err != nil {
+		return domain.ActionPlan{}, err
+	}
+	executionContext, err := domain.ExecutionContextForWorktree(worktree)
+	if err != nil {
+		return domain.ActionPlan{}, err
+	}
+	execution, err := definition.ExecutionFor(request.Inputs)
+	if err != nil {
+		return domain.ActionPlan{}, err
+	}
 	now := b.now().UTC()
-	plan := domain.ActionPlan{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ActionPlanKind}, Metadata: domain.ObjectMeta{ID: request.ID, Name: request.Name}, Spec: domain.ActionPlanSpec{ProjectID: request.ProjectID, RepositoryID: request.RepositoryID, WorktreeID: request.WorktreeID, ActionType: definition.ActionType, Risk: definition.Risk, Inputs: request.Inputs, PolicyDecision: definition.PolicyDecision, ApprovalRequired: definition.ApprovalRequired, RequestedBy: request.RequestedBy, RequestedAt: now}}
+	plan := domain.ActionPlan{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ActionPlanKind}, Metadata: domain.ObjectMeta{ID: request.ID, Name: request.Name}, Spec: domain.ActionPlanSpec{ProjectID: request.ProjectID, RepositoryID: request.RepositoryID, WorktreeID: request.WorktreeID, ActionType: definition.ActionType, Risk: definition.Risk, Inputs: request.Inputs, Execution: execution, ExecutionContext: executionContext, Prechecks: definition.Prechecks, Postchecks: definition.Postchecks, PolicyDecision: definition.PolicyDecision, ApprovalRequired: definition.ApprovalRequired, RequestedBy: request.RequestedBy, RequestedAt: now}}
 	if err := b.store.SaveActionPlan(ctx, plan); err != nil {
 		return domain.ActionPlan{}, err
 	}
@@ -164,6 +178,9 @@ func (b *Broker) Admit(ctx context.Context, planID, holder, idempotencyKey strin
 			return Admission{}, ErrApprovalRequired
 		}
 	}
+	if err := b.validateExecutionContext(ctx, plan); err != nil {
+		return Admission{}, err
+	}
 	digest, err := plan.Digest()
 	if err != nil {
 		return Admission{}, fmt.Errorf("digest action plan: %w", err)
@@ -188,6 +205,31 @@ func (b *Broker) Admit(ctx context.Context, planID, holder, idempotencyKey strin
 		return Admission{}, err
 	}
 	return Admission{Plan: plan, Lock: lock}, nil
+}
+
+func (b *Broker) validateExecutionContext(ctx context.Context, plan domain.ActionPlan) error {
+	worktree, err := b.store.GetWorktree(ctx, plan.Spec.ProjectID, plan.Spec.RepositoryID, plan.Spec.WorktreeID)
+	if err != nil {
+		return err
+	}
+	if worktree.Spec.Trust != domain.WorktreeTrustVerifiedReadOnly {
+		return ErrWorktreeUntrusted
+	}
+	current, err := domain.ExecutionContextForWorktree(worktree)
+	if err != nil {
+		return ErrExecutionContextStale
+	}
+	if current != plan.Spec.ExecutionContext {
+		return ErrExecutionContextStale
+	}
+	trust, err := b.store.GetWorktreeExecutionTrust(ctx, current.ProjectID, current.RepositoryID, current.WorktreeID)
+	if err != nil {
+		return ErrWorktreeUntrusted
+	}
+	if trust.Context != current {
+		return ErrWorktreeUntrusted
+	}
+	return nil
 }
 
 func (b *Broker) Renew(ctx context.Context, admission Admission) (Admission, error) {

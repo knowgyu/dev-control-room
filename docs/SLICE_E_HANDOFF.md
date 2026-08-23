@@ -17,6 +17,13 @@ approvals, access Store directly, or execute an Action. A future execution
 slice must revalidate its exact target immediately before execution and record
 postcheck evidence.
 
+The execution-contract slice is also complete: an ActionPlan has a
+digest-bound typed executable/argv/environment/timeout/evidence contract and
+an immutable exact Worktree execution snapshot. Admission requires a current
+`verified_read_only` Worktree plus a separately persisted matching execution
+trust snapshot; changed, tombstoned, or untrusted Worktrees fail closed. This
+does not launch a process or grant approval.
+
 WSL tests, race tests, vet, module verification, Linux build, Windows amd64 and
 arm64 cross-builds, and `git diff --check` passed. Native Windows 11 /
 PowerShell 7.6 smoke remains unverified.

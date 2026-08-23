@@ -110,6 +110,45 @@ func TestMigrationTenAppliesActionAuditFromVersionNine(t *testing.T) {
 	}
 }
 
+func TestMigrationElevenAddsExecutionTrustFromVersionTen(t *testing.T) {
+	db := openUnmigratedTestDatabase(t, "action-execution-v10-forward")
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:10] {
+		if _, err := db.Exec(migration.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)`, migration.Version, migration.Name, migrationChecksum(migration.SQL)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []struct{ table, column string }{{"worktree_execution_trusts", "object_json"}, {"action_plans", "execution_context_digest"}} {
+		rows, err := db.Query(`PRAGMA table_info(` + target.table + `)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for rows.Next() {
+			var cid int
+			var name, typ string
+			var notNull, pk int
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+				t.Fatal(err)
+			}
+			found = found || name == target.column
+		}
+		if err := rows.Close(); err != nil || !found {
+			t.Fatalf("migration 11 %s.%s = found:%t err:%v", target.table, target.column, found, err)
+		}
+	}
+}
+
 func TestCheckRunsEnforceReferencesAndCascadeWithCheckset(t *testing.T) {
 	db, err := Open(context.Background(), filepath.Join(t.TempDir(), "check-runs.db"))
 	if err != nil {

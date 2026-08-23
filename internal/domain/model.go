@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -566,18 +567,67 @@ type ActionPlan struct {
 }
 
 type ActionPlanSpec struct {
-	ProjectID        string            `json:"projectId"`
-	RepositoryID     string            `json:"repositoryId"`
-	WorktreeID       string            `json:"worktreeId"`
-	ActionType       string            `json:"actionType"`
-	Risk             ActionRisk        `json:"risk"`
-	Inputs           map[string]string `json:"inputs,omitempty"`
-	Preconditions    []string          `json:"preconditions,omitempty"`
-	Postconditions   []string          `json:"postconditions,omitempty"`
-	PolicyDecision   string            `json:"policyDecision"`
-	ApprovalRequired bool              `json:"approvalRequired"`
-	RequestedBy      Actor             `json:"requestedBy"`
-	RequestedAt      time.Time         `json:"requestedAt"`
+	ProjectID        string                   `json:"projectId"`
+	RepositoryID     string                   `json:"repositoryId"`
+	WorktreeID       string                   `json:"worktreeId"`
+	ActionType       string                   `json:"actionType"`
+	Risk             ActionRisk               `json:"risk"`
+	Inputs           map[string]string        `json:"inputs,omitempty"`
+	Execution        ActionExecution          `json:"execution"`
+	ExecutionContext WorktreeExecutionContext `json:"executionContext"`
+	Prechecks        []ActionEvidenceContract `json:"prechecks"`
+	Postchecks       []ActionEvidenceContract `json:"postchecks"`
+	PolicyDecision   string                   `json:"policyDecision"`
+	ApprovalRequired bool                     `json:"approvalRequired"`
+	RequestedBy      Actor                    `json:"requestedBy"`
+	RequestedAt      time.Time                `json:"requestedAt"`
+}
+
+// ActionExecution is the complete process contract copied from a reviewed
+// definition. It is descriptive only until a future runner consumes it.
+type ActionExecution struct {
+	Executable           string   `json:"executable"`
+	Arguments            []string `json:"arguments"`
+	EnvironmentAllowlist []string `json:"environmentAllowlist,omitempty"`
+	TimeoutSeconds       int      `json:"timeoutSeconds"`
+	MaxOutputBytes       int      `json:"maxOutputBytes"`
+}
+
+// WorktreeExecutionContext freezes the exact observed checkout a future
+// runner must revalidate; a repository-level identity is never sufficient.
+type WorktreeExecutionContext struct {
+	ProjectID              string `json:"projectId"`
+	RepositoryID           string `json:"repositoryId"`
+	WorktreeID             string `json:"worktreeId"`
+	CanonicalPath          string `json:"canonicalPath"`
+	PathFingerprint        string `json:"pathFingerprint"`
+	AssociationFingerprint string `json:"associationFingerprint,omitempty"`
+	Head                   string `json:"head"`
+	Branch                 string `json:"branch,omitempty"`
+}
+
+type ActionEvidenceKind string
+
+const (
+	EvidenceWorktreeIdentity ActionEvidenceKind = "worktree_identity"
+	EvidenceWorktreeHead     ActionEvidenceKind = "worktree_head"
+	EvidenceProcessExit      ActionEvidenceKind = "process_exit"
+)
+
+// ActionEvidenceContract declares evidence a future runner must capture for
+// a precheck or postcheck. It deliberately has no free-form command field.
+type ActionEvidenceContract struct {
+	ID       string             `json:"id"`
+	Kind     ActionEvidenceKind `json:"kind"`
+	Required bool               `json:"required"`
+}
+
+// WorktreeExecutionTrust is the explicit transition from read-only discovery
+// to eligibility for a future execution contract. It binds that grant to one
+// immutable observed context; a later observation invalidates it.
+type WorktreeExecutionTrust struct {
+	Context   WorktreeExecutionContext `json:"context"`
+	TrustedAt time.Time                `json:"trustedAt"`
 }
 
 type Approval struct {
@@ -619,17 +669,29 @@ type ActionDefinition struct {
 	PolicyDecision   string
 	ApprovalRequired bool
 	Inputs           []string
+	Execution        ActionExecution
+	Prechecks        []ActionEvidenceContract
+	Postchecks       []ActionEvidenceContract
 }
 
 var actionDefinitions = map[string]ActionDefinition{
-	"repository.refresh":  {ActionType: "repository.refresh", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed},
-	"release.production":  {ActionType: "release.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"commit"}},
-	"cleanup.destructive": {ActionType: "cleanup.destructive", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true},
+	"repository.refresh":  {ActionType: "repository.refresh", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, Execution: ActionExecution{Executable: "git", Arguments: []string{"fetch", "--prune"}, TimeoutSeconds: 60, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"release.production":  {ActionType: "release.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"commit"}, Execution: ActionExecution{Executable: "devroom-release-production", Arguments: []string{"--commit", "{commit}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"cleanup.destructive": {ActionType: "cleanup.destructive", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Execution: ActionExecution{Executable: "devroom-cleanup-destructive", TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 }
+
+var (
+	worktreePrechecks    = []ActionEvidenceContract{{ID: "worktree-identity", Kind: EvidenceWorktreeIdentity, Required: true}, {ID: "worktree-head", Kind: EvidenceWorktreeHead, Required: true}}
+	processExitPostcheck = []ActionEvidenceContract{{ID: "process-exit", Kind: EvidenceProcessExit, Required: true}}
+)
 
 func ActionDefinitionFor(actionType string) (ActionDefinition, bool) {
 	definition, ok := actionDefinitions[actionType]
 	definition.Inputs = append([]string(nil), definition.Inputs...)
+	definition.Execution.Arguments = append([]string(nil), definition.Execution.Arguments...)
+	definition.Execution.EnvironmentAllowlist = append([]string(nil), definition.Execution.EnvironmentAllowlist...)
+	definition.Prechecks = append([]ActionEvidenceContract(nil), definition.Prechecks...)
+	definition.Postchecks = append([]ActionEvidenceContract(nil), definition.Postchecks...)
 	return definition, ok
 }
 
@@ -899,7 +961,101 @@ func (a ActionPlan) Validate() error {
 			return errors.New("action plan is missing a reviewed input")
 		}
 	}
+	execution, err := definition.ExecutionFor(a.Spec.Inputs)
+	if err != nil || !reflect.DeepEqual(a.Spec.Execution, execution) || !validExecutionContext(a.Spec.ExecutionContext) || a.Spec.ExecutionContext.ProjectID != a.Spec.ProjectID || a.Spec.ExecutionContext.RepositoryID != a.Spec.RepositoryID || a.Spec.ExecutionContext.WorktreeID != a.Spec.WorktreeID || !sameEvidenceContracts(a.Spec.Prechecks, definition.Prechecks) || !sameEvidenceContracts(a.Spec.Postchecks, definition.Postchecks) {
+		return errors.New("action plan execution contract does not match its reviewed definition and target")
+	}
 	return nil
+}
+
+func (d ActionDefinition) ExecutionFor(inputs map[string]string) (ActionExecution, error) {
+	execution := d.Execution
+	execution.Arguments = append([]string(nil), execution.Arguments...)
+	for index, argument := range execution.Arguments {
+		if strings.HasPrefix(argument, "{") && strings.HasSuffix(argument, "}") {
+			name := strings.TrimSuffix(strings.TrimPrefix(argument, "{"), "}")
+			value := inputs[name]
+			if !validIdentifier(name) || strings.TrimSpace(value) == "" || strings.ContainsRune(value, '\x00') {
+				return ActionExecution{}, errors.New("action argument placeholder is invalid or unresolved")
+			}
+			execution.Arguments[index] = value
+		}
+	}
+	if !validActionExecution(execution) {
+		return ActionExecution{}, errors.New("action execution contract is invalid")
+	}
+	return execution, nil
+}
+
+func ExecutionContextForWorktree(worktree Worktree) (WorktreeExecutionContext, error) {
+	if err := worktree.Validate(); err != nil || worktree.Spec.TombstonedAt != nil || strings.TrimSpace(worktree.Spec.Head) == "" {
+		return WorktreeExecutionContext{}, errors.New("worktree is not an active observed execution target")
+	}
+	return WorktreeExecutionContext{ProjectID: worktree.Spec.ProjectID, RepositoryID: worktree.Spec.RepositoryID, WorktreeID: worktree.Metadata.ID, CanonicalPath: worktree.Spec.CanonicalPath, PathFingerprint: worktree.Spec.PathFingerprint, AssociationFingerprint: worktree.Spec.AssociationFingerprint, Head: worktree.Spec.Head, Branch: worktree.Spec.Branch}, nil
+}
+
+func NewWorktreeExecutionTrust(worktree Worktree, trustedAt time.Time) (WorktreeExecutionTrust, error) {
+	if worktree.Spec.Trust != WorktreeTrustVerifiedReadOnly || trustedAt.IsZero() {
+		return WorktreeExecutionTrust{}, errors.New("only a verified read-only worktree can become trusted for execution")
+	}
+	context, err := ExecutionContextForWorktree(worktree)
+	if err != nil {
+		return WorktreeExecutionTrust{}, err
+	}
+	return WorktreeExecutionTrust{Context: context, TrustedAt: trustedAt.UTC()}, nil
+}
+
+func (t WorktreeExecutionTrust) Validate() error {
+	if !validExecutionContext(t.Context) || t.TrustedAt.IsZero() {
+		return errors.New("worktree execution trust context and time are required")
+	}
+	return nil
+}
+
+func validActionExecution(execution ActionExecution) bool {
+	if !commandNamePattern.MatchString(execution.Executable) || execution.TimeoutSeconds < 1 || execution.TimeoutSeconds > 3600 || execution.MaxOutputBytes < 1024 || execution.MaxOutputBytes > 1<<20 {
+		return false
+	}
+	seen := map[string]struct{}{}
+	for _, name := range execution.EnvironmentAllowlist {
+		if !environmentNamePattern.MatchString(name) {
+			return false
+		}
+		key := strings.ToUpper(name)
+		if _, duplicate := seen[key]; duplicate {
+			return false
+		}
+		seen[key] = struct{}{}
+	}
+	for _, argument := range execution.Arguments {
+		if strings.ContainsAny(argument, "\x00\r\n") || strings.Contains(argument, "{") || strings.Contains(argument, "}") {
+			return false
+		}
+	}
+	return true
+}
+
+func validExecutionContext(context WorktreeExecutionContext) bool {
+	return validateProjectRepository(context.ProjectID, context.RepositoryID) == nil && validIdentifier(context.WorktreeID) && strings.TrimSpace(context.CanonicalPath) != "" && strings.TrimSpace(context.PathFingerprint) != "" && strings.TrimSpace(context.Head) != ""
+}
+
+func sameEvidenceContracts(actual, expected []ActionEvidenceContract) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for index, contract := range actual {
+		if !validEvidenceContract(contract) || contract != expected[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func validEvidenceContract(contract ActionEvidenceContract) bool {
+	if !validIdentifier(contract.ID) {
+		return false
+	}
+	return contract.Kind == EvidenceWorktreeIdentity || contract.Kind == EvidenceWorktreeHead || contract.Kind == EvidenceProcessExit
 }
 
 // Digest binds an approval to the complete immutable ActionPlan. Callers must

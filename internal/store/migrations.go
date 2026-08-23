@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 10
+const CurrentSchemaVersion = 11
 
 type Migration struct {
 	Version int
@@ -322,6 +322,24 @@ CREATE TABLE IF NOT EXISTS action_events (
  object_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_action_events_plan_occurred ON action_events(action_plan_id, occurred_at);
+`,
+	},
+	{
+		Version: 11,
+		Name:    "action-execution-contracts",
+		SQL: `
+ALTER TABLE action_plans ADD COLUMN execution_context_digest TEXT;
+CREATE TABLE IF NOT EXISTS worktree_execution_trusts (
+ project_id TEXT NOT NULL,
+ repository_id TEXT NOT NULL,
+ worktree_id TEXT NOT NULL,
+ context_digest TEXT NOT NULL,
+ trusted_at TEXT NOT NULL,
+ object_json TEXT NOT NULL,
+ PRIMARY KEY (project_id, repository_id, worktree_id),
+ FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_action_plans_execution_context ON action_plans(project_id, repository_id, worktree_id, execution_context_digest);
 `,
 	},
 }

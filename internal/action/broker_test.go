@@ -71,6 +71,40 @@ func TestBrokerRejectsAgentApprovalAndRequiresExactWorktree(t *testing.T) {
 	}
 }
 
+func TestBrokerDeniesUntrustedOrChangedWorktreeBeforeFutureExecution(t *testing.T) {
+	broker, persistence, now := actionFixture(t)
+	ctx := context.Background()
+	plan, err := broker.Plan(ctx, PlanRequest{ID: "plan-trust", Name: "Production", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorHuman, ID: "local-user"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires := now.Add(time.Hour)
+	if _, err := broker.GrantHumanApproval(ctx, plan.Metadata.ID, "approval-trust", "reviewed", &expires); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persistence.DB().Exec(`DELETE FROM worktree_execution_trusts WHERE project_id='project' AND repository_id='repo' AND worktree_id='primary'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := broker.Admit(ctx, plan.Metadata.ID, "holder", "request-trust"); !errors.Is(err, ErrWorktreeUntrusted) {
+		t.Fatalf("untrusted worktree admission = %v", err)
+	}
+	if _, err := persistence.TrustWorktreeForExecution(ctx, "project", "repo", "primary", *now); err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := persistence.GetWorktree(ctx, "project", "repo", "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree.Spec.Head = "def456"
+	worktree.Spec.LastObserved = worktree.Spec.LastObserved.Add(time.Minute)
+	if err := persistence.ReplaceWorktrees(ctx, "project", "repo", []domain.Worktree{worktree}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := broker.Admit(ctx, plan.Metadata.ID, "holder", "request-stale"); !errors.Is(err, ErrExecutionContextStale) {
+		t.Fatalf("changed worktree admission = %v", err)
+	}
+}
+
 func TestBrokerExpiryAndHolderBoundRenewal(t *testing.T) {
 	broker, _, now := actionFixture(t)
 	ctx := context.Background()
@@ -214,8 +248,11 @@ func actionFixture(t *testing.T) (*Broker, *store.Store, *time.Time) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
-	worktree := domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: "primary", Name: "Primary"}, Spec: domain.WorktreeSpec{ProjectID: "project", RepositoryID: "repo", CanonicalPath: "C:/fixture", PathFingerprint: "sha256:path", Trust: domain.WorktreeTrustVerifiedReadOnly, Primary: true, LastObserved: now}}
+	worktree := domain.Worktree{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind}, Metadata: domain.ObjectMeta{ID: "primary", Name: "Primary"}, Spec: domain.WorktreeSpec{ProjectID: "project", RepositoryID: "repo", CanonicalPath: "C:/fixture", PathFingerprint: "sha256:path", Trust: domain.WorktreeTrustVerifiedReadOnly, Primary: true, Head: "abc123", Branch: "main", LastObserved: now}}
 	if err := persistence.ReplaceWorktrees(ctx, "project", "repo", []domain.Worktree{worktree}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persistence.TrustWorktreeForExecution(ctx, "project", "repo", "primary", now); err != nil {
 		t.Fatal(err)
 	}
 	broker, err := New(persistence, func() time.Time { return now })

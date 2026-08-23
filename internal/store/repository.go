@@ -27,11 +27,12 @@ type Store struct {
 }
 
 var (
-	ErrActionPlanImmutable      = errors.New("action plan is immutable")
-	ErrApprovalImmutable        = errors.New("approval is immutable")
-	ErrActionEventImmutable     = errors.New("action event is immutable")
-	ErrActionLockHeld           = errors.New("action lock is held")
-	ErrActionIdempotencyClaimed = errors.New("action idempotency key is already claimed")
+	ErrActionPlanImmutable            = errors.New("action plan is immutable")
+	ErrApprovalImmutable              = errors.New("approval is immutable")
+	ErrActionEventImmutable           = errors.New("action event is immutable")
+	ErrActionLockHeld                 = errors.New("action lock is held")
+	ErrActionIdempotencyClaimed       = errors.New("action idempotency key is already claimed")
+	ErrWorktreeExecutionTrustRequired = errors.New("worktree execution trust is required")
 )
 
 func New(db *sql.DB, masker *masking.Masker) (*Store, error) {
@@ -375,6 +376,55 @@ func (s *Store) GetWorktree(ctx context.Context, projectID, repositoryID, id str
 		}
 	}
 	return domain.Worktree{}, sql.ErrNoRows
+}
+
+// TrustWorktreeForExecution is the sole persistence transition from bounded
+// read-only discovery to a future execution target. It records the exact
+// observed context; this method does not execute anything or grant approval.
+func (s *Store) TrustWorktreeForExecution(ctx context.Context, projectID, repositoryID, worktreeID string, trustedAt time.Time) (domain.WorktreeExecutionTrust, error) {
+	worktree, err := s.GetWorktree(ctx, projectID, repositoryID, worktreeID)
+	if err != nil {
+		return domain.WorktreeExecutionTrust{}, err
+	}
+	trust, err := domain.NewWorktreeExecutionTrust(worktree, trustedAt)
+	if err != nil {
+		return domain.WorktreeExecutionTrust{}, err
+	}
+	object, err := s.maskedJSON(trust)
+	if err != nil {
+		return domain.WorktreeExecutionTrust{}, err
+	}
+	digest, err := executionContextDigest(trust.Context)
+	if err != nil {
+		return domain.WorktreeExecutionTrust{}, err
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO worktree_execution_trusts(project_id, repository_id, worktree_id, context_digest, trusted_at, object_json)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(project_id, repository_id, worktree_id) DO UPDATE SET context_digest=excluded.context_digest, trusted_at=excluded.trusted_at, object_json=excluded.object_json`,
+		projectID, repositoryID, worktreeID, digest, trust.TrustedAt.UTC().Format(timeFormat), object)
+	if err != nil {
+		return domain.WorktreeExecutionTrust{}, fmt.Errorf("trust worktree for execution: %w", err)
+	}
+	return trust, nil
+}
+
+func (s *Store) GetWorktreeExecutionTrust(ctx context.Context, projectID, repositoryID, worktreeID string) (domain.WorktreeExecutionTrust, error) {
+	var object string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM worktree_execution_trusts WHERE project_id=? AND repository_id=? AND worktree_id=?`, projectID, repositoryID, worktreeID).Scan(&object); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.WorktreeExecutionTrust{}, ErrWorktreeExecutionTrustRequired
+		}
+		return domain.WorktreeExecutionTrust{}, fmt.Errorf("get worktree execution trust: %w", err)
+	}
+	var trust domain.WorktreeExecutionTrust
+	if err := json.Unmarshal([]byte(object), &trust); err != nil {
+		return domain.WorktreeExecutionTrust{}, fmt.Errorf("decode worktree execution trust: %w", err)
+	}
+	if err := trust.Validate(); err != nil {
+		return domain.WorktreeExecutionTrust{}, fmt.Errorf("validate worktree execution trust: %w", err)
+	}
+	return trust, nil
 }
 
 func (s *Store) SaveProposal(ctx context.Context, proposal domain.Proposal) error {
@@ -973,6 +1023,10 @@ func (s *Store) SaveActionPlan(ctx context.Context, plan domain.ActionPlan) erro
 		if worktree.Spec.TombstonedAt != nil {
 			return errors.New("action plan worktree is no longer active")
 		}
+		context, err := domain.ExecutionContextForWorktree(worktree)
+		if err != nil || context != plan.Spec.ExecutionContext {
+			return errors.New("action plan execution context does not match the observed worktree")
+		}
 	}
 	object, err := s.maskedJSON(plan)
 	if err != nil {
@@ -986,12 +1040,16 @@ func (s *Store) SaveActionPlan(ctx context.Context, plan domain.ActionPlan) erro
 	if err != nil {
 		return fmt.Errorf("digest action plan: %w", err)
 	}
+	contextDigest, err := executionContextDigest(persisted.Spec.ExecutionContext)
+	if err != nil {
+		return err
+	}
 	result, err := s.db.ExecContext(ctx, `
-INSERT INTO action_plans(id, project_id, repository_id, worktree_id, action_type, risk, policy_decision, digest, created_at, requester_kind, requester_id, requested_at, object_json)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO action_plans(id, project_id, repository_id, worktree_id, action_type, risk, policy_decision, digest, execution_context_digest, created_at, requester_kind, requester_id, requested_at, object_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO NOTHING`,
 		persisted.Metadata.ID, persisted.Spec.ProjectID, persisted.Spec.RepositoryID, persisted.Spec.WorktreeID,
-		persisted.Spec.ActionType, persisted.Spec.Risk, persisted.Spec.PolicyDecision, digest, time.Now().UTC().Format(timeFormat),
+		persisted.Spec.ActionType, persisted.Spec.Risk, persisted.Spec.PolicyDecision, digest, contextDigest, time.Now().UTC().Format(timeFormat),
 		persisted.Spec.RequestedBy.Kind, persisted.Spec.RequestedBy.ID, persisted.Spec.RequestedAt.UTC().Format(timeFormat), object)
 	if err != nil {
 		return fmt.Errorf("save action plan: %w", err)
@@ -1007,6 +1065,15 @@ ON CONFLICT(id) DO NOTHING`,
 		return ErrActionPlanImmutable
 	}
 	return nil
+}
+
+func executionContextDigest(context domain.WorktreeExecutionContext) (string, error) {
+	data, err := json.Marshal(context)
+	if err != nil {
+		return "", fmt.Errorf("marshal execution context: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func (s *Store) GetActionPlan(ctx context.Context, id string) (domain.ActionPlan, error) {

@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+func reviewedActionPlan(t *testing.T, id, actionType string, inputs map[string]string, requester Actor) ActionPlan {
+	t.Helper()
+	definition, ok := ActionDefinitionFor(actionType)
+	if !ok {
+		t.Fatalf("missing action definition %q", actionType)
+	}
+	execution, err := definition.ExecutionFor(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ActionPlan{TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind}, Metadata: ObjectMeta{ID: id, Name: "reviewed action"}, Spec: ActionPlanSpec{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", ActionType: actionType, Risk: definition.Risk, Inputs: inputs, Execution: execution, ExecutionContext: WorktreeExecutionContext{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", CanonicalPath: "C:/fixture", PathFingerprint: "sha256:path", Head: "abc123", Branch: "main"}, Prechecks: definition.Prechecks, Postchecks: definition.Postchecks, PolicyDecision: definition.PolicyDecision, ApprovalRequired: definition.ApprovalRequired, RequestedBy: requester, RequestedAt: time.Now().UTC()}}
+}
+
 func TestProjectContractAndValidation(t *testing.T) {
 	project := NewProject("sample-project", "Sample Project", []Repository{
 		NewRepository("backend", "Backend", `C:\work\backend`),
@@ -132,11 +145,7 @@ func TestChecksetRejectsShellAndUnknownDependencies(t *testing.T) {
 }
 
 func TestHighImpactActionRequiresFreshIndependentApproval(t *testing.T) {
-	plan := ActionPlan{
-		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind},
-		Metadata: ObjectMeta{ID: "plan-1", Name: "production promotion"},
-		Spec:     ActionPlanSpec{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", ActionType: "release.production", Risk: RiskHighImpact, Inputs: map[string]string{"commit": "abc123"}, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, RequestedBy: Actor{Kind: ActorAgent, ID: "claude"}, RequestedAt: time.Now().UTC()},
-	}
+	plan := reviewedActionPlan(t, "plan-1", "release.production", map[string]string{"commit": "abc123"}, Actor{Kind: ActorAgent, ID: "claude"})
 	if err := plan.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -177,12 +186,37 @@ func TestActionPlanRejectsForgedProductionPolicy(t *testing.T) {
 	}
 }
 
-func TestSingleHumanCanApproveOwnRequestAndApprovalBindsToPlanDigest(t *testing.T) {
-	plan := ActionPlan{
-		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind},
-		Metadata: ObjectMeta{ID: "plan-1", Name: "production promotion"},
-		Spec:     ActionPlanSpec{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", ActionType: "release.production", Risk: RiskHighImpact, Inputs: map[string]string{"commit": "abc123"}, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, RequestedBy: Actor{Kind: ActorHuman, ID: "local-user"}, RequestedAt: time.Now().UTC()},
+func TestActionPlanBindsReviewedExecutionAndEvidenceContracts(t *testing.T) {
+	plan := reviewedActionPlan(t, "plan-execution", "release.production", map[string]string{"commit": "abc123"}, Actor{Kind: ActorHuman, ID: "local-user"})
+	if plan.Spec.Execution.Executable != "devroom-release-production" || plan.Spec.Execution.Arguments[1] != "abc123" || len(plan.Spec.Prechecks) != 2 || len(plan.Spec.Postchecks) != 1 {
+		t.Fatalf("reviewed execution snapshot = %#v", plan.Spec)
 	}
+	plan.Spec.Execution.Arguments[1] = "forged"
+	if err := plan.Validate(); err == nil {
+		t.Fatal("forged action argv was accepted")
+	}
+	definition, _ := ActionDefinitionFor("release.production")
+	definition.Execution.EnvironmentAllowlist = []string{"TOKEN", "token"}
+	if _, err := definition.ExecutionFor(map[string]string{"commit": "abc123"}); err == nil {
+		t.Fatal("duplicate allowlisted environment names were accepted")
+	}
+}
+
+func TestExecutionTrustRequiresVerifiedReadOnlyObservedWorktree(t *testing.T) {
+	now := time.Now().UTC()
+	worktree := Worktree{TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: WorktreeKind}, Metadata: ObjectMeta{ID: "primary", Name: "Primary"}, Spec: WorktreeSpec{ProjectID: "project-a", RepositoryID: "repo-a", CanonicalPath: "C:/fixture", PathFingerprint: "sha256:path", Trust: WorktreeTrustVerifiedReadOnly, Primary: true, Head: "abc123", LastObserved: now}}
+	trust, err := NewWorktreeExecutionTrust(worktree, now)
+	if err != nil || trust.Context.Head != "abc123" {
+		t.Fatalf("execution trust = %#v, %v", trust, err)
+	}
+	worktree.Spec.Trust = WorktreeTrustUnverified
+	if _, err := NewWorktreeExecutionTrust(worktree, now); err == nil {
+		t.Fatal("unverified worktree became trusted for execution")
+	}
+}
+
+func TestSingleHumanCanApproveOwnRequestAndApprovalBindsToPlanDigest(t *testing.T) {
+	plan := reviewedActionPlan(t, "plan-1", "release.production", map[string]string{"commit": "abc123"}, Actor{Kind: ActorHuman, ID: "local-user"})
 	digest, err := plan.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -209,11 +243,7 @@ func TestSingleHumanCanApproveOwnRequestAndApprovalBindsToPlanDigest(t *testing.
 }
 
 func TestApprovalMustMatchActionPlan(t *testing.T) {
-	plan := ActionPlan{
-		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: ActionPlanKind},
-		Metadata: ObjectMeta{ID: "plan-1", Name: "safe local action"},
-		Spec:     ActionPlanSpec{ProjectID: "project-a", RepositoryID: "repo-a", WorktreeID: "primary", ActionType: "repository.refresh", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, ApprovalRequired: false, RequestedBy: Actor{Kind: ActorHuman, ID: "local-user"}, RequestedAt: time.Now().UTC()},
-	}
+	plan := reviewedActionPlan(t, "plan-1", "repository.refresh", nil, Actor{Kind: ActorHuman, ID: "local-user"})
 	digest, err := plan.Digest()
 	if err != nil {
 		t.Fatal(err)
