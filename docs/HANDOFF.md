@@ -228,7 +228,6 @@ separate improvements, not falsely labelled discoveries.
 
 ## What has not started
 
-- Checkset execution.
 - Action Broker execution, approvals UI, locks, idempotency, and postchecks.
 - Configured release procedures, Jenkins triggers, or cleanup execution.
 - GitHub/Jenkins connectors beyond local remote capability detection.
@@ -291,14 +290,14 @@ See `docs/SLICE_B_VERIFICATION.md`.
 
 See `docs/SLICE_C_VERIFICATION.md`.
 
-### Slice D: Check runner
+### Slice D: Check runner (implemented; UI parity and native smoke pending)
 
-- Add typed executable, argument, working-directory, and environment schemas.
-- Execute only applied Checksets in the selected Worktree.
-- Add dependency ordering, timeout, cancellation, normalized
-  passed/failed/skipped/unavailable results, masking, and bounded evidence.
-- Ensure UI and CLI call the same service method and return equivalent policy
-  outcomes.
+- Typed Checksets execute only applied, evidence-bound read-only commands in a
+  selected Worktree, with typed argv, environment allowlist, dependency order,
+  timeout/cancellation, process-tree containment, masking, and bounded evidence.
+- CLI and loopback HTTP call the same application-service methods. The embedded
+  UI Checkset flow and native Windows 11 / PowerShell 7.6 smoke remain pending.
+- See `docs/SLICE_D_VERIFICATION.md` and commit `85bee90`.
 
 ### Slice E: Action Broker
 

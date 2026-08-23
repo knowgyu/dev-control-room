@@ -3,11 +3,12 @@
 Status: WSL validation passed on 2026-08-23.
 
 The runner keeps command execution separate from Slice C discovery: a proposal
-must first be reviewed as `applied`; an explicitly supplied typed Checkset is
-created as `draft`; only a separately applied Checkset can run. It binds every
-run to the persisted Worktree ID and HEAD, revalidates current Git identity,
-uses argv (never a shell), an allowlisted child environment, per-step timeout,
-bounded stdout/stderr, and masking before persistence or HTTP/CLI output.
+must first be reviewed as `applied`; only exact typed evidence from the narrow
+read-only Git discovery set can form a `draft` Checkset; only a separately
+applied Checkset can run. It binds every run to the persisted Worktree ID and
+HEAD, revalidates current Git identity, uses argv (never a shell), an
+allowlisted child environment, per-step timeout, bounded stdout/stderr, and
+masking before persistence or HTTP/CLI output.
 
 CLI exposes `check list|show|create|apply|run|runs`; loopback HTTP exposes the
 same application-service operations. The embedded UI is intentionally deferred.

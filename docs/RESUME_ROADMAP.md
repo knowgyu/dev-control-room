@@ -22,9 +22,9 @@ do not follow stale goal/stop-hook prompts.
 | 1 — project control plane | accepted | `docs/MILESTONE_1_VERIFICATION.md`; Project/Repository persistence, bounded Git observation, CLI, HTTP, and UI. |
 | 2 — environment Doctor and scheduling | implemented | `docs/MILESTONE_2_VERIFICATION.md`; native scheduler adapter is implemented, but native Windows runtime smoke remains pending. |
 | 3A — worktree identity | accepted | `docs/SLICE_B_VERIFICATION.md`; explicit primary/linked Worktree discovery and read-only visibility. |
-| 3B — deterministic discovery proposals | implementation accepted; Git handoff pending | `docs/SLICE_C_VERIFICATION.md`; complete only after the verified Slice C commit is pushed. |
-| 3C — typed Checkset runner | not started | Start only after the Slice C Git handoff is clean. |
-| 3D — Action Broker | not started | Follows 3C; its policy, approval, lock, and revalidation boundary must remain separate. |
+| 3B — deterministic discovery proposals | accepted and handed off | `4126649`; `docs/SLICE_C_VERIFICATION.md`. |
+| 3C — typed Checkset runner | implemented; acceptance gaps remain | `85bee90`; `docs/SLICE_D_VERIFICATION.md`. CLI and loopback HTTP use the application service. Embedded UI parity and native Windows smoke remain. |
+| 3D — Action Broker | core implementation in progress; adapters not started | Policy, approval, lock, idempotency, and revalidation remain separate from the 3C runner. |
 | 4 — configured release and cleanup | not started | No project-specific onboarding, release mutation, or cleanup execution. |
 | 5 — Guidance, Agent Handoff, MCP | not started | Future thin adapters over the application service. |
 | 6 — repeated-failure safeguards | not started | No safeguard activation or learning implementation. |
@@ -38,28 +38,25 @@ entries; durable, evidence-bound proposals; stale detection; and review-only
 apply/reject transitions through the shared CLI/HTTP application service.
 It neither executes commands nor creates Checksets.
 
-The only remaining Slice C handoff is:
-
-1. inspect the current Git worktree, branch, remote, and diff while preserving
-   unrelated user changes;
-2. rerun every documented Slice C verification gate against that exact
-   worktree;
-3. commit only the verified Slice C changes and push them to the confirmed
-   intended `origin` branch; and
-4. leave `docs/HANDOFF.md` unchanged unless fresh evidence contradicts it.
+The Git handoff is complete: `4126649` was verified and pushed to
+`origin/main`. No G001/G002 work was rerun. The later `85bee90` Checkset-runner
+commit is also verified and pushed; it does not make Slice C proposal text
+executable.
 
 ## Next implementation order
 
-After the Git handoff, implement 3C before 3D: typed executable, argument,
-working-directory, and environment definitions; exact trusted Worktree
-binding; dependency ordering; timeout/cancellation; masking; bounded evidence;
-and normalized Checkset results. UI, CLI, and the future MCP adapter must stay
-thin over the same application service.
+3C now has typed executable/arguments, an allowlisted child environment,
+trusted Worktree binding, dependency ordering, timeout/cancellation,
+process-tree containment, masking, bounded evidence, and normalized Checkset
+results. Its remaining acceptance work is the embedded UI flow that calls the
+same application-service methods as CLI/HTTP, plus native Windows smoke.
 
-Only then begin 3D: separate Action planning and execution; risk policy;
+The next core slice is 3D: separate Action planning and execution; risk policy;
 digest-bound human approval; locks, idempotency, cancellation, immutable
-events, revalidation, and CLI/HTTP approval-bypass regressions. Do not begin
-Milestones 4–6 early.
+events, revalidation, and CLI/HTTP approval-bypass regressions. It may prepare
+in parallel with the isolated 3C UI adapter, but milestone acceptance and any
+adapter integration occur only after both slices have independently passed
+their verification gates. Do not begin Milestones 4–6 early.
 
 ## Verification boundary
 
