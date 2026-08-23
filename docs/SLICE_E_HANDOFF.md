@@ -1,21 +1,32 @@
 # Slice E handoff: Action Broker core
 
-Status: core accepted in WSL; adapter and execution slices remain unstarted.
+Status: core, safe adapters, and the trusted-human approval ceremony are
+implemented and WSL/cross-verified; native Windows acceptance and Action
+execution remain pending.
 
-This slice adds no Action execution, target mutation, CLI, HTTP, UI, shell, or
+This slice adds no Action execution, target mutation, shell, connector, or
 network surface. `internal/action.Broker` owns reviewed action-definition
 resolution, plan persistence, trusted human-only approval construction,
 digest-bound admission, holder-bound lock renewal, idempotency, and immutable
 audit events. Every plan names a Project, Repository, and Worktree.
 
-The safe adapter stream is complete: CLI/HTTP expose plan, read-only status,
-and admission through the application service. They do not expose approval
-grant; adapter-created requests are stamped `system/adapter`, and protected
-plans remain non-admissible. A future trusted-human-authority slice—not CLI,
-HTTP automation, or MCP—must own approval. No adapter may construct plans or
-approvals, access Store directly, or execute an Action. A future execution
-slice must revalidate its exact target immediately before execution and record
-postcheck evidence.
+CLI and HTTP expose plan, read-only status, and admission through the
+application service. They cannot grant approval: adapter-created requests are
+stamped `system/adapter`, protected plans remain non-admissible, and no CLI,
+API, MCP, agent, or scheduler route accepts an approval decision.
+
+The only approval path is the protected, empty-body-only UI ceremony route.
+It asks the Broker to derive the plan, digest, Worktree, executable, and expiry
+from persisted state; the request cannot supply an actor, digest, expiry, or
+decision. On Windows, the Broker opens a native `MessageBoxW` on the input
+desktop. Yes grants a 15-minute, digest-bound `local-user` approval; No records
+a rejection; Cancel records no decision. Non-Windows builds fail closed because
+the native human prompt is unavailable. Only one ceremony may be active.
+
+No adapter may access Store directly or execute an Action. No Action process,
+shell, connector, target mutation, or postcheck runs in this slice. A future
+execution slice must revalidate its exact target immediately before execution
+and record postcheck evidence.
 
 The execution-contract slice is also complete: an ActionPlan has a
 digest-bound typed executable/argv/environment/timeout/evidence contract and
@@ -24,6 +35,8 @@ an immutable exact Worktree execution snapshot. Admission requires a current
 trust snapshot; changed, tombstoned, or untrusted Worktrees fail closed. This
 does not launch a process or grant approval.
 
-WSL tests, race tests, vet, module verification, Linux build, Windows amd64 and
-arm64 cross-builds, and `git diff --check` passed. Native Windows 11 /
-PowerShell 7.6 smoke remains unverified.
+The portability repairs passed WSL tests, race tests, vet, module verification,
+Linux build, Windows amd64/arm64 cross-builds, and `git diff --check`. They do
+not replace native acceptance: interactive Windows modal behavior, full Windows
+tests/vet, Task Scheduler COM smoke, and Windows race testing with `gcc` remain
+pending.

@@ -26,6 +26,7 @@ func TestSQLiteProjectRepositoryRestartAndManualPeriodicParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Fixture Project", Path: repositoryOne})
 	if err != nil {
 		t.Fatal(err)
@@ -186,6 +187,7 @@ func TestProjectAndRepositoryDeleteKeepRemovalEventDurable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Delete Fixture", Path: first})
 	if err != nil {
 		t.Fatal(err)

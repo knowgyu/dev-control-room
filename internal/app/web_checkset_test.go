@@ -35,7 +35,6 @@ func TestEmbeddedUIExposesChecksetReviewFlow(t *testing.T) {
 
 func TestEmbeddedUIChecksetProtectedHandlerFlow(t *testing.T) {
 	service, proposal := checksetFixture(t)
-	defer service.Close()
 	appliedProposal := callUICheckset[domain.Proposal](t, service, http.MethodPost, "/api/proposals/"+proposal.Metadata.ID+"/apply", nil)
 	if appliedProposal.Spec.State != domain.ProposalApplied {
 		t.Fatalf("proposal state = %q", appliedProposal.Spec.State)

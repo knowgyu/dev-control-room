@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -187,11 +186,15 @@ func TestSafeEnvironmentDoesNotInheritParentEnvironment(t *testing.T) {
 }
 
 func TestProcessRunnerWithEmptyEnvironmentDoesNotFallBackToParent(t *testing.T) {
-	executable, err := exec.LookPath("env")
-	if err != nil {
-		t.Skip("env executable is unavailable")
+	if err := os.Setenv("DEVROOM_UNALLOWLISTED_CANARY", "secret-canary-value"); err != nil {
+		t.Fatal(err)
 	}
-	result, err := (ProcessRunner{}).Run(context.Background(), executable, nil, []string{}, time.Second)
+	t.Cleanup(func() { _ = os.Unsetenv("DEVROOM_UNALLOWLISTED_CANARY") })
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := (ProcessRunner{}).Run(context.Background(), executable, processRunnerHelperArgs(), []string{}, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,16 +210,46 @@ func TestVersionParserUsesFinalProbeVersion(t *testing.T) {
 }
 
 func TestProcessRunnerTimeoutCancellationAndBoundedStreams(t *testing.T) {
-	runner := ProcessRunner{OutputLimit: 8}
-	if _, err := runner.Run(context.Background(), "sh", []string{"-c", "sleep 1"}, []string{"PATH=/usr/bin:/bin"}, 10*time.Millisecond); err == nil || !strings.Contains(err.Error(), "timed out") {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (ProcessRunner{}).Run(context.Background(), executable, processRunnerHelperArgs(), processRunnerHelperEnvironment("wait"), 10*time.Millisecond); err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("expected timeout, got %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := runner.Run(ctx, "sh", []string{"-c", "printf x"}, []string{"PATH=/usr/bin:/bin"}, time.Second); err == nil {
+	if _, err := (ProcessRunner{}).Run(ctx, executable, processRunnerHelperArgs(), processRunnerHelperEnvironment("wait"), time.Second); err == nil {
 		t.Fatal("expected cancellation")
 	}
-	if _, err := runner.Run(context.Background(), "sh", []string{"-c", "head -c 1024 /dev/zero"}, []string{"PATH=/usr/bin:/bin"}, time.Second); err == nil || !strings.Contains(err.Error(), "bounded") {
+	if _, err := (ProcessRunner{OutputLimit: 8}).Run(context.Background(), executable, processRunnerHelperArgs(), processRunnerHelperEnvironment("output"), time.Second); err == nil || !strings.Contains(err.Error(), "bounded") {
 		t.Fatalf("expected bounded output cancellation, got %v", err)
 	}
+}
+
+func TestProcessRunnerHelper(_ *testing.T) {
+	if os.Getenv("DEVROOM_PROCESS_RUNNER_HELPER") != "1" && !strings.Contains(strings.Join(os.Args, "\x00"), "-test.run=^TestProcessRunnerHelper$") {
+		return
+	}
+	switch os.Getenv("DEVROOM_PROCESS_RUNNER_MODE") {
+	case "wait":
+		for {
+			time.Sleep(time.Hour)
+		}
+	case "output":
+		_, _ = os.Stdout.WriteString(strings.Repeat("x", 1024))
+	case "":
+		_, _ = os.Stdout.WriteString(os.Getenv("DEVROOM_UNALLOWLISTED_CANARY"))
+	default:
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+func processRunnerHelperArgs() []string {
+	return []string{"-test.run=^TestProcessRunnerHelper$"}
+}
+
+func processRunnerHelperEnvironment(mode string) []string {
+	return []string{"DEVROOM_PROCESS_RUNNER_HELPER=1", "DEVROOM_PROCESS_RUNNER_MODE=" + mode}
 }

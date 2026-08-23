@@ -228,7 +228,9 @@ separate improvements, not falsely labelled discoveries.
 
 ## What has not started
 
-- Action Broker execution, approvals UI, locks, idempotency, and postchecks.
+- Action process execution, target mutation, and postchecks. The Action Broker,
+  locks, idempotency, and trusted-human approval ceremony are implemented, but
+  a granted approval never starts a process in the current product.
 - Configured release procedures, Jenkins triggers, or cleanup execution.
 - GitHub/Jenkins connectors beyond local remote capability detection.
 - Agent Handoff terminal launch and stdio MCP.
@@ -299,14 +301,20 @@ See `docs/SLICE_C_VERIFICATION.md`.
   UI Checkset flow and native Windows 11 / PowerShell 7.6 smoke remain pending.
 - See `docs/SLICE_D_VERIFICATION.md` and commit `85bee90`.
 
-### Slice E: Action Broker
+### Slice E: Action Broker and trusted-human approval (implemented; native acceptance pending)
 
-- Separate plan creation from execution.
-- Bind approvals to a digest of complete target, inputs, executable identity,
-  prechecks, and postchecks.
-- Add risk policy, locks, idempotency, cancellation, immutable events, and
-  immediate pre-execution revalidation.
-- Prove HTTP and CLI cannot bypass approval.
+- Plans bind their complete target, inputs, executable identity, prechecks, and
+  postchecks to a digest; the Broker enforces policy, locks, idempotency,
+  immutable events, and immediate Worktree revalidation.
+- The protected, empty-body-only UI ceremony is the sole approval path. On
+  Windows, it opens `MessageBoxW` from server-derived persisted-plan metadata;
+  no CLI, API, MCP agent, scheduler, or request body can grant approval.
+- Non-Windows builds fail closed when native human approval is unavailable.
+  A successful ceremony does not run an Action; process execution, target
+  mutation, and postchecks remain separate, unimplemented work.
+- WSL/cross verification passed for the portability repairs. Native Windows
+  full tests/vet, interactive modal and loopback UI smoke, Scheduler COM smoke,
+  and race testing with `gcc` remain pending.
 
 Only after these slices should actual company-specific pre-PR, release,
 Jenkins, and cleanup procedures be onboarded in Milestone 4.

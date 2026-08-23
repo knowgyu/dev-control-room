@@ -61,6 +61,7 @@ type CommandService interface {
 	RemoveAgentProfile(context.Context, string) error
 	Schedule(context.Context, scheduler.Operation) (scheduler.Result, error)
 	PlanAction(context.Context, ActionPlanInput) (domain.ActionPlan, error)
+	StartHumanApprovalCeremony(context.Context, string) (action.HumanDecisionResult, error)
 	AdmitAction(context.Context, string, string, string) (action.Admission, error)
 	RenewAction(context.Context, action.Admission) (action.Admission, error)
 	ReleaseAction(context.Context, action.Admission) error
@@ -135,6 +136,11 @@ func (a *App) ActionStatus(ctx context.Context, planID string) (ActionApprovalSt
 	return ActionApprovalStatus{Plan: status.Plan, Approvals: status.Approvals, Events: status.Events, Admission: status.Admission}, nil
 }
 
+func (a *App) StartHumanApprovalCeremony(ctx context.Context, planID string) (action.HumanDecisionResult, error) {
+	result, err := a.broker.StartHumanApprovalCeremony(ctx, planID)
+	return result, classifyActionError(err)
+}
+
 func (a *App) AdmitAction(ctx context.Context, planID, holder, idempotencyKey string) (action.Admission, error) {
 	admission, err := a.broker.Admit(ctx, planID, holder, idempotencyKey)
 	return admission, classifyActionError(err)
@@ -159,6 +165,10 @@ func classifyActionError(err error) error {
 		return contract.InvalidInput("action type is not reviewed")
 	case errors.Is(err, action.ErrLockConflict), errors.Is(err, action.ErrIdempotencyConflict):
 		return contract.Conflict("action admission conflicts with an active request")
+	case errors.Is(err, action.ErrHumanDecisionInProgress):
+		return contract.Conflict("a human approval ceremony is already active")
+	case errors.Is(err, action.ErrHumanDecisionUnavailable):
+		return contract.CodedError{Code: contract.ErrorUnavailable, Message: "native human approval is unavailable"}
 	case errors.Is(err, sql.ErrNoRows):
 		return contract.NotFound("action plan not found")
 	default:

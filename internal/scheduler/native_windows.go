@@ -539,7 +539,7 @@ func (d *dispatch) getDispatch(name string, args ...variant) (*dispatch, error) 
 	if value.VT != vtDispatch || value.Value == 0 {
 		return nil, fmt.Errorf("Task Scheduler %s did not return an automation object", name)
 	}
-	ptr := unsafe.Pointer(uintptr(value.Value))
+	ptr := value.pointer()
 	value.VT, value.Value = vtEmpty, 0
 	return &dispatch{ptr: ptr}, nil
 }
@@ -553,7 +553,7 @@ func (d *dispatch) propertyDispatch(name string) (*dispatch, error) {
 	if value.VT != vtDispatch || value.Value == 0 {
 		return nil, fmt.Errorf("Task Scheduler property %s was not an automation object", name)
 	}
-	ptr := unsafe.Pointer(uintptr(value.Value))
+	ptr := value.pointer()
 	value.VT, value.Value = vtEmpty, 0
 	return &dispatch{ptr: ptr}, nil
 }
@@ -654,7 +654,20 @@ func boolVariant(value bool) variant {
 	return variant{VT: vtBool}
 }
 func bstrVariant(value string) variant {
-	return variant{VT: vtBSTR, Value: int64(allocateBSTR(value))}
+	result := variant{VT: vtBSTR}
+	result.setPointer(allocateBSTR(value))
+	return result
+}
+
+// pointer reads the pointer-sized VARIANT union member without converting an
+// integer-held address back to unsafe.Pointer. Value remains int64 so VARIANT
+// stays 16 bytes on both 32-bit and 64-bit Windows.
+func (value *variant) pointer() unsafe.Pointer {
+	return *(*unsafe.Pointer)(unsafe.Pointer(&value.Value))
+}
+
+func (value *variant) setPointer(pointer uintptr) {
+	*(*uintptr)(unsafe.Pointer(&value.Value)) = pointer
 }
 
 func allocateBSTR(value string) uintptr {
@@ -681,8 +694,9 @@ func variantString(value variant) string {
 	if value.Value == 0 {
 		return ""
 	}
-	length, _, _ := sysStringLen.Call(uintptr(value.Value))
-	return syscall.UTF16ToString(unsafe.Slice((*uint16)(unsafe.Pointer(uintptr(value.Value))), int(length)))
+	pointer := value.pointer()
+	length, _, _ := sysStringLen.Call(uintptr(pointer))
+	return syscall.UTF16ToString(unsafe.Slice((*uint16)(pointer), int(length)))
 }
 func isNotFound(err error) bool {
 	var value hresult

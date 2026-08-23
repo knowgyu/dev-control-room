@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -191,6 +192,20 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(status))
 	})
+	// This is intentionally a UI ceremony route, not an automation API. The
+	// native prompt derives all decision data from the persisted plan.
+	mux.HandleFunc("POST /ui/actions/plans/{planID}/approval", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("approval ceremony accepts an empty body only"))
+			return
+		}
+		result, err := service.StartHumanApprovalCeremony(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	}))
 	mux.HandleFunc("POST /api/scan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		if err := service.QueueScan(request.Context(), "manual"); err != nil {
 			writeServiceError(response, err)
@@ -426,6 +441,21 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		writeEnvelope(response, http.StatusOK, contract.Success(map[string]string{"status": "acknowledged"}))
 	}))
 	return requestLog(mux)
+}
+
+func requireEmptyBody(request *http.Request) error {
+	if request.Body == nil {
+		return nil
+	}
+	var byteValue [1]byte
+	_, err := request.Body.Read(byteValue[:])
+	if err == io.EOF {
+		return nil
+	}
+	if err == nil {
+		return io.ErrUnexpectedEOF
+	}
+	return err
 }
 
 func decodeBody(response http.ResponseWriter, request *http.Request, target any) error {

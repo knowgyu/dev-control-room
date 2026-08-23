@@ -8,11 +8,17 @@ Codex Goal artifacts.
 
 ## Current baseline
 
-- `main` at `85bee90` is pushed to `origin/main`.
 - Milestones 0–2, 3A, and 3B are accepted. 3C has a verified CLI/HTTP typed
-  Checkset runner; the embedded UI parity and native Windows smoke remain.
-- The next product boundary is 3D, the Action Broker. It is not a generic shell
-  or a way to execute unreviewed repository text.
+  Checkset runner; its native Windows smoke remains pending.
+- Slice 3D now includes the Action Broker, safe adapters, execution contract,
+  and W5 trusted-human ceremony. It is not a generic shell and does not execute
+  unreviewed repository text or any Action process.
+- The approval ceremony is UI-only and empty-body-only. Windows opens a native
+  `MessageBoxW` from persisted-plan data; non-Windows fails closed. CLI/API/MCP
+  agents and schedulers cannot grant approval.
+- Portability repairs are WSL/cross-verified only. Native Windows full
+  tests/vet, interactive modal and UI smoke, Scheduler COM smoke, and race with
+  `gcc` remain separate acceptance gates.
 
 ## Workstream ownership
 

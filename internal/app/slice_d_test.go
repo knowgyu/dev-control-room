@@ -18,7 +18,6 @@ import (
 
 func TestChecksetRequiresAppliedProposalAndExplicitAppliedState(t *testing.T) {
 	service, proposal := checksetFixture(t)
-	defer service.Close()
 	step := domain.CheckStep{ID: "status", Name: "Git status", Command: domain.CheckCommand{Executable: "git", Arguments: []string{"status", "--porcelain"}, TimeoutSeconds: 30}}
 	if _, err := service.CreateCheckset(context.Background(), CreateChecksetInput{ID: "checks-1", Name: "Checks", ProposalID: proposal.Metadata.ID, Steps: []domain.CheckStep{step}}); contract.Classify(err).Code != contract.ErrorInvalidInput {
 		t.Fatalf("unreviewed proposal created checkset: %v", err)
@@ -46,7 +45,6 @@ func TestChecksetRequiresAppliedProposalAndExplicitAppliedState(t *testing.T) {
 func TestChecksetMasksPersistedAndHTTPOutput(t *testing.T) {
 	const secret = "checkset-secret-canary"
 	service, proposal := checksetFixture(t)
-	defer service.Close()
 	service.masker = masking.New([]string{secret}, nil)
 	if _, err := service.ApplyProposal(context.Background(), proposal.Metadata.ID); err != nil {
 		t.Fatal(err)
@@ -71,7 +69,6 @@ func TestChecksetMasksPersistedAndHTTPOutput(t *testing.T) {
 
 func TestChecksetRejectsChangedWorktree(t *testing.T) {
 	service, proposal := checksetFixture(t)
-	defer service.Close()
 	if _, err := service.ApplyProposal(context.Background(), proposal.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +92,6 @@ func TestChecksetRejectsChangedWorktree(t *testing.T) {
 
 func TestChecksetHTTPMutationRequiresToken(t *testing.T) {
 	service, proposal := checksetFixture(t)
-	defer service.Close()
 	if _, err := service.ApplyProposal(context.Background(), proposal.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +105,6 @@ func TestChecksetHTTPMutationRequiresToken(t *testing.T) {
 
 func TestChecksetRejectsMismatchedAndMutatingCommands(t *testing.T) {
 	service, proposal := checksetFixture(t)
-	defer service.Close()
 	if _, err := service.ApplyProposal(context.Background(), proposal.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +125,7 @@ func checksetFixture(t *testing.T) (*App, domain.Proposal) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	repository := tempGitRepository(t, "checkset")
 	gitFixture(t, repository, "config", "devroom.canary", "checkset-secret-canary")
 	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Checks", Path: repository})

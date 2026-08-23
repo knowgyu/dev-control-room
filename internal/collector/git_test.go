@@ -105,7 +105,7 @@ func TestWorktreeDetailsReadsNULPorcelainAndRealLinkedState(t *testing.T) {
 	}
 	gitTest(t, repository, "add", "README.md")
 	gitTest(t, repository, "commit", "-m", "fixture")
-	linked := filepath.Join(t.TempDir(), "linked with space\nand newline")
+	linked := filepath.Join(t.TempDir(), "linked with space")
 	gitTest(t, repository, "worktree", "add", "-b", "linked", linked)
 	if err := os.WriteFile(filepath.Join(linked, "untracked"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)

@@ -23,6 +23,7 @@ func TestAgentProfileCRUDPersistsAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	profile, err := service.AddAgentProfile(context.Background(), AddAgentProfileInput{ID: "fixture-agent", Name: "Fixture Agent", Command: "fixture-agent", VersionProbe: []string{"--version"}, TimeoutSeconds: 3, EnvironmentAllowlist: []string{"PATH"}, LaunchMode: domain.AgentLaunchDirect, DataBoundary: domain.AgentBoundaryLocal})
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +57,7 @@ func TestRemovingEveryAgentProfileDoesNotReseedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	profiles, err := service.AgentProfiles(context.Background())
 	if err != nil || len(profiles) == 0 {
 		t.Fatalf("default profiles were not initialized: %#v, %v", profiles, err)
@@ -265,6 +267,7 @@ func TestSchedulerStatusUsesTypedAdapterAndPersistsFakeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	operation, err := scheduler.Plan(scheduler.OperationInstall, `C:\Program Files\DevControlRoom\devroom.exe`, []string{"serve", "--home", `C:\Users\Fixture\AppData\Local\DevControlRoom`})
 	if err != nil {
 		t.Fatal(err)

@@ -165,6 +165,7 @@ func TestHTTPUsesStableEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	recorder := httptest.NewRecorder()
 	service.Handler().ServeHTTP(recorder, request)
@@ -204,6 +205,7 @@ func TestEventPersistenceMasksBeforeWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	service.masker = masking.New([]string{"persist-secret-canary"}, nil)
 	event := domain.Event{
 		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.EventKind},

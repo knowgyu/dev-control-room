@@ -29,13 +29,13 @@ func TestBrokerDerivesProtectedPolicyAndPersistsAudit(t *testing.T) {
 	if _, err := broker.Plan(ctx, PlanRequest{ID: "unreviewed", Name: "Unreviewed", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production.fast", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"}}); !errors.Is(err, ErrUnknownAction) {
 		t.Fatalf("unknown action = %v", err)
 	}
-	expires := now.Add(20 * time.Minute)
-	approval, err := broker.GrantHumanApproval(ctx, plan.Metadata.ID, "approval", "reviewed", &expires)
-	if err != nil {
-		t.Fatal(err)
+	result, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID)
+	if err != nil || result.Decision != HumanDecisionGrant {
+		t.Fatalf("ceremony = %#v, %v", result, err)
 	}
-	if approval.Spec.ApprovedBy == nil || approval.Spec.ApprovedBy.Kind != domain.ActorHuman || approval.Spec.DecidedAt != *now {
-		t.Fatalf("approval was not trusted human decision: %#v", approval.Spec)
+	approvals, err := persistence.ListApprovals(ctx, plan.Metadata.ID)
+	if err != nil || len(approvals) != 1 || approvals[0].Spec.ApprovedBy == nil || approvals[0].Spec.ApprovedBy.Kind != domain.ActorHuman || approvals[0].Spec.DecidedAt != *now {
+		t.Fatalf("approval was not trusted human decision: %#v, %v", approvals, err)
 	}
 	events, err := persistence.ListActionEvents(ctx, plan.Metadata.ID)
 	if err != nil || len(events) != 2 {
@@ -78,8 +78,7 @@ func TestBrokerDeniesUntrustedOrChangedWorktreeBeforeFutureExecution(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	expires := now.Add(time.Hour)
-	if _, err := broker.GrantHumanApproval(ctx, plan.Metadata.ID, "approval-trust", "reviewed", &expires); err != nil {
+	if _, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := persistence.DB().Exec(`DELETE FROM worktree_execution_trusts WHERE project_id='project' AND repository_id='repo' AND worktree_id='primary'`); err != nil {
@@ -112,8 +111,7 @@ func TestBrokerExpiryAndHolderBoundRenewal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expires := now.Add(20 * time.Minute)
-	if _, err := broker.GrantHumanApproval(ctx, plan.Metadata.ID, "approval", "reviewed", &expires); err != nil {
+	if _, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
 	admission, err := broker.Admit(ctx, plan.Metadata.ID, "holder-a", "request-a")
@@ -143,12 +141,15 @@ func TestAuditIDsAreUniqueAndApprovalAuditIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expires := now.Add(time.Hour)
-	if _, err := broker.GrantHumanApproval(ctx, plan.Metadata.ID, "approval-a", "reviewed", &expires); err != nil {
+	if _, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := broker.GrantHumanApproval(ctx, plan.Metadata.ID, "approval-b", "reviewed", &expires); err != nil {
+	if _, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID); err != nil {
 		t.Fatal(err)
+	}
+	approvals, err := persistence.ListApprovals(ctx, plan.Metadata.ID)
+	if err != nil || len(approvals) != 2 || approvals[0].Metadata.ID == approvals[1].Metadata.ID {
+		t.Fatalf("same-tick approvals = %#v, %v", approvals, err)
 	}
 	events, err := persistence.ListActionEvents(ctx, plan.Metadata.ID)
 	if err != nil || len(events) != 3 {
@@ -169,14 +170,15 @@ func TestAuditIDsAreUniqueAndApprovalAuditIsAtomic(t *testing.T) {
 	if err != nil || len(events) != 1 || len(events[0].Metadata.ID) > 64 {
 		t.Fatalf("64-char plan audit = %#v, %v", events, err)
 	}
-	approvalEvent := broker.event(plan64, "approval_granted", domain.Actor{Kind: domain.ActorHuman, ID: "local-user"}, *now, "approval-atomic")
+	approvalID := decisionID(plan64.Metadata.ID, HumanDecisionGrant, *now, 0)
+	approvalEvent := broker.event(plan64, "approval_granted", domain.Actor{Kind: domain.ActorHuman, ID: "local-user"}, *now, approvalID)
 	if err := persistence.SaveActionEvent(ctx, approvalEvent); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := broker.GrantHumanApproval(ctx, plan64.Metadata.ID, "approval-atomic", "reviewed", &expires); err == nil {
+	if _, err := broker.StartHumanApprovalCeremony(ctx, plan64.Metadata.ID); err == nil {
 		t.Fatal("audit conflict committed approval")
 	}
-	approvals, err := persistence.ListApprovals(ctx, plan64.Metadata.ID)
+	approvals, err = persistence.ListApprovals(ctx, plan64.Metadata.ID)
 	if err != nil || len(approvals) != 0 {
 		t.Fatalf("atomic approval rollback = %#v, %v", approvals, err)
 	}
@@ -189,8 +191,7 @@ func TestAdmitAuditFailureReleasesLeaseAndIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expires := now.Add(time.Hour)
-	if _, err := broker.GrantHumanApproval(ctx, plan.Metadata.ID, "approval", "reviewed", &expires); err != nil {
+	if _, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := persistence.SaveActionEvent(ctx, broker.event(plan, "admitted", domain.Actor{Kind: domain.ActorSystem, ID: "holder"}, *now, "request")); err != nil {
@@ -255,7 +256,7 @@ func actionFixture(t *testing.T) (*Broker, *store.Store, *time.Time) {
 	if _, err := persistence.TrustWorktreeForExecution(ctx, "project", "repo", "primary", now); err != nil {
 		t.Fatal(err)
 	}
-	broker, err := New(persistence, func() time.Time { return now })
+	broker, err := New(persistence, func() time.Time { return now }, &fakeHumanDecisionPrompt{decision: HumanDecisionGrant})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,3 +264,85 @@ func actionFixture(t *testing.T) (*Broker, *store.Store, *time.Time) {
 }
 
 func ptr(value time.Time) *time.Time { return &value }
+
+type fakeHumanDecisionPrompt struct {
+	decision HumanDecision
+	err      error
+	request  HumanDecisionRequest
+	started  chan struct{}
+	release  <-chan struct{}
+}
+
+func (p *fakeHumanDecisionPrompt) Decide(_ context.Context, request HumanDecisionRequest) (HumanDecision, error) {
+	p.request = request
+	if p.started != nil {
+		close(p.started)
+	}
+	if p.release != nil {
+		<-p.release
+	}
+	return p.decision, p.err
+}
+
+func TestHumanDecisionCeremonyRejectsCancelAndPromptFailure(t *testing.T) {
+	broker, persistence, _ := actionFixture(t)
+	ctx := context.Background()
+	for _, test := range []struct {
+		name     string
+		decision HumanDecision
+		err      error
+		wantErr  bool
+	}{
+		{name: "reject", decision: HumanDecisionReject},
+		{name: "cancel", decision: HumanDecisionCancel},
+		{name: "failure", err: errors.New("no desktop"), wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prompt := &fakeHumanDecisionPrompt{decision: test.decision, err: test.err}
+			broker.prompt = prompt
+			plan, err := broker.Plan(ctx, PlanRequest{ID: "plan-" + test.name, Name: "Production", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ceremony = %#v, %v", result, err)
+			}
+			approvals, listErr := persistence.ListApprovals(ctx, plan.Metadata.ID)
+			if listErr != nil {
+				t.Fatal(listErr)
+			}
+			if test.decision == HumanDecisionReject && (len(approvals) != 1 || approvals[0].Spec.Status != domain.ApprovalRejected) {
+				t.Fatalf("rejection = %#v", approvals)
+			}
+			if test.decision != HumanDecisionReject && len(approvals) != 0 {
+				t.Fatalf("non-grant persisted approval: %#v", approvals)
+			}
+			if prompt.request.Digest == "" || prompt.request.Worktree != "primary" || prompt.request.Executable == "" || prompt.request.ExpiresAt.IsZero() {
+				t.Fatalf("prompt did not receive server-derived ceremony: %#v", prompt.request)
+			}
+		})
+	}
+}
+
+func TestHumanDecisionCeremonyAllowsOnlyOnePrompt(t *testing.T) {
+	broker, _, _ := actionFixture(t)
+	ctx := context.Background()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	broker.prompt = &fakeHumanDecisionPrompt{decision: HumanDecisionCancel, started: started, release: release}
+	plan, err := broker.Plan(ctx, PlanRequest{ID: "plan-single", Name: "Production", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan error, 1)
+	go func() { _, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID); finished <- err }()
+	<-started
+	if _, err := broker.StartHumanApprovalCeremony(ctx, plan.Metadata.ID); !errors.Is(err, ErrHumanDecisionInProgress) {
+		t.Fatalf("concurrent ceremony = %v", err)
+	}
+	close(release)
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+}

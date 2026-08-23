@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/domain"
@@ -15,30 +16,69 @@ import (
 )
 
 var (
-	ErrPolicyDenied          = errors.New("action policy denies this plan")
-	ErrApprovalRequired      = errors.New("action requires a current human approval")
-	ErrLockConflict          = errors.New("action target is locked or expired")
-	ErrIdempotencyConflict   = errors.New("action idempotency key was already used")
-	ErrUnknownAction         = errors.New("action type is not reviewed")
-	ErrWorktreeUntrusted     = errors.New("action worktree is not trusted for execution")
-	ErrExecutionContextStale = errors.New("action worktree execution context is stale")
+	ErrPolicyDenied             = errors.New("action policy denies this plan")
+	ErrApprovalRequired         = errors.New("action requires a current human approval")
+	ErrLockConflict             = errors.New("action target is locked or expired")
+	ErrIdempotencyConflict      = errors.New("action idempotency key was already used")
+	ErrUnknownAction            = errors.New("action type is not reviewed")
+	ErrWorktreeUntrusted        = errors.New("action worktree is not trusted for execution")
+	ErrExecutionContextStale    = errors.New("action worktree execution context is stale")
+	ErrHumanDecisionUnavailable = errors.New("native human decision prompt is unavailable")
+	ErrHumanDecisionInProgress  = errors.New("a human decision ceremony is already active")
 )
 
-const leaseDuration = 5 * time.Minute
+const (
+	leaseDuration    = 5 * time.Minute
+	approvalLifetime = 15 * time.Minute
+)
 
-type Broker struct {
-	store *store.Store
-	now   func() time.Time
+// HumanDecisionPrompt is the broker's only approval authority. Its request is
+// constructed from a persisted plan; adapters never provide an actor, digest,
+// expiry, or decision.
+type HumanDecisionPrompt interface {
+	Decide(context.Context, HumanDecisionRequest) (HumanDecision, error)
 }
 
-func New(persistence *store.Store, now func() time.Time) (*Broker, error) {
+type HumanDecision string
+
+const (
+	HumanDecisionGrant  HumanDecision = "granted"
+	HumanDecisionReject HumanDecision = "rejected"
+	HumanDecisionCancel HumanDecision = "cancelled"
+)
+
+type HumanDecisionRequest struct {
+	Plan       string
+	Digest     string
+	Worktree   string
+	Executable string
+	ExpiresAt  time.Time
+}
+
+type HumanDecisionResult struct {
+	Decision HumanDecision `json:"decision"`
+}
+
+type Broker struct {
+	store          *store.Store
+	now            func() time.Time
+	prompt         HumanDecisionPrompt
+	ceremonyMu     sync.Mutex
+	ceremonyActive bool
+}
+
+func New(persistence *store.Store, now func() time.Time, prompts ...HumanDecisionPrompt) (*Broker, error) {
 	if persistence == nil {
 		return nil, errors.New("action persistence is required")
 	}
 	if now == nil {
 		now = time.Now
 	}
-	return &Broker{store: persistence, now: now}, nil
+	prompt := newHumanDecisionPrompt()
+	if len(prompts) > 0 && prompts[0] != nil {
+		prompt = prompts[0]
+	}
+	return &Broker{store: persistence, now: now, prompt: prompt}, nil
 }
 
 // PlanRequest deliberately excludes risk and policy. Those fields are derived
@@ -81,24 +121,66 @@ func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPl
 	return persisted, nil
 }
 
-// GrantHumanApproval constructs the approving actor itself, so request data
-// cannot designate an agent as human.
-func (b *Broker) GrantHumanApproval(ctx context.Context, planID, approvalID, reason string, expiresAt *time.Time) (domain.Approval, error) {
+// StartHumanApprovalCeremony is deliberately the only public approval path.
+// The modal receives server-derived, input-free plan metadata and its decision
+// is the sole source of a granted approval.
+func (b *Broker) StartHumanApprovalCeremony(ctx context.Context, planID string) (HumanDecisionResult, error) {
+	b.ceremonyMu.Lock()
+	if b.ceremonyActive {
+		b.ceremonyMu.Unlock()
+		return HumanDecisionResult{}, ErrHumanDecisionInProgress
+	}
+	b.ceremonyActive = true
+	b.ceremonyMu.Unlock()
+	defer func() {
+		b.ceremonyMu.Lock()
+		b.ceremonyActive = false
+		b.ceremonyMu.Unlock()
+	}()
+
 	plan, err := b.store.GetActionPlan(ctx, planID)
 	if err != nil {
-		return domain.Approval{}, err
+		return HumanDecisionResult{}, err
 	}
 	now := b.now().UTC()
 	digest, err := plan.Digest()
 	if err != nil {
-		return domain.Approval{}, fmt.Errorf("digest action plan: %w", err)
+		return HumanDecisionResult{}, fmt.Errorf("digest action plan: %w", err)
+	}
+	expiresAt := now.Add(approvalLifetime)
+	decision, err := b.prompt.Decide(ctx, HumanDecisionRequest{Plan: plan.Spec.ActionType, Digest: digest, Worktree: plan.Spec.WorktreeID, Executable: plan.Spec.Execution.Executable, ExpiresAt: expiresAt})
+	if err != nil {
+		return HumanDecisionResult{}, fmt.Errorf("native human decision: %w", err)
+	}
+	if decision == HumanDecisionCancel {
+		return HumanDecisionResult{Decision: decision}, nil
+	}
+	if decision != HumanDecisionGrant && decision != HumanDecisionReject {
+		return HumanDecisionResult{}, ErrHumanDecisionUnavailable
 	}
 	human := domain.Actor{Kind: domain.ActorHuman, ID: "local-user"}
-	approval := domain.Approval{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ApprovalKind}, Metadata: domain.ObjectMeta{ID: approvalID, Name: "Human action approval"}, Spec: domain.ApprovalSpec{ActionPlanID: planID, ActionPlanDigest: digest, Status: domain.ApprovalGranted, RequestedBy: plan.Spec.RequestedBy, ApprovedBy: &human, Reason: reason, ExpiresAt: expiresAt, DecidedAt: now}}
-	if err := b.store.SaveApprovalAndActionEvent(ctx, approval, b.event(plan, "approval_granted", human, now, approvalID), now); err != nil {
-		return domain.Approval{}, err
+	approvals, err := b.store.ListApprovals(ctx, planID)
+	if err != nil {
+		return HumanDecisionResult{}, err
 	}
-	return approval, nil
+	approvalID := decisionID(plan.Metadata.ID, decision, now, len(approvals))
+	approval := domain.Approval{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ApprovalKind}, Metadata: domain.ObjectMeta{ID: approvalID, Name: "Human action approval"}, Spec: domain.ApprovalSpec{ActionPlanID: planID, ActionPlanDigest: digest, Status: domain.ApprovalGranted, RequestedBy: plan.Spec.RequestedBy, ApprovedBy: &human, ExpiresAt: &expiresAt, DecidedAt: now}}
+	eventType := "approval_granted"
+	if decision == HumanDecisionReject {
+		approval.Spec.Status = domain.ApprovalRejected
+		approval.Spec.Reason = "rejected in native confirmation"
+		approval.Spec.ExpiresAt = nil
+		eventType = "approval_rejected"
+	}
+	if err := b.store.SaveApprovalAndActionEvent(ctx, approval, b.event(plan, eventType, human, now, approvalID), now); err != nil {
+		return HumanDecisionResult{}, err
+	}
+	return HumanDecisionResult{Decision: decision}, nil
+}
+
+func decisionID(planID string, decision HumanDecision, now time.Time, ordinal int) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%d", planID, decision, now.UTC().Format(time.RFC3339Nano), ordinal)))
+	return "approval-" + hex.EncodeToString(sum[:])[:55]
 }
 
 type Admission struct {

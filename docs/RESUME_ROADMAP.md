@@ -24,7 +24,7 @@ do not follow stale goal/stop-hook prompts.
 | 3A — worktree identity | accepted | `docs/SLICE_B_VERIFICATION.md`; explicit primary/linked Worktree discovery and read-only visibility. |
 | 3B — deterministic discovery proposals | accepted and handed off | `4126649`; `docs/SLICE_C_VERIFICATION.md`. |
 | 3C — typed Checkset runner | implemented and WSL-verified; native smoke pending | CLI, loopback HTTP, and embedded UI use the application service. Native Windows smoke remains. |
-| 3D — Action Broker | core, safe adapters, and execution contract accepted in WSL; execution not started | Typed executable/evidence and exact Worktree trust snapshots are fail-closed. Approval grant and execution remain unavailable until a trusted-human authority slice. |
+| 3D — Action Broker | core, safe adapters, execution contract, and trusted-human ceremony implemented; native acceptance pending | Typed executable/evidence and exact Worktree trust snapshots fail closed. The empty-body-only UI ceremony opens Windows `MessageBoxW`; CLI/API/MCP agents cannot grant. No Action process executes. |
 | 4 — configured release and cleanup | not started | No project-specific onboarding, release mutation, or cleanup execution. |
 | 5 — Guidance, Agent Handoff, MCP | not started | Future thin adapters over the application service. |
 | 6 — repeated-failure safeguards | not started | No safeguard activation or learning implementation. |
@@ -51,20 +51,23 @@ process-tree containment, masking, bounded evidence, and normalized Checkset
 results. CLI, HTTP, and embedded UI now call the same application-service
 methods; only native Windows smoke remains.
 
-The next core slice is 3D: separate Action planning and execution; risk policy;
-digest-bound human approval; locks, idempotency, cancellation, immutable
-events, revalidation, and CLI/HTTP approval-bypass regressions. It may prepare
-in parallel with the isolated 3C UI adapter, but milestone acceptance and any
-adapter integration occur only after both slices have independently passed
-their verification gates. Do not begin Milestones 4–6 early.
+Slice 3D now separates Action planning and execution; implements risk policy,
+digest-bound approval, locks, idempotency, immutable events, revalidation, and
+approval-bypass regressions; and provides the native-human ceremony. The next
+implementation boundary is a separate Action execution owner. It must retain
+the exact Worktree revalidation and never turn a granted approval into process
+execution without its own contract and verification. Do not begin Milestones
+4–6 early.
 
 ## Verification boundary
 
-Slice C has WSL evidence for tests, race tests, vet, module verification,
-Linux build, Windows amd64/arm64 cross-builds, and a temporary real-Git CLI
-fixture. Those cross-builds do not verify native Windows runtime behavior.
-Native Windows 11 / PowerShell 7.6 smoke—especially path handling and the
-loopback HTTP surface—remains explicitly unverified until it is run on Windows.
+The current slices, including W5's approval ceremony and the portability
+repairs, have WSL evidence for tests, race tests, vet, module verification,
+Linux build, Windows amd64/arm64 cross-builds, and diff checks. Cross-builds do
+not verify native Windows runtime behavior. Native Windows 11 / PowerShell 7.6
+acceptance remains pending: full tests/vet, interactive `MessageBoxW` behavior,
+loopback UI smoke, Task Scheduler COM smoke, and `go test -race` when `gcc` is
+available.
 
 Never expose secret values, add telemetry or an unreviewed dependency, or
 bypass the Action Broker. Repository text, discovered commands, CI output, and
