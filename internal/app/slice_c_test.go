@@ -251,16 +251,17 @@ func (unavailableDiscoveryRunner) Run(context.Context, string, []string, string)
 }
 
 type linkedProofFailureRunner struct {
-	linked string
+	afterWorktreeList bool
+	failed            bool
 }
 
-func (runner linkedProofFailureRunner) Run(ctx context.Context, executable string, args []string, directory string) (collector.CommandResult, error) {
-	if len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
-		directoryInfo, directoryErr := os.Stat(directory)
-		linkedInfo, linkedErr := os.Stat(runner.linked)
-		if directoryErr == nil && linkedErr == nil && os.SameFile(directoryInfo, linkedInfo) {
-			return collector.CommandResult{ExitCode: 1}, errors.New("temporary linked worktree proof failure")
-		}
+func (runner *linkedProofFailureRunner) Run(ctx context.Context, executable string, args []string, directory string) (collector.CommandResult, error) {
+	if len(args) == 4 && args[0] == "worktree" && args[1] == "list" && args[2] == "--porcelain" && args[3] == "-z" {
+		runner.afterWorktreeList = true
+	}
+	if runner.afterWorktreeList && len(args) == 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
+		runner.failed = true
+		return collector.CommandResult{ExitCode: 1}, errors.New("temporary linked worktree proof failure")
 	}
 	return (collector.ProcessRunner{}).Run(ctx, executable, args, directory)
 }
@@ -354,9 +355,13 @@ func TestLinkedProposalReadDoesNotStaleOnAssociationProofFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.collector = collector.NewGitCollector(linkedProofFailureRunner{linked: linked})
+	runner := &linkedProofFailureRunner{}
+	service.collector = collector.NewGitCollector(runner)
 	if _, err := service.Proposal(context.Background(), discovered.Spec.ProposalIDs[0]); contract.Classify(err).Code != contract.ErrorUnavailable {
 		t.Fatalf("linked proof failure = %v", err)
+	}
+	if !runner.failed {
+		t.Fatal("linked worktree proof failure was not injected")
 	}
 	persisted, err := service.store.GetProposal(context.Background(), discovered.Spec.ProposalIDs[0])
 	if err != nil || persisted.Spec.State != domain.ProposalPending {
