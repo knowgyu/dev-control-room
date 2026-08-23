@@ -65,7 +65,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.3.0`;
+- binary version: `0.3.1`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
