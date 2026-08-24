@@ -2,9 +2,11 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,30 +14,73 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/domain"
 )
 
-func TestEmbeddedUIExposesChecksetReviewFlow(t *testing.T) {
+func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	recorder := httptest.NewRecorder()
-	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("UI response = %d", recorder.Code)
-	}
+
+	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		"Pre-PR checksets", "Create Checkset", "Apply", "Run", "Review results",
-		"/api/checksets", "/apply", "/run", "/runs", "X-Control-Room-Token", "alert(e.message)",
-		"Choose folder", "Find repositories below", "/api/projects/discover", "/api/folder-picker",
-		"Agent profile", "refreshEnvironment", "Actions", "/api/actions/plans", "Plan repository refresh", "Mark worktree execution-ready",
-		"Cleanup queue", "/api/cleanup/candidates", "Every candidate stays blocked",
-		"Guidance Doctor", "/api/handoffs/preview", "transcriptIncluded",
-		"Repeated failures", "/api/safeguards/proposals", "shadow mode",
+		`<html lang="ko">`, "홈", "프로젝트", "작업", "진단", "기록",
+		"지금 확인할 항목", "프로젝트별 상태", "최근 실행 결과",
+		"폴더 선택", "저장소 찾기",
+		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
+		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`,
+		`href="/ui/app.css"`, `src="/ui/app.js"`, `meta name="control-room-token"`,
 	} {
-		if !strings.Contains(recorder.Body.String(), value) {
-			t.Errorf("embedded UI missing %q", value)
+		if !strings.Contains(html, value) {
+			t.Errorf("embedded UI HTML missing %q", value)
 		}
 	}
+	if strings.Contains(html, "__MUTATION_TOKEN__") {
+		t.Error("embedded UI contains an unresolved mutation token placeholder")
+	}
+
+	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
+	for _, value := range []string{
+		"Pre-PR 점검", "Checkset 만들기", "적용", "실행", "결과 보기",
+		"/api/checksets", "/apply", "/run", "/runs", "X-Control-Room-Token",
+		"/api/projects/discover", "/api/folder-picker",
+		"Agent Profile", "/api/actions/plans", "저장소 새로고침 계획", "실행 대상으로 표시",
+		"정리 후보", "/api/cleanup/candidates", "지침 점검", "/api/handoffs/preview",
+		"반복된 실패", "/api/safeguards/proposals", "shadow mode",
+		"등록 해제", "method: \"DELETE\"", "/repositories/",
+		"unregisterInput.value !== unregisterTarget?.name", "project.repos.length <= 1",
+		"마지막 저장소는 개별 해제할 수 없습니다", "원본 저장소 파일은 변경하지 않았습니다",
+		"surfaceErrors", `role="alert"`, "data-retry", "loadRouteData(currentRoute(), true)",
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded UI JavaScript missing %q", value)
+		}
+	}
+	if strings.Contains(javascript, "alert(") {
+		t.Error("embedded UI uses blocking browser alerts instead of an accessible status message")
+	}
+	if strings.Contains(javascript, ".catch(() => [])") {
+		t.Error("embedded UI hides failed API requests as empty collections")
+	}
+
+	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
+	for _, value := range []string{".app-shell", ".side-nav", ":focus-visible", "prefers-reduced-motion"} {
+		if !strings.Contains(css, value) {
+			t.Errorf("embedded UI CSS missing %q", value)
+		}
+	}
+}
+
+func embeddedUIAsset(t *testing.T, service *App, path, contentType string) string {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d", path, recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, contentType) {
+		t.Fatalf("GET %s content type = %q, want prefix %q", path, got, contentType)
+	}
+	return recorder.Body.String()
 }
 
 func TestEmbeddedUIChecksetProtectedHandlerFlow(t *testing.T) {
@@ -70,6 +115,41 @@ func TestEmbeddedUIChecksetProtectedHandlerFlow(t *testing.T) {
 		t.Fatalf("review results = %#v", runs)
 	}
 	assertUIError(t, service, http.MethodGet, "/api/checksets/missing/runs", nil, "", "", http.StatusNotFound, contract.ErrorNotFound)
+}
+
+func TestEmbeddedUIUnregisterRoutesPreserveRepositoryFiles(t *testing.T) {
+	first := tempGitRepository(t, "ui-unregister-first")
+	second := tempGitRepository(t, "ui-unregister-second")
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "UI Unregister", Path: first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AddRepository(context.Background(), AddRepositoryInput{ProjectID: project.Metadata.ID, ID: "second", Name: "Second", Path: second}); err != nil {
+		t.Fatal(err)
+	}
+	repositoryPath := "/api/projects/" + project.Metadata.ID + "/repositories/second"
+	assertUIError(t, service, http.MethodDelete, repositoryPath, nil, "", "", http.StatusForbidden, contract.ErrorForbidden)
+	removedRepository := callUICheckset[map[string]bool](t, service, http.MethodDelete, repositoryPath, nil)
+	if !removedRepository["removed"] {
+		t.Fatalf("repository unregister response = %#v", removedRepository)
+	}
+	if _, err := os.Stat(second); err != nil {
+		t.Fatalf("repository files changed after unregister: %v", err)
+	}
+
+	removedProject := callUICheckset[map[string]bool](t, service, http.MethodDelete, "/api/projects/"+project.Metadata.ID, nil)
+	if !removedProject["removed"] {
+		t.Fatalf("project unregister response = %#v", removedProject)
+	}
+	if _, err := os.Stat(first); err != nil {
+		t.Fatalf("project repository files changed after unregister: %v", err)
+	}
 }
 
 func callUICheckset[T any](t *testing.T, service *App, method, path string, body []byte) T {

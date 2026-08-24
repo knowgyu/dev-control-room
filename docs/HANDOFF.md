@@ -94,6 +94,17 @@ branches/worktrees again before changing code.
 Both native gates used Windows 11, PowerShell 7.6.4, Go 1.26.7, and `gcc`.
 See `docs/NATIVE_WINDOWS_SMOKE.md`.
 
+The post-RC Korean UI usability refresh is implemented in the current source
+but has not yet received native Windows acceptance. The embedded UI now uses
+five hash-routed screens (`홈`, `프로젝트`, `작업`, `진단`, `기록`) instead of
+one long page, keeps Findings and Project cards primary, and exposes guarded
+Project/Repository `등록 해제` controls over the existing protected DELETE
+routes. Registration removal requires exact-name confirmation, states that
+repository files are not deleted, and disables individual removal of the last
+Repository. Environment findings retain separate `Tool` and `Agent Profile`
+source labels, closing the presentation ambiguity tracked in GitHub issue #1.
+See `DESIGN.md` and the pending checklist in `docs/NATIVE_WINDOWS_SMOKE.md`.
+
 The final portability/acceptance sequence is `27b5aa3` (trusted-human
 ceremony), `b8ab439` (Scheduler status), `b7b2491` (linked Worktree fixture),
 and `3dbc90d` (canonical Worktree path on proof failure). Earlier verification
@@ -397,7 +408,11 @@ actually needs them.
 - `internal/app/environment.go`: Agent Profiles, Environment Doctor, scheduler
   service operations.
 - `internal/app/config.go`: user-local config and forward migration.
-- `internal/app/web.go`: loopback HTTP adapter and embedded UI.
+- `internal/app/web.go`: loopback HTTP adapter and UI/API routes.
+- `internal/app/web_ui.go`: embedded UI asset delivery and mutation-token
+  injection.
+- `internal/app/ui/`: Korean application shell, responsive styles, and thin
+  browser adapter over the existing loopback APIs.
 - `internal/collector/git.go`: bounded Git and current coarse worktree collector.
 - `internal/discovery/discovery.go`: bounded deterministic repository/CI source reader.
 - `internal/reconcile/findings.go`: deterministic Git Findings.

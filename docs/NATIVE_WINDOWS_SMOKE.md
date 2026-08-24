@@ -197,3 +197,55 @@ Both release assets were downloaded again from GitHub into a fresh directory.
 reported version `0.4.0-rc.1`, and its Windows stdio MCP smoke returned the
 same server version and five typed tools. No production action, cleanup
 mutation, or Scheduler mutation was performed during publication.
+
+## Post-RC Korean UI usability acceptance: pending
+
+Run this only after the implementation commit is available in a native Windows
+11 NTFS checkout. Record the accepted source SHA, PowerShell/Go versions, built
+EXE SHA-256, and exact result below this section. Use a fresh temporary
+`appDataRoot` returned by `scripts/prepare-slice-f-acceptance.ps1`; do not assign
+or override PowerShell's reserved `$HOME` variable and do not use the default
+Dev Control Room application data.
+
+Automated gates:
+
+```powershell
+go test -count=1 ./...
+go test -count=1 -race ./...
+go vet ./...
+go build ./...
+go mod verify
+go build -trimpath -o artifacts\dev-control-room-ui.exe .\cmd\dev-control-room
+Get-FileHash artifacts\dev-control-room-ui.exe -Algorithm SHA256
+```
+
+Manual UI acceptance on the fixture service:
+
+1. Confirm the UI opens in Korean and the `홈`, `프로젝트`, `작업`, `진단`, and
+   `기록` navigation shows one screen at a time. Check keyboard focus and a
+   narrow browser width.
+2. Confirm the Home screen prioritizes `지금 확인할 항목`, Project status, and
+   recent execution results instead of raw logs.
+3. In `진단`, confirm unavailable `codex`, `claude`, or `gemini` entries remain
+   distinguishable as `Tool` versus `Agent Profile` rather than appearing as
+   unexplained duplicates.
+4. Create a second temporary Git repository below the acceptance root and add
+   it to the fixture Project with
+   `project repository add --project <projectId> --id fixture-second --name
+   "Fixture Second" --path <path> --home <appDataRoot> --json`.
+5. In Project detail, cancel Repository unregister once, enter a mismatched name
+   once, then enter the exact Repository ID. Confirm only the final attempt
+   sends the removal, the repository disappears from the registry, its files
+   still exist, and the remaining last-Repository button is disabled with the
+   Project-unregister explanation.
+6. Cancel Project unregister once, then confirm it with the exact Project name.
+   Confirm the Project disappears, both fixture directories still exist, and
+   removal activity is visible in `기록`.
+7. Recreate or retain a fixture as needed and smoke Pre-PR Checkset review,
+   Action planning/trust/execution review, Guidance Doctor, Handoff preview,
+   Cleanup candidates, and repeated-failure safeguards from their new screens.
+
+Do not perform production work, destructive cleanup, Scheduler
+install/uninstall, release tagging, or release publication as part of this UI
+acceptance. Temporary fixture data may be removed only after its exact path is
+verified and the acceptance evidence has been copied into this document.
