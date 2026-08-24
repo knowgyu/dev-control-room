@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/ui/app.css">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">본문으로 건너뛰기</a>
   <div class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="#home" aria-label="Dev Control Room 홈">
@@ -33,7 +34,7 @@
         <button id="scan" class="button primary" type="button">지금 점검</button>
       </header>
 
-      <main id="main-content">
+      <main id="main-content" tabindex="-1">
         <section class="view" data-view="home">
           <div class="hero">
             <div>
@@ -68,7 +69,8 @@
         <section class="view" data-view="projects" hidden>
           <div class="page-heading">
             <div><p class="eyebrow">등록 범위</p><h2>프로젝트</h2><p>등록한 범위와 각 Worktree의 현재 상태를 관리합니다.</p></div>
-            <button id="show-register" class="button" type="button">프로젝트 등록</button>
+            <div class="item-actions"><button id="import-project" class="button" type="button">프로젝트 가져오기</button><button id="show-register" class="button primary" type="button">프로젝트 등록</button></div>
+            <input id="import-project-file" type="file" accept="application/json,.json" hidden>
           </div>
           <section id="register-panel" class="panel register-panel" hidden>
             <div class="panel-heading"><div><p class="eyebrow">새 범위</p><h2>프로젝트 등록</h2></div><button id="hide-register" class="icon-button" type="button" aria-label="등록 양식 닫기">×</button></div>
@@ -93,6 +95,11 @@
         <section class="view" data-view="work" hidden>
           <div class="page-heading"><div><p class="eyebrow">점검과 실행</p><h2>작업</h2><p>검토된 점검과 Action만 명시된 Worktree에서 실행합니다.</p></div></div>
           <div class="work-grid">
+            <section class="panel span-two">
+              <div class="panel-heading"><div><p class="eyebrow">DISCOVERY</p><h2>발견 및 제안 검토</h2></div></div>
+              <p class="panel-copy">정확한 Worktree에서 기존 점검 명령을 읽기 전용으로 찾고, 근거를 검토한 뒤 적용합니다.</p>
+              <div id="proposal-ui" class="loading">발견 결과를 불러오는 중입니다.</div>
+            </section>
             <section class="panel">
               <div class="panel-heading"><div><p class="eyebrow">PRE-PR</p><h2>Pre-PR 점검</h2></div></div>
               <div id="checksets" class="loading">Checkset을 불러오는 중입니다.</div>
@@ -116,6 +123,11 @@
               <p class="panel-copy">선택한 Worktree의 지침을 점검하거나, 대화 기록을 포함하지 않는 Agent Handoff를 미리 봅니다.</p>
               <div id="guidance-ui" class="loading">지침 점검 대상을 불러오는 중입니다.</div>
             </section>
+            <section class="panel span-two">
+              <div class="panel-heading"><div><p class="eyebrow">AGENT</p><h2>Agent Profile 관리</h2></div><button id="add-profile" class="button" type="button">Agent Profile 추가</button></div>
+              <p class="panel-copy">Agent 실행 명령, 데이터 경계, 허용 환경 변수만 저장합니다. 비밀 값은 저장하지 않습니다.</p>
+              <div id="profile-list" class="loading">Agent Profile을 불러오는 중입니다.</div>
+            </section>
             <section class="panel">
               <div class="panel-heading"><div><p class="eyebrow">안전 검토</p><h2>정리 후보</h2></div></div>
               <p class="panel-copy">현재는 읽기 전용 평가만 제공합니다. 안전 근거가 부족하면 항상 차단됩니다.</p>
@@ -123,7 +135,7 @@
             </section>
             <section class="panel">
               <div class="panel-heading"><div><p class="eyebrow">재발 방지</p><h2>반복된 실패</h2></div></div>
-              <p class="panel-copy">제안은 사람이 근거를 검토하기 전까지 shadow mode에 머뭅니다.</p>
+              <p class="panel-copy">제안은 사람이 근거를 검토하기 전까지 검토 전 모의 적용 상태로 남습니다.</p>
               <div id="safeguards" class="loading">반복된 실패를 불러오는 중입니다.</div>
             </section>
           </div>
@@ -143,9 +155,19 @@
       <p class="eyebrow">등록 관리</p>
       <h2 id="unregister-title">등록 해제</h2>
       <p id="unregister-description"></p>
-      <p class="safety-copy">등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.</p>
+      <p id="unregister-safety" class="safety-copy">등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.</p>
       <label><span id="unregister-label">이름을 입력해 확인</span><input id="unregister-confirmation" autocomplete="off"></label>
       <div class="dialog-actions"><button id="unregister-cancel" class="button" type="button">취소</button><button id="unregister-submit" class="button danger" type="submit" disabled>등록 해제</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="editor-dialog" aria-labelledby="editor-title">
+    <form id="editor-form">
+      <p class="eyebrow">설정 편집</p>
+      <h2 id="editor-title">정보 변경</h2>
+      <p id="editor-description"></p>
+      <div id="editor-fields" class="dialog-fields"></div>
+      <div class="dialog-actions"><button id="editor-cancel" class="button" type="button">취소</button><button id="editor-submit" class="button primary" type="submit">저장</button></div>
     </form>
   </dialog>
 

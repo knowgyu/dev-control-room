@@ -24,8 +24,10 @@
   deterministic checks and Actions easy to find and review
 - Non-goals: chat UI, agent orchestration, generic shell access, and a complete
   replacement for GitHub, Jenkins, or an IDE
-- Success signals: the user can reach a project, run a check, inspect a
-  diagnostic, and unregister an item without scanning one long page
+- Success signals: the user can register or edit a project, review and
+  acknowledge a Finding, complete `discover -> proposal -> review -> apply ->
+  run`, inspect bounded Check/Action evidence, prepare a masked Handoff, and
+  unregister an item without scanning one long page
 
 ## Personas and jobs
 
@@ -42,10 +44,12 @@
   is selected from the 프로젝트 screen without adding server-side routes
 - Content hierarchy:
   - 홈: 지금 확인할 항목, 프로젝트별 상태, 최근 실행 결과
-  - 프로젝트: 등록, Project cards, selected Project details, Repositories,
-    Worktrees, Findings
-  - 작업: Pre-PR 점검 and Action planning/execution/review
-  - 진단: 개발 환경, 지침 점검, 정리 후보, 반복된 실패
+  - 프로젝트: 등록/가져오기/내보내기, Project cards, selected Project
+    details, Repository CRUD, Worktrees, filterable evidence-backed Findings
+  - 작업: exact-Worktree discovery, Proposal evidence review, Pre-PR Checkset
+    execution/results, and Action planning/approval/execution/results
+  - 진단: 개발 환경, Agent Profile CRUD, structured Guidance/Handoff review,
+    정리 후보, 반복된 실패
   - 기록: complete activity history
 
 ## Design principles
@@ -76,7 +80,8 @@
 - Existing components to reuse: native buttons, forms, `details`, tables, and
   the current application-service HTTP APIs
 - New/changed components: application shell, navigation links, view headers,
-  Project cards, status chips, empty states, toast, and native `dialog`
+  Project cards, status chips, evidence disclosure panels, structured run
+  results, empty states, toast, and native `dialog`
 - Variants and states: default, hover, focus-visible, selected, disabled,
   loading, empty, warning, error, and success
 - Token/component ownership: CSS custom properties and semantic classes in the
@@ -85,7 +90,8 @@
 ## Accessibility
 
 - Target standard: practical WCAG 2.2 AA baseline
-- Keyboard/focus behavior: all navigation and actions are keyboard reachable;
+- Keyboard/focus behavior: a skip link bypasses primary navigation; route
+  changes move reading focus to `main`; all actions are keyboard reachable;
   focus is visible; dialogs restore focus through native behavior
 - Contrast/readability: text and status labels meet readable contrast; status
   meaning is written as text

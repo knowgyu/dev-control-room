@@ -268,7 +268,7 @@ type UpdateAgentProfileInput struct {
 	Command               string
 	VersionProbe          []string
 	TimeoutSeconds        int
-	ModelArgumentTemplate string
+	ModelArgumentTemplate *string
 	EnvironmentAllowlist  []string
 	LaunchMode            domain.AgentLaunchMode
 	DataBoundary          domain.AgentDataBoundary

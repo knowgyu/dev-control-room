@@ -229,19 +229,36 @@ Manual UI acceptance on the fixture service:
 3. In `진단`, confirm unavailable `codex`, `claude`, or `gemini` entries remain
    distinguishable as `Tool` versus `Agent Profile` rather than appearing as
    unexplained duplicates.
-4. Create a second temporary Git repository below the acceptance root and add
-   it to the fixture Project with
-   `project repository add --project <projectId> --id fixture-second --name
-   "Fixture Second" --path <path> --home <appDataRoot> --json`.
-5. In Project detail, cancel Repository unregister once, enter a mismatched name
+4. In Project detail, change the Project name, add a second temporary Git
+   repository below the acceptance root with `새 저장소 등록`, then change its
+   display name/path back to the exact fixture path. Export the Project, import
+   the exported JSON into a fresh fixture home, and confirm no secret value is
+   present in the file or UI.
+5. Filter Findings by severity and lifecycle, open one evidence disclosure,
+   verify confidence and first/last observed times, and mark one open Finding
+   as `확인함`.
+6. In `작업`, select the exact fixture Worktree and complete `기존 점검 찾기 →
+   제안 근거 검토 → 제안 적용 → Checkset 만들기 → 적용 → 실행`. Confirm a
+   rejected proposal cannot create a Checkset and a stale proposal is visibly
+   distinct.
+7. Expand Checkset and Action results. Confirm each result shows the exact
+   Worktree/HEAD, status, exit code, masked stdout/stderr, and Action pre/post
+   evidence. Confirm approval records and audit events are reviewable without
+   implying that an approval ceremony itself executed the Action.
+8. In `진단`, add and edit a temporary Agent Profile, verify its launch mode,
+   data boundary, model template, and environment-name allowlist, then remove
+   it. Preview a Handoff and confirm the scope, working directory, Findings,
+   verification commands, masking state, and `전체 대화 기록: 포함하지 않음`
+   are rendered as structured fields rather than raw JSON.
+9. In Project detail, cancel Repository unregister once, enter a mismatched name
    once, then enter the exact Repository ID. Confirm only the final attempt
    sends the removal, the repository disappears from the registry, its files
    still exist, and the remaining last-Repository button is disabled with the
    Project-unregister explanation.
-6. Cancel Project unregister once, then confirm it with the exact Project name.
+10. Cancel Project unregister once, then confirm it with the exact Project name.
    Confirm the Project disappears, both fixture directories still exist, and
    removal activity is visible in `기록`.
-7. Recreate or retain a fixture as needed and smoke Pre-PR Checkset review,
+11. Recreate or retain a fixture as needed and smoke Pre-PR Checkset review,
    Action planning/trust/execution review, Guidance Doctor, Handoff preview,
    Cleanup candidates, and repeated-failure safeguards from their new screens.
 

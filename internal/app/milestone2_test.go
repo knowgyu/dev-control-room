@@ -51,6 +51,22 @@ func TestAgentProfileCRUDPersistsAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestAgentProfileHTTPUpdateCanClearModelArgumentTemplate(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	profile, err := service.AddAgentProfile(context.Background(), AddAgentProfileInput{ID: "clear-model", Name: "Clear Model", Command: "fixture-agent", ModelArgumentTemplate: "--model {model}", LaunchMode: domain.AgentLaunchDirect, DataBoundary: domain.AgentBoundaryLocal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := callUICheckset[domain.AgentProfile](t, service, http.MethodPut, "/api/agent-profiles/"+profile.Metadata.ID, []byte(`{"modelArgumentTemplate":""}`))
+	if updated.Spec.ModelArgumentTemplate != "" {
+		t.Fatalf("model argument template was not cleared: %q", updated.Spec.ModelArgumentTemplate)
+	}
+}
+
 func TestRemovingEveryAgentProfileDoesNotReseedDefaults(t *testing.T) {
 	home := t.TempDir()
 	service, err := New(home, "127.0.0.1:38471")

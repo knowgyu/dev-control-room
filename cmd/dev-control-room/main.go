@@ -1081,6 +1081,12 @@ func runAgentProfileMutation(service *app.App, command string, args []string, st
 	if err := flags.Parse(args); err != nil {
 		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
 	}
+	var updatedModelArguments *string
+	flags.Visit(func(item *flag.Flag) {
+		if item.Name == "model-args" {
+			updatedModelArguments = modelArguments
+		}
+	})
 	probes := splitCSV(*probe)
 	allowed := splitCSV(*allowlist)
 	mode := domain.AgentLaunchMode(*launchMode)
@@ -1099,7 +1105,7 @@ func runAgentProfileMutation(service *app.App, command string, args []string, st
 	if *id == "" {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("agent profile update requires --id"))
 	}
-	profile, err := service.UpdateAgentProfile(ctx, *id, app.UpdateAgentProfileInput{Name: *name, Command: *profileCommand, VersionProbe: probes, TimeoutSeconds: *timeout, ModelArgumentTemplate: *modelArguments, EnvironmentAllowlist: allowed, LaunchMode: mode, DataBoundary: dataBoundary})
+	profile, err := service.UpdateAgentProfile(ctx, *id, app.UpdateAgentProfileInput{Name: *name, Command: *profileCommand, VersionProbe: probes, TimeoutSeconds: *timeout, ModelArgumentTemplate: updatedModelArguments, EnvironmentAllowlist: allowed, LaunchMode: mode, DataBoundary: dataBoundary})
 	if err != nil {
 		return writeCLIErrorTo(stderr, err)
 	}

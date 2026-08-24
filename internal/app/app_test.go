@@ -239,7 +239,7 @@ func contains(value, needle string) bool {
 }
 
 func TestWorktreeUIEscapesEveryDynamicWorktreeField(t *testing.T) {
-	for _, field := range []string{"escapeHTML(worktree.metadata.id)", "escapeHTML(worktree.spec.canonicalPath)", "escapeHTML(worktree.spec.head", "escapeHTML(worktree.spec.branch", "escapeHTML(worktree.spec.upstream", "escapeHTML(worktree.spec.trust)", "escapeHTML(worktree.spec.tombstonedAt"} {
+	for _, field := range []string{"escapeHTML(worktree.metadata.id)", "escapeHTML(worktree.spec.canonicalPath)", "escapeHTML(worktree.spec.head", "escapeHTML(worktree.spec.branch", "escapeHTML(worktree.spec.upstream", "escapeHTML(label(worktree.spec.trust))", "escapeHTML(worktree.spec.tombstonedAt"} {
 		if !strings.Contains(uiAppJS, field) {
 			t.Fatalf("worktree UI leaves dynamic field unescaped: %s", field)
 		}

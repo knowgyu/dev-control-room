@@ -102,8 +102,8 @@ func (a *App) UpdateAgentProfile(ctx context.Context, id string, input UpdateAge
 	if input.TimeoutSeconds != 0 {
 		profile.Spec.TimeoutSeconds = input.TimeoutSeconds
 	}
-	if strings.TrimSpace(input.ModelArgumentTemplate) != "" {
-		profile.Spec.ModelArgumentTemplate = strings.TrimSpace(input.ModelArgumentTemplate)
+	if input.ModelArgumentTemplate != nil {
+		profile.Spec.ModelArgumentTemplate = strings.TrimSpace(*input.ModelArgumentTemplate)
 	}
 	if input.EnvironmentAllowlist != nil {
 		profile.Spec.EnvironmentAllowlist = append([]string(nil), input.EnvironmentAllowlist...)

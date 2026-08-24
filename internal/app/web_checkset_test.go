@@ -23,9 +23,10 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`<html lang="ko">`, "홈", "프로젝트", "작업", "진단", "기록",
+		`<html lang="ko">`, "본문으로 건너뛰기", "홈", "프로젝트", "작업", "진단", "기록",
 		"지금 확인할 항목", "프로젝트별 상태", "최근 실행 결과",
 		"폴더 선택", "저장소 찾기",
+		"발견 및 제안 검토", "Agent Profile 관리",
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
 		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`,
 		`href="/ui/app.css"`, `src="/ui/app.js"`, `meta name="control-room-token"`,
@@ -45,10 +46,16 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"/api/projects/discover", "/api/folder-picker",
 		"Agent Profile", "/api/actions/plans", "저장소 새로고침 계획", "실행 대상으로 표시",
 		"정리 후보", "/api/cleanup/candidates", "지침 점검", "/api/handoffs/preview",
-		"반복된 실패", "/api/safeguards/proposals", "shadow mode",
+		"반복된 실패", "/api/safeguards/proposals", "검토 전 모의 적용",
 		"등록 해제", "method: \"DELETE\"", "/repositories/",
 		"unregisterInput.value !== unregisterTarget?.name", "project.repos.length <= 1",
 		"마지막 저장소는 개별 해제할 수 없습니다", "원본 저장소 파일은 변경하지 않았습니다",
+		"프로젝트 이름 변경", "새 저장소 등록", "프로젝트 내보내기", "/api/projects/import",
+		"data-finding=\"acknowledge\"", "confidenceLabels", "/acknowledge",
+		"data-proposal=\"apply\"", "data-proposal=\"reject\"", "/worktrees/${encode(target[2])}/discover",
+		"renderCheckRun", "사전 점검", "사후 점검", "실행 종료 코드",
+		"Agent Profile 추가", "data-profile=\"edit\"", "/api/agent-profiles",
+		"근거 변경됨", "기존 점검 다시 찾기", "열림 및 확인함", `data-unregister="profile"`,
 		"surfaceErrors", `role="alert"`, "data-retry", "loadRouteData(currentRoute(), true)",
 	} {
 		if !strings.Contains(javascript, value) {
@@ -63,7 +70,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".app-shell", ".side-nav", ":focus-visible", "prefers-reduced-motion"} {
+	for _, value := range []string{".app-shell", ".side-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion"} {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded UI CSS missing %q", value)
 		}

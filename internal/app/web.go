@@ -468,7 +468,7 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 			Name, Command         string
 			VersionProbe          []string                 `json:"versionProbe"`
 			TimeoutSeconds        int                      `json:"timeoutSeconds"`
-			ModelArgumentTemplate string                   `json:"modelArgumentTemplate"`
+			ModelArgumentTemplate *string                  `json:"modelArgumentTemplate"`
 			EnvironmentAllowlist  []string                 `json:"environmentAllowlist"`
 			LaunchMode            domain.AgentLaunchMode   `json:"launchMode"`
 			DataBoundary          domain.AgentDataBoundary `json:"dataBoundary"`
