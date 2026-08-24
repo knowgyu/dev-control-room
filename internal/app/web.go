@@ -109,6 +109,30 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(build))
 	}))
+	mux.HandleFunc("POST /api/integrations/{integrationID}/kubernetes/status", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("Kubernetes status accepts an empty body only"))
+			return
+		}
+		status, err := service.KubernetesStatus(request.Context(), request.PathValue("integrationID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(status))
+	}))
+	mux.HandleFunc("POST /api/integrations/{integrationID}/kubernetes/logs", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("Kubernetes logs accepts an empty body only"))
+			return
+		}
+		logs, err := service.KubernetesLogs(request.Context(), request.PathValue("integrationID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(logs))
+	}))
 	mux.HandleFunc("GET /api/projects", func(response http.ResponseWriter, request *http.Request) {
 		projects, err := service.Projects(request.Context())
 		if err != nil {

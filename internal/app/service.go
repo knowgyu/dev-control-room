@@ -42,6 +42,8 @@ type QueryService interface {
 	CheckIntegration(context.Context, string) (IntegrationHealth, error)
 	GitHubLatestRun(context.Context, string) (GitHubLatestRun, error)
 	JenkinsLatestBuild(context.Context, string) (JenkinsLatestBuild, error)
+	KubernetesStatus(context.Context, string) (KubernetesStatus, error)
+	KubernetesLogs(context.Context, string) (KubernetesLogs, error)
 	ActionStatus(context.Context, string) (ActionApprovalStatus, error)
 	ActionPlans(context.Context) ([]domain.ActionPlan, error)
 	ActionRuns(context.Context, string) ([]domain.ActionRun, error)

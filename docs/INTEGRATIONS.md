@@ -196,6 +196,18 @@ Bearer token references, TLS settings, and API paths remain user-local. Later
 mutating operations must use the same Action Broker and high-impact approval
 rules as release operations.
 
+The current implementation resolves Pods by `namespace` and `selector`,
+chooses a current Running Pod for logs, and bounds the log response. The
+protected UI routes are:
+
+```text
+POST /api/integrations/{id}/kubernetes/status
+POST /api/integrations/{id}/kubernetes/logs
+```
+
+The UI displays Pod names only as runtime result metadata; it does not save a
+Pod name into integration configuration.
+
 ### User PowerShell runbooks
 
 Runbooks accept named values but execute typed argv, for example:

@@ -109,9 +109,10 @@ latest workflow lookup. It resolves generic `owner`, `repository`, and
 `workflow` values at request time through a protected UI route and keeps the
 credential reference boundary intact. Jenkins latest build lookup is also
 implemented as a read-only operation with nested Job path resolution and
-Basic Auth or bearer credential-reference support. Jenkins triggers,
-Kubernetes REST visibility, and PowerShell runbooks remain unimplemented; no
-real identifiers or credentials belong in this repository.
+Basic Auth or bearer credential-reference support. Kubernetes read-only Pod
+status and bounded logs are implemented with namespace/selector resolution;
+Jenkins triggers, Kubernetes mutation, and PowerShell runbooks remain
+unimplemented. No real identifiers or credentials belong in this repository.
 
 ## Product intent
 
@@ -351,7 +352,8 @@ separate improvements, not falsely labelled discoveries.
   safeguard normalization. Handoff launch metadata is not a verification
   result and deliberately does not create failure learning.
 - Optional AI clustering beyond deterministic exact-fingerprint safeguards.
-- Kubernetes, Harbor, or operational visibility connectors.
+- Kubernetes mutation, Harbor, or operational visibility beyond the bounded
+  Pod status/log surface.
 - Specifier, Cleaner, Hardener, QA, CRAP, managed agent runs, or role
   orchestration.
 

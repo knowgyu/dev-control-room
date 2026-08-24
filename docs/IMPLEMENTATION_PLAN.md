@@ -212,5 +212,7 @@ Every milestone must include:
 - evidence that no unrelated path, repository, or secret was observed;
 - documentation updates when a contract changes.
 
-Do not begin Kubernetes, Harbor, a plugin framework, or role-based Agent
-workflows until the relevant milestone above is accepted.
+Do not begin Kubernetes mutation, Harbor, a plugin framework, or role-based
+Agent workflows until the relevant milestone above is accepted. The bounded
+read-only Kubernetes status/log surface is an integration diagnostic and is
+documented separately in `docs/INTEGRATIONS.md`.

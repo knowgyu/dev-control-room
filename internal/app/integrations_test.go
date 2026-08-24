@@ -232,3 +232,50 @@ func TestJenkinsLatestBuildSupportsBasicAuthAndReturnsMetadata(t *testing.T) {
 		t.Fatal("latest build response exposed credential")
 	}
 }
+
+func TestKubernetesStatusAndLogsResolvePodAndMaskCredential(t *testing.T) {
+	const credential = "fixture-kubernetes-token"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+credential {
+			t.Errorf("authorization header = %q", request.Header.Get("Authorization"))
+		}
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v1/namespaces/sample-space/pods":
+			if request.URL.Query().Get("labelSelector") != "app=sample-api" {
+				t.Errorf("label selector = %q", request.URL.Query().Get("labelSelector"))
+			}
+			_, _ = response.Write([]byte(`{"items":[{"metadata":{"name":"sample-pod"},"status":{"phase":"Running","containerStatuses":[{"ready":true,"restartCount":2}]}}]}`))
+		case "/api/v1/namespaces/sample-space/pods/sample-pod/log":
+			if request.URL.Query().Get("container") != "api" || request.URL.Query().Get("tailLines") != "25" || request.URL.Query().Get("timestamps") != "true" {
+				t.Errorf("log query = %s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte("2026-08-25T00:00:00Z token=" + credential + "\\nready\\n"))
+		default:
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("DEVROOM_K8S_TOKEN", credential)
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	if _, err := service.AddIntegration(context.Background(), AddIntegrationInput{
+		ID: "kubernetes", Name: "Fixture Kubernetes", Kind: IntegrationKubernetes, Endpoint: server.URL,
+		CredentialRef: "env:DEVROOM_K8S_TOKEN",
+		Values:        map[string]string{"namespace": "sample-space", "selector": "app=sample-api", "container": "api", "tail_lines": "25"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := service.KubernetesStatus(context.Background(), "kubernetes")
+	if err != nil || len(status.Pods) != 1 || status.Pods[0].Name != "sample-pod" || !status.Pods[0].Ready || status.Pods[0].RestartCount != 2 {
+		t.Fatalf("Kubernetes status = %#v, err = %v", status, err)
+	}
+	logs, err := service.KubernetesLogs(context.Background(), "kubernetes")
+	if err != nil || logs.Pod != "sample-pod" || !bytes.Contains([]byte(logs.Logs), []byte("[REDACTED]")) || bytes.Contains([]byte(logs.Logs), []byte(credential)) {
+		t.Fatalf("Kubernetes logs = %#v, err = %v", logs, err)
+	}
+}
