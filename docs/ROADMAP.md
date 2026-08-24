@@ -22,10 +22,12 @@ registered projects without reading raw logs.
   Worktree, followed by proposal, review, and explicit apply.
 - Approved pre-PR Checksets imported from existing documentation and verified
   against repository/CI configuration without inventing duplicate tooling.
-- PowerShell 7.6 Action runner with prechecks, approvals, masking, and postchecks.
+- PowerShell 7.6 runbook plan surface and Action Broker typed execution boundary;
+  configured native script acceptance remains.
 - Local repository synchronization and fast-forward validation.
 - Separate backend/frontend stage and production procedures.
-- Opt-in GitHub and Jenkins collectors and Jenkins triggers.
+- Opt-in read-only GitHub workflow and Jenkins build collectors are implemented;
+  Jenkins triggers remain.
 - PR, branch, worktree, and explicitly linked issue cleanup queue.
 - Mechanical Guidance Doctor checks.
 
@@ -46,8 +48,9 @@ is invoked only for bounded judgment-heavy work.
 
 ## P3: optional operational visibility
 
-- Read-only Kubernetes Dashboard/pod status and bounded log retrieval after the
-  actual API/version is verified.
+- Read-only Kubernetes Pod status and bounded log retrieval are implemented
+  through the configured REST API; workload/rollout and mutation operations
+  remain deferred.
 - Optional Harbor inspection.
 - Compact reliability, rule-effectiveness, connector-freshness, and
   control-plane health metrics.
