@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -141,6 +142,38 @@ func validateConfig(config Config) error {
 			return fmt.Errorf("duplicate connector id %q", connector.ID)
 		}
 		seenConnectors[connector.ID] = struct{}{}
+	}
+	seenIntegrations := make(map[string]struct{}, len(config.Integrations))
+	for _, integration := range config.Integrations {
+		if !validConfigID(integration.ID) || strings.TrimSpace(integration.Name) == "" {
+			return errors.New("integration requires a valid id and name")
+		}
+		switch integration.Kind {
+		case IntegrationGitHub, IntegrationJenkins, IntegrationKubernetes:
+		default:
+			return errors.New("integration kind is not supported")
+		}
+		endpoint, err := url.Parse(strings.TrimSpace(integration.Endpoint))
+		if err != nil || endpoint.User != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" {
+			return errors.New("integration endpoint must be an http or https URL without credentials")
+		}
+		if integration.CredentialRef != "" && !validSecretReference(integration.CredentialRef) {
+			return errors.New("integration credential reference is invalid")
+		}
+		if len(integration.Values) > 32 {
+			return errors.New("integration has too many values")
+		}
+		for key, value := range integration.Values {
+			lowerKey := strings.ToLower(key)
+			secretKey := strings.Contains(lowerKey, "token") || strings.Contains(lowerKey, "password") || strings.Contains(lowerKey, "secret") || strings.Contains(lowerKey, "api_key")
+			if secretKey || !integrationValueKey.MatchString(key) || strings.TrimSpace(value) == "" || len(value) > 2048 || strings.ContainsRune(value, '\x00') {
+				return errors.New("integration values require bounded non-empty keys and values")
+			}
+		}
+		if _, exists := seenIntegrations[integration.ID]; exists {
+			return fmt.Errorf("duplicate integration id %q", integration.ID)
+		}
+		seenIntegrations[integration.ID] = struct{}{}
 	}
 	return nil
 }

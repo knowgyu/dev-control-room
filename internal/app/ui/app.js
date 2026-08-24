@@ -19,6 +19,7 @@
     cleanup: [],
     safeguards: [],
     profiles: [],
+    integrations: [],
     activeProjectID: "",
     checkRuns: new Map(),
     expandedChecks: new Set(),
@@ -26,7 +27,7 @@
     guidanceResult: null,
     guidanceMode: "",
     findingFilters: { severity: "", state: "active" },
-    surfaceErrors: { checksets: "", actions: "", cleanup: "", safeguards: "", profiles: "" },
+    surfaceErrors: { checksets: "", actions: "", cleanup: "", safeguards: "", profiles: "", integrations: "" },
     loaded: { work: false, diagnostics: false },
     loading: { work: false, diagnostics: false },
   };
@@ -391,6 +392,11 @@
 
     document.getElementById("profile-list").innerHTML = state.profiles.length ? `<div class="item-list">${state.profiles.map(profile => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(profile.metadata.name)}</h3><p class="meta">${escapeHTML(profile.metadata.id)}</p></div><span class="chip">${escapeHTML(label(profile.spec.dataBoundary))}</span></div><dl class="detail-grid"><div><dt>실행 명령</dt><dd><code>${escapeHTML(profile.spec.command)}</code></dd></div><div><dt>실행 방식</dt><dd>${escapeHTML(label(profile.spec.launchMode))}</dd></div><div><dt>제한 시간</dt><dd>${escapeHTML(profile.spec.timeoutSeconds)}초</dd></div><div><dt>모델 인자</dt><dd>${escapeHTML(profile.spec.modelArgumentTemplate || "없음")}</dd></div><div class="wide"><dt>허용 환경 변수</dt><dd>${escapeHTML((profile.spec.environmentAllowlist || []).join(", ") || "없음")}</dd></div></dl><div class="item-actions"><button class="button small" type="button" data-profile="edit" data-id="${escapeHTML(profile.metadata.id)}">정보 변경</button><button class="button small" type="button" data-unregister="profile" data-profile-id="${escapeHTML(profile.metadata.id)}" data-name="${escapeHTML(profile.metadata.name)}">제거</button></div></article>`).join("")}</div>` : '<div class="empty-state"><strong>Agent Profile이 없습니다.</strong><span>Handoff 미리 보기를 사용하려면 Profile을 추가하세요.</span></div>';
 
+    const integrationContent = state.integrations.length
+      ? `<div class="item-list">${state.integrations.map(item => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · ${escapeHTML(item.kind)}</p></div><span class="chip ok">credential reference</span></div><dl class="detail-grid"><div class="wide"><dt>Endpoint</dt><dd><code>${escapeHTML(item.endpoint)}</code></dd></div><div><dt>Credential</dt><dd><code>${escapeHTML(item.credentialRef || "없음")}</code></dd></div><div class="wide"><dt>대상 값</dt><dd>${Object.entries(item.values || {}).map(([key, value]) => `<code>${escapeHTML(key)}=${escapeHTML(value)}</code>`).join("<br>") || "없음"}</dd></div></dl><div class="item-actions"><button class="button small" type="button" data-integration="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="integration" data-integration-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`).join("")}</div>`
+      : '<div class="empty-state"><strong>등록된 연동이 없습니다.</strong><span>먼저 주소와 credential reference만 등록하세요.</span></div>';
+    document.getElementById("integration-list").innerHTML = (state.surfaceErrors.integrations ? surfaceError(state.surfaceErrors.integrations, "diagnostics") : "") + integrationContent;
+
     const cleanupContent = state.cleanup.length
       ? `<div class="item-list">${state.cleanup.map(item => `<article class="list-item"><div class="list-item-header"><h3>${escapeHTML(item.spec.repositoryId)} / ${escapeHTML(item.spec.worktreeId)}</h3><span class="chip warn">${escapeHTML(label(item.spec.decision))}</span></div><p class="meta"><code>${escapeHTML(item.spec.canonicalPath)}</code></p><p>${(item.spec.reasons || []).map(reason => escapeHTML(localize(reason))).join("<br>")}</p></article>`).join("")}</div>`
       : '<div class="empty-state"><strong>관찰된 정리 후보가 없습니다.</strong><span>Worktree가 관찰되면 안전 여부를 읽기 전용으로 평가합니다.</span></div>';
@@ -480,6 +486,7 @@
       loadSurface("cleanup", () => request("/api/cleanup/candidates"), items => { state.cleanup = items; }),
       loadSurface("safeguards", () => request("/api/safeguards/rules"), items => { state.safeguards = items; }),
       loadSurface("profiles", () => request("/api/agent-profiles"), items => { state.profiles = items; }),
+      loadSurface("integrations", () => request("/api/integrations"), items => { state.integrations = items; }),
     ]);
     state.loading.diagnostics = false;
     state.loaded.diagnostics = true;
@@ -545,6 +552,11 @@
       title.textContent = "저장소 정보 변경";
       description.textContent = "저장소 ID는 유지되며 이름과 관찰 경로만 변경됩니다.";
       editorFields.innerHTML = editorInput("edit-name", "저장소 이름", context.repository.metadata.name) + editorInput("edit-path", "Windows 저장소 경로", context.repository.spec.path, { wide: true });
+    } else if (kind === "integration") {
+      const integration = context.integration;
+      title.textContent = integration ? "연동 설정 변경" : "연동 설정 추가";
+      description.textContent = "토큰 값은 입력하지 말고 env:이름 또는 credential_manager:이름 형태의 참조만 저장하세요.";
+      editorFields.innerHTML = `${integration ? "" : editorInput("edit-id", "연동 ID")}${editorInput("edit-name", "표시 이름", integration?.name || "")}<label><span>종류</span><select id="edit-integration-kind"><option value="github" ${integration?.kind === "github" ? "selected" : ""}>GitHub</option><option value="jenkins" ${integration?.kind === "jenkins" ? "selected" : ""}>Jenkins</option><option value="kubernetes" ${integration?.kind === "kubernetes" ? "selected" : ""}>Kubernetes</option></select></label>${editorInput("edit-endpoint", "API 주소", integration?.endpoint || "", { wide: true })}${editorInput("edit-credential", "Credential reference", integration?.credentialRef || "", { required: false })}${editorTextarea("edit-values", "대상 값 · key=value 한 줄에 하나", Object.entries(integration?.values || {}).map(([key, value]) => `${key}=${value}`).join("\n"))}`;
     } else {
       const profile = context.profile;
       title.textContent = profile ? "Agent Profile 변경" : "Agent Profile 추가";
@@ -556,6 +568,7 @@
   }
 
   const lineList = value => value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  const keyValues = value => Object.fromEntries(lineList(value).map(item => { const [key, ...rest] = item.split("="); return [key.trim(), rest.join("=").trim()]; }).filter(([key, item]) => key && item));
 
   async function submitEditor() {
     if (editorTarget.kind === "project") {
@@ -569,6 +582,13 @@
     if (editorTarget.kind === "repository") {
       await request(`/api/projects/${encode(editorTarget.projectID)}/repositories/${encode(editorTarget.repository.metadata.id)}`, { method: "PUT", headers: mutationHeaders(), body: JSON.stringify({ name: document.getElementById("edit-name").value, path: document.getElementById("edit-path").value }) });
       return "저장소 정보를 변경했습니다.";
+    }
+    if (editorTarget.kind === "integration") {
+      const integration = editorTarget.integration;
+      const body = { name: document.getElementById("edit-name").value, kind: document.getElementById("edit-integration-kind").value, endpoint: document.getElementById("edit-endpoint").value, credentialRef: document.getElementById("edit-credential").value, values: keyValues(document.getElementById("edit-values").value) };
+      if (!integration) body.id = document.getElementById("edit-id").value;
+      await request(integration ? `/api/integrations/${encode(integration.id)}` : "/api/integrations", { method: integration ? "PUT" : "POST", headers: mutationHeaders(), body: JSON.stringify(body) });
+      return integration ? "연동 설정을 변경했습니다." : "연동 설정을 추가했습니다.";
     }
     const profile = editorTarget.profile;
     const body = {
@@ -592,18 +612,21 @@
       projectID: button.dataset.project,
       repositoryID: button.dataset.repository || "",
       profileID: button.dataset.profileId || "",
+      integrationID: button.dataset.integrationId || "",
       name: button.dataset.name,
     };
     const isProject = unregisterTarget.kind === "project";
     const isProfile = unregisterTarget.kind === "profile";
-    document.getElementById("unregister-title").textContent = isProfile ? "Agent Profile 제거" : isProject ? "프로젝트 등록 해제" : "저장소 등록 해제";
+    const isIntegration = unregisterTarget.kind === "integration";
+    document.getElementById("unregister-title").textContent = isProfile ? "Agent Profile 제거" : isIntegration ? "연동 설정 제거" : isProject ? "프로젝트 등록 해제" : "저장소 등록 해제";
     document.getElementById("unregister-description").textContent = isProfile
       ? `“${unregisterTarget.name}” Agent Profile의 저장된 실행 설정을 제거합니다.`
       : isProject
         ? `“${unregisterTarget.name}” 프로젝트의 등록과 모든 저장소 관찰 기록을 해제합니다.`
-        : `“${unregisterTarget.name}” 저장소의 등록과 관찰 기록을 해제합니다.`;
+      : isIntegration ? `“${unregisterTarget.name}” 연동 설정을 제거합니다.` : `“${unregisterTarget.name}” 저장소의 등록과 관찰 기록을 해제합니다.`;
     document.getElementById("unregister-safety").textContent = isProfile
       ? "Profile 설정만 제거하며 Agent 프로그램이나 작업 파일은 삭제하지 않습니다."
+      : isIntegration ? "저장소나 외부 시스템은 변경하지 않고 로컬 설정만 제거합니다."
       : "등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.";
     document.getElementById("unregister-label").textContent = `확인 문구: “${unregisterTarget.name}”`;
     unregisterInput.value = "";
@@ -765,6 +788,15 @@
     }
     if (button.id === "add-profile") {
       openEditor("profile", {});
+      return;
+    }
+    if (button.id === "add-integration") {
+      openEditor("integration", {});
+      return;
+    }
+    if (button.dataset.integration === "edit") {
+      const integration = state.integrations.find(item => item.id === button.dataset.id);
+      if (integration) openEditor("integration", { integration });
       return;
     }
     if (button.dataset.profile === "edit") {
@@ -1084,6 +1116,8 @@
       ? `/api/projects/${encode(unregisterTarget.projectID)}`
       : unregisterTarget.kind === "profile"
         ? `/api/agent-profiles/${encode(unregisterTarget.profileID)}`
+        : unregisterTarget.kind === "integration"
+          ? `/api/integrations/${encode(unregisterTarget.integrationID)}`
         : `/api/projects/${encode(unregisterTarget.projectID)}/repositories/${encode(unregisterTarget.repositoryID)}`;
     const submit = document.getElementById("unregister-submit");
     submit.disabled = true;
@@ -1091,9 +1125,9 @@
       await request(path, { method: "DELETE", headers: mutationHeaders() });
       if (unregisterTarget.kind === "project") state.activeProjectID = "";
       unregisterDialog.close();
-      showNotice(unregisterTarget.kind === "profile" ? "Agent Profile을 제거했습니다." : "등록을 해제했습니다. 원본 저장소 파일은 변경하지 않았습니다.");
+      showNotice(unregisterTarget.kind === "profile" ? "Agent Profile을 제거했습니다." : unregisterTarget.kind === "integration" ? "연동 설정을 제거했습니다." : "등록을 해제했습니다. 원본 저장소 파일은 변경하지 않았습니다.");
       await refreshAll();
-      document.getElementById(unregisterTarget.kind === "profile" ? "add-profile" : "project-list-panel").focus();
+      document.getElementById(unregisterTarget.kind === "profile" ? "add-profile" : unregisterTarget.kind === "integration" ? "add-integration" : "project-list-panel").focus();
     } catch (error) {
       showNotice(error.message, true);
       submit.disabled = false;

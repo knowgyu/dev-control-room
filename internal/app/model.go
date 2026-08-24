@@ -1,10 +1,30 @@
 package app
 
 import (
+	"regexp"
 	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/domain"
 )
+
+type IntegrationKind string
+
+const (
+	IntegrationGitHub     IntegrationKind = "github"
+	IntegrationJenkins    IntegrationKind = "jenkins"
+	IntegrationKubernetes IntegrationKind = "kubernetes"
+)
+
+type IntegrationConfig struct {
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Kind          IntegrationKind   `json:"kind"`
+	Endpoint      string            `json:"endpoint"`
+	CredentialRef string            `json:"credentialRef,omitempty"`
+	Values        map[string]string `json:"values,omitempty"`
+}
+
+var integrationValueKey = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
 
 type Config struct {
 	Version                  int                             `json:"version"`
@@ -12,6 +32,7 @@ type Config struct {
 	Projects                 []domain.Project                `json:"projects"`
 	Environment              []domain.EnvironmentDeclaration `json:"environment,omitempty"`
 	Connectors               []domain.ConnectorReference     `json:"connectors,omitempty"`
+	Integrations             []IntegrationConfig             `json:"integrations,omitempty"`
 	AgentProfilesInitialized bool                            `json:"agent_profiles_initialized,omitempty"`
 }
 

@@ -39,6 +39,7 @@ type App struct {
 	home          string
 	listen        string
 	config        Config
+	configMu      sync.Mutex
 	mutationToken string
 	masker        *masking.Masker
 	store         *store.Store

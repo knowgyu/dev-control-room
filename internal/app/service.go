@@ -38,6 +38,7 @@ type QueryService interface {
 	EnvironmentHealth(context.Context, bool) (environment.Health, error)
 	AgentProfiles(context.Context) ([]domain.AgentProfile, error)
 	AgentProfile(context.Context, string) (domain.AgentProfile, error)
+	Integrations(context.Context) ([]IntegrationConfig, error)
 	ActionStatus(context.Context, string) (ActionApprovalStatus, error)
 	ActionPlans(context.Context) ([]domain.ActionPlan, error)
 	ActionRuns(context.Context, string) ([]domain.ActionRun, error)
@@ -71,6 +72,9 @@ type CommandService interface {
 	AddAgentProfile(context.Context, AddAgentProfileInput) (domain.AgentProfile, error)
 	UpdateAgentProfile(context.Context, string, UpdateAgentProfileInput) (domain.AgentProfile, error)
 	RemoveAgentProfile(context.Context, string) error
+	AddIntegration(context.Context, AddIntegrationInput) (IntegrationConfig, error)
+	UpdateIntegration(context.Context, string, UpdateIntegrationInput) (IntegrationConfig, error)
+	RemoveIntegration(context.Context, string) error
 	Schedule(context.Context, scheduler.Operation) (scheduler.Result, error)
 	PlanAction(context.Context, ActionPlanInput) (domain.ActionPlan, error)
 	StartHumanApprovalCeremony(context.Context, string) (action.HumanDecisionResult, error)

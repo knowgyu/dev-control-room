@@ -88,6 +88,19 @@ the connector as unavailable if the variable is missing. Values are resolved
 only at the last responsible moment, passed only to the bounded connector or
 Action process, and masked from logs, events, UI, CLI, HTTP, MCP, and handoffs.
 
+The local configuration surface is generic and provider-neutral:
+
+```text
+GET    /api/integrations
+POST   /api/integrations
+PUT    /api/integrations/{id}
+DELETE /api/integrations/{id}
+```
+
+Each definition stores an endpoint, kind, non-secret target values, and an
+optional credential reference. Token-like value keys are rejected; put those
+names in `credentialRef` instead. The UI keeps the same distinction visible.
+
 ## Initial operations
 
 The first implemented group operation treats the repositories of the selected

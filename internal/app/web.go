@@ -32,6 +32,47 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(state))
 	})
+	mux.HandleFunc("GET /api/integrations", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.Integrations(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("POST /api/integrations", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input AddIntegrationInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.AddIntegration(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("PUT /api/integrations/{integrationID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input UpdateIntegrationInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.UpdateIntegration(request.Context(), request.PathValue("integrationID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("DELETE /api/integrations/{integrationID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := service.RemoveIntegration(request.Context(), request.PathValue("integrationID")); err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(map[string]bool{"removed": true}))
+	}))
 	mux.HandleFunc("GET /api/projects", func(response http.ResponseWriter, request *http.Request) {
 		projects, err := service.Projects(request.Context())
 		if err != nil {

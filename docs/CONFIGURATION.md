@@ -59,7 +59,9 @@ anti-CSRF token is process-local and is never written to configuration.
 Executable definitions use typed structures and are reviewed separately.
 
 Integration definitions, repository groups, release/CI runbooks, Kubernetes
-selectors, and provider endpoints are user-local configuration. Do not commit
+selectors, and provider endpoints are user-local configuration. The generic
+integration editor accepts GitHub, Jenkins, and Kubernetes endpoint definitions
+plus non-secret target values; credentials remain references only. Do not commit
 real repository names, job paths, namespaces, Pod names, URLs, or command
 arguments to this repository. Persist stable logical targets and resolve
 volatile runtime targets such as build IDs and Pod names immediately before the
