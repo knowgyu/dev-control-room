@@ -31,5 +31,5 @@ presence.
 
 GitHub/Jenkins collectors, merged-PR correlation, company release procedures,
 and cleanup execution are not inferred without user-provided provider and
-policy inputs. Native Windows acceptance for the new Action execution and this
-generic queue remains a separate gate documented in `NATIVE_WINDOWS_SMOKE.md`.
+policy inputs. The generic queue passed its later native Windows fixture gate;
+see `NATIVE_WINDOWS_SMOKE.md`.

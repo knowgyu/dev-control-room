@@ -1,6 +1,6 @@
 # Normal-session resume roadmap
 
-Updated: 2026-08-23 (native Windows acceptance integrated)
+Updated: 2026-08-24 (Slice F native acceptance and RC publication integrated)
 
 Use this document to continue Dev Control Room in an ordinary Codex session.
 The canonical plan remains `docs/IMPLEMENTATION_PLAN.md`; accepted behavior and
@@ -24,9 +24,9 @@ do not follow stale goal/stop-hook prompts.
 | 3A — worktree identity | accepted | `docs/SLICE_B_VERIFICATION.md`; explicit primary/linked Worktree discovery and read-only visibility. |
 | 3B — deterministic discovery proposals | accepted and handed off | `4126649`; `docs/SLICE_C_VERIFICATION.md`. |
 | 3C — typed Checkset runner | accepted | CLI, loopback HTTP, and embedded UI use the application service; native Windows full-suite, UI, Worktree, and process-boundary checks passed. |
-| 3D — Action Broker and execution | implemented; native acceptance pending | Typed executable/evidence, exact Worktree trust snapshots, bounded `ActionRun` persistence, pre/post checks, and Broker-owned process execution are in place. WSL/cross-build evidence passed; new native Windows execution gate remains. |
+| 3D — Action Broker and execution | accepted | Typed executable/evidence, exact Worktree trust snapshots, bounded `ActionRun` persistence, pre/post checks, and Broker-owned process execution passed the native Windows gate at `0c41b12`. |
 | 4 — configured release and cleanup | generic safety base implemented | Read-only blocked cleanup queue is available; provider-specific release, correlation, and cleanup mutation remain unconfigured. |
-| 5 — Guidance, Agent Handoff, MCP | generic adapter implemented | Guidance, masked handoff preview, typed stdio MCP, and model metadata are present; native launch/provider acceptance remains. |
+| 5 — Guidance, Agent Handoff, MCP | generic adapter accepted | Guidance, masked handoff preview, typed stdio MCP, and model metadata passed the native fixture gate; automatic agent launch and provider-specific client acceptance remain. |
 | 6 — repeated-failure safeguards | proposal base implemented | Repeated fingerprints yield shadow proposals; activation, feedback metrics, and retirement remain. |
 
 ## Slice C / G003 handoff
@@ -44,11 +44,12 @@ handoff commit. The native-accepted product baseline is
 final linked-Worktree proof repair and native Windows acceptance are included
 in that baseline; proposal text remains non-executable.
 
-The current Windows amd64 package is released as `v0.3.1` from tagged commit
-`4bcd8c6`; the asset is `dev-control-room_0.3.1_windows_amd64.exe` with its
-SHA-256 in `SHA256SUMS`. Environment Health duplicate display is tracked as
-GitHub issue #1; the current branch now includes the source-label UI fix, but
-the issue remains open until its owner verifies the native screen.
+The stable Windows amd64 package remains `v0.3.1`. The current prerelease is
+`v0.4.0-rc.1`, tagged at acceptance-log commit `d4dda2f`; its Windows amd64
+asset has SHA-256
+`4e4f76e2e973fb38b682f28a905944b8eaec30cf875a35413e35b1c1e7412686`.
+The Environment Health source-label UI was verified during the native Slice F
+gate; GitHub issue #1 can be resolved separately by its owner.
 
 ## Next implementation order
 
@@ -60,22 +61,22 @@ methods; native Windows acceptance is complete at `3dbc90d`.
 
 Slice 3D now includes Action planning, approval, and the separate typed
 execution owner. It retains exact Worktree revalidation, argv/environment
-boundaries, bounded output, postchecks, and immutable run evidence. Complete
-the native Windows acceptance gate for this slice before using it on a native
-machine. The generic cleanup queue is intentionally read-only; do not onboard
-company-specific release or cleanup procedures without reviewed inputs.
+boundaries, bounded output, postchecks, and immutable run evidence, and its
+native Windows acceptance gate is complete. The generic cleanup queue remains
+read-only; do not onboard company-specific release or cleanup procedures
+without reviewed inputs.
 
 ## Verification boundary
 
-The current slices through the approval ceremony have WSL evidence plus native
-Windows 11 / PowerShell 7.6 acceptance. The new Action execution code has WSL
-and cross-build evidence; its native runtime gate is still pending.
+The current slices through typed Action execution have WSL evidence plus native
+Windows 11 / PowerShell 7.6 acceptance. Slice F's accepted source is `0c41b12`
+and its complete log is in `docs/NATIVE_WINDOWS_SMOKE.md`.
 At `3dbc90d`, native `go test ./...`, `go test -race ./...` with `gcc`, `go vet`,
 `go build`, `go mod verify`, ProcessRunner, loopback UI, Checkset, Worktree
 fail-closed, MessageBoxW No/Cancel/Yes, and Scheduler dry-run/status all passed
-at the prior baseline. The new typed Action process execution is covered in
-`docs/SLICE_F_VERIFICATION.md`; Scheduler install/uninstall remains
-unperformed. Full evidence is in
+at the prior baseline. Typed Action process execution and the generic
+Milestone 4-6 fixture checks passed at the later Slice F gate; Scheduler
+install/uninstall remains unperformed. Full evidence is in
 `docs/NATIVE_WINDOWS_SMOKE.md`.
 
 Never expose secret values, add telemetry or an unreviewed dependency, or

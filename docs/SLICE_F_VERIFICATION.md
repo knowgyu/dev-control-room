@@ -1,7 +1,7 @@
 # Slice F verification: typed Action execution
 
-Status: implemented with WSL evidence on 2026-08-24. Native Windows 11 /
-PowerShell 7.6 acceptance remains a separate operator gate.
+Status: implemented with WSL evidence and accepted on native Windows 11 /
+PowerShell 7.6 at commit `0c41b12` on 2026-08-24.
 
 ## Delivered contract
 

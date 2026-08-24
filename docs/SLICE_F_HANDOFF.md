@@ -1,8 +1,8 @@
 # Slice F handoff: Action execution contract
 
 Status: execution contract, typed Action execution, and trusted-human approval
-ceremony are implemented with WSL evidence on 2026-08-24. Native Windows
-runtime acceptance remains pending for this new execution code.
+ceremony are implemented and natively accepted as of 2026-08-24. The accepted
+Slice F source is `0c41b12`; full evidence is in `NATIVE_WINDOWS_SMOKE.md`.
 
 Schema v11 persists exact Worktree execution-trust snapshots. Server-owned
 Action definitions produce digest-bound typed executable identity, argv,

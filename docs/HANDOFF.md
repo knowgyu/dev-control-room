@@ -83,14 +83,16 @@ ad732f6 feat: implement milestone 2 environment doctor and scheduling boundary
 c8d71c7 chore: establish milestone 0 foundation
 ```
 
-The native-accepted product baseline is `3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`.
-The current documentation handoff is the later docs-only commit on `main` and
-`origin/main`; inspect status, remotes, and user-created branches/worktrees
-again before changing code.
+The original native-accepted product baseline is
+`3dbc90d6f6f2c14e8cce99b7d150fbd6b4feccd4`. Slice F and the generic
+Milestone 4-6 surfaces were accepted on native Windows at
+`0c41b126d817d54c5871dd053f86209596e074ba`; the acceptance log commit
+`d4dda2f88de9d7b9866ab84220cc948e080b4c1a` is tagged and published as the
+`v0.4.0-rc.1` prerelease. Inspect status, remotes, and user-created
+branches/worktrees again before changing code.
 
-Native Windows acceptance passed at the product baseline above on Windows 11 /
-PowerShell 7.6.4 with Go 1.26.7 and `gcc`; later release/docs commits did not
-claim to rerun that native gate. See `docs/NATIVE_WINDOWS_SMOKE.md`.
+Both native gates used Windows 11, PowerShell 7.6.4, Go 1.26.7, and `gcc`.
+See `docs/NATIVE_WINDOWS_SMOKE.md`.
 
 The final portability/acceptance sequence is `27b5aa3` (trusted-human
 ceremony), `b8ab439` (Scheduler status), `b7b2491` (linked Worktree fixture),
@@ -350,7 +352,7 @@ Windows launch/provider checks and safeguard activation/feedback remain
 explicit verification gaps; see `docs/MILESTONE_5_VERIFICATION.md` and
 `docs/MILESTONE_6_VERIFICATION.md`.
 
-### Slice F: typed Action execution (implemented; native acceptance pending)
+### Slice F: typed Action execution (implemented and natively accepted)
 
 - `ActionRun` persists exact target, digest, status, bounded masked output, and
   precheck/postcheck evidence. The Broker is the only process execution owner.
@@ -361,10 +363,10 @@ explicit verification gaps; see `docs/MILESTONE_5_VERIFICATION.md` and
   after execution. UI, CLI, and HTTP expose plan listing, explicit Worktree
   execution trust, execution, and result review without exposing a generic
   command surface.
-- WSL tests, race tests, vet, module verification, Linux build, and Windows
-  amd64/arm64 cross-builds passed. Native Windows runtime acceptance remains
-  the next operator gate; company release, cleanup, and Scheduler mutation are
-  not part of this slice.
+- WSL tests, race tests, vet, module verification, Linux build, Windows
+  amd64/arm64 cross-builds, and the native Windows runtime gate passed.
+  Company release procedures, cleanup mutation, and Scheduler mutation are not
+  part of this slice.
 
 See `docs/SLICE_F_VERIFICATION.md`.
 

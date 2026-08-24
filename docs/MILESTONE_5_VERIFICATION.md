@@ -30,7 +30,8 @@ exclusion. Existing masking and Action-broker tests remain part of the suite.
 
 ## Boundary
 
-Native Windows CLI launch and provider-specific MCP client acceptance remain
-operator checks. The current implementation deliberately stops at preview;
-it does not launch Codex, Claude, Gemini, or `claude-local` from a generic
-unreviewed command.
+The CLI, Guidance, handoff preview, and typed stdio MCP passed the later native
+Windows fixture gate. Automatic Agent launch and provider-specific MCP client
+acceptance remain operator checks. The current implementation deliberately
+stops at preview; it does not launch Codex, Claude, Gemini, or `claude-local`
+from a generic unreviewed command.

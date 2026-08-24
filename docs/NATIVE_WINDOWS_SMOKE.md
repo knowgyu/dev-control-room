@@ -41,7 +41,7 @@ cleanup mutation, native Agent CLI launch, provider MCP clients, or safeguard
 activation. The generic read-only Milestone 4–6 surfaces have separate WSL
 evidence in their verification documents.
 
-The UI, CLI, and future MCP adapters must continue to call one application
+The UI, CLI, and MCP adapters must continue to call one application
 service. Secrets remain masked, the Action Broker remains the only mutation
 boundary, telemetry remains disabled, and no unreviewed dependency may be
 added.
@@ -155,3 +155,23 @@ token. To avoid credential discovery or a partial release, no `v0.4.0-rc.1`
 tag, prerelease, asset upload, or downloaded-asset smoke test was created.
 The fixture server was stopped by its exact fixture PID; its temporary evidence
 root was intentionally preserved.
+
+## 2026-08-24 RC publication: completed
+
+The authenticated Linux publisher created annotated tag `v0.4.0-rc.1` at
+acceptance-log commit `d4dda2f88de9d7b9866ab84220cc948e080b4c1a` and
+published a GitHub prerelease:
+
+<https://github.com/knowgyu/dev-control-room/releases/tag/v0.4.0-rc.1>
+
+The Windows amd64 release asset was rebuilt with Go 1.26.7 from a clean clone
+of the tag target using `GOOS=windows GOARCH=amd64 CGO_ENABLED=0` and
+`-trimpath`. Embedded build metadata reports the exact tag-target revision and
+`vcs.modified=false`. Its SHA-256 is
+`4e4f76e2e973fb38b682f28a905944b8eaec30cf875a35413e35b1c1e7412686`.
+
+Both release assets were downloaded again from GitHub into a fresh directory.
+`sha256sum -c SHA256SUMS` passed; the downloaded PE32+ x86-64 executable
+reported version `0.4.0-rc.1`, and its Windows stdio MCP smoke returned the
+same server version and five typed tools. No production action, cleanup
+mutation, or Scheduler mutation was performed during publication.
