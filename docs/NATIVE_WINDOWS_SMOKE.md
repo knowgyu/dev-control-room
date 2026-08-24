@@ -146,3 +146,12 @@ destructive cleanup, Scheduler install, or Scheduler uninstall was performed.
 
 The Windows amd64 artifact SHA-256 before release packaging was
 `6b1211b0e1ce6d594e8d85712291556ee4d419070dda6ab989de7a4d3a191de6`.
+
+### Release publication status
+
+The native acceptance passed, but publication was not attempted: this Windows
+operator environment has neither the GitHub CLI nor a configured GitHub API
+token. To avoid credential discovery or a partial release, no `v0.4.0-rc.1`
+tag, prerelease, asset upload, or downloaded-asset smoke test was created.
+The fixture server was stopped by its exact fixture PID; its temporary evidence
+root was intentionally preserved.
