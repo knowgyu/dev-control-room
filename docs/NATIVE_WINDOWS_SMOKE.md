@@ -156,6 +156,28 @@ tag, prerelease, asset upload, or downloaded-asset smoke test was created.
 The fixture server was stopped by its exact fixture PID; its temporary evidence
 root was intentionally preserved.
 
+## 2026-08-24 v0.4.0-rc.2 corrected prerelease
+
+The initial RC.2 asset was withdrawn after downloaded-asset smoke found that
+its embedded version still reported RC.1. The corrected source updated the
+CLI, MCP, and native fixture version contract to RC.2, then passed native
+`go test -count=1 ./...`, `CGO_ENABLED=1 go test -count=1 -race ./...`,
+`go vet ./...`, `go build ./...`, and `go mod verify`.
+
+The corrected annotated tag `v0.4.0-rc.2` points to
+`fb2e7c2`. Its prerelease asset `dev-control-room.exe` and `SHA256SUMS` are
+published at <https://github.com/knowgyu/dev-control-room/releases/tag/v0.4.0-rc.2>.
+The asset SHA-256 is
+`965ee743fb9732994ef5112f360c9ce70fc23a3ded2e523c8770c7c8f74533e0`.
+
+A fresh download reported `0.4.0-rc.2`; stdio MCP `initialize` and
+`tools/list` also reported RC.2 and exposed only typed read-only tools. With
+the default data directory and no command-line options, the downloaded binary
+stayed running on `127.0.0.1:38471` and returned HTTP 200 from `/api/health`.
+The prior apparent immediate exit was a local test process already holding
+that port, not a released-binary failure. No production, destructive cleanup,
+or Scheduler installation work was performed.
+
 ## 2026-08-24 RC publication: completed
 
 The authenticated Linux publisher created annotated tag `v0.4.0-rc.1` at
