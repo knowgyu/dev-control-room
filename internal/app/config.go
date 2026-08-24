@@ -175,6 +175,42 @@ func validateConfig(config Config) error {
 		}
 		seenIntegrations[integration.ID] = struct{}{}
 	}
+	if len(config.Runbooks) > 64 {
+		return errors.New("too many PowerShell runbooks")
+	}
+	seenRunbooks := make(map[string]struct{}, len(config.Runbooks))
+	for _, runbook := range config.Runbooks {
+		if !validConfigID(runbook.ID) || strings.TrimSpace(runbook.Name) == "" {
+			return errors.New("PowerShell runbook requires a valid id and name")
+		}
+		path := strings.TrimSpace(runbook.ScriptPath)
+		if path == "" || strings.ContainsRune(path, '\x00') || strings.ContainsAny(path, "*?[]{}") || !strings.EqualFold(filepath.Ext(path), ".ps1") {
+			return errors.New("PowerShell runbook script path must be a concrete .ps1 path")
+		}
+		if runbook.TimeoutSeconds < 1 || runbook.TimeoutSeconds > 3600 {
+			return errors.New("PowerShell runbook timeout must be between 1 and 3600 seconds")
+		}
+		seenParameters := make(map[string]struct{}, len(runbook.Parameters))
+		for _, parameter := range runbook.Parameters {
+			if !runbookParameterPattern.MatchString(parameter) {
+				return errors.New("PowerShell runbook parameters require valid names")
+			}
+			key := strings.ToLower(parameter)
+			if _, exists := seenParameters[key]; exists {
+				return errors.New("PowerShell runbook parameters must be unique")
+			}
+			seenParameters[key] = struct{}{}
+		}
+		for _, name := range runbook.EnvironmentAllowlist {
+			if !safeReferenceName.MatchString(name) {
+				return errors.New("PowerShell runbook environment names are invalid")
+			}
+		}
+		if _, exists := seenRunbooks[runbook.ID]; exists {
+			return fmt.Errorf("duplicate PowerShell runbook id %q", runbook.ID)
+		}
+		seenRunbooks[runbook.ID] = struct{}{}
+	}
 	return nil
 }
 

@@ -20,6 +20,7 @@
     safeguards: [],
     profiles: [],
     integrations: [],
+    runbooks: [],
     integrationHealth: {},
     githubLatestRuns: {},
     jenkinsLatestBuilds: {},
@@ -32,7 +33,7 @@
     guidanceResult: null,
     guidanceMode: "",
     findingFilters: { severity: "", state: "active" },
-    surfaceErrors: { checksets: "", actions: "", cleanup: "", safeguards: "", profiles: "", integrations: "" },
+    surfaceErrors: { checksets: "", actions: "", cleanup: "", safeguards: "", profiles: "", integrations: "", runbooks: "" },
     loaded: { work: false, diagnostics: false },
     loading: { work: false, diagnostics: false },
   };
@@ -423,6 +424,11 @@
       : '<div class="empty-state"><strong>등록된 연동이 없습니다.</strong><span>먼저 주소와 credential reference만 등록하세요.</span></div>';
     document.getElementById("integration-list").innerHTML = (state.surfaceErrors.integrations ? surfaceError(state.surfaceErrors.integrations, "diagnostics") : "") + integrationContent;
 
+    const runbookContent = state.runbooks.length
+      ? `<div class="item-list">${state.runbooks.map(item => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · 승인 필요</p></div><span class="chip warn">PowerShell</span></div><dl class="detail-grid"><div class="wide"><dt>스크립트</dt><dd><code>${escapeHTML(item.scriptPath)}</code></dd></div><div><dt>제한 시간</dt><dd>${escapeHTML(item.timeoutSeconds)}초</dd></div><div class="wide"><dt>허용 환경 변수</dt><dd>${escapeHTML((item.environmentAllowlist || []).join(", ") || "없음")}</dd></div></dl>${(item.parameters || []).length ? `<div class="runbook-parameters">${item.parameters.map(parameter => `<label><span>${escapeHTML(parameter)}</span><input data-runbook-param="${escapeHTML(parameter)}" data-runbook-id="${escapeHTML(item.id)}" placeholder="선택 값"></label>`).join("")}</div>` : '<p class="meta">입력할 parameter가 없습니다.</p>'}<div class="item-actions"><select data-runbook-target="${escapeHTML(item.id)}" aria-label="runbook 실행 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button class="button primary small" type="button" data-runbook="plan" data-id="${escapeHTML(item.id)}" ${targets.length ? "" : "disabled"}>실행 계획 만들기</button><button class="button small" type="button" data-runbook="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="runbook" data-runbook-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`).join("")}</div>`
+      : '<div class="empty-state"><strong>등록된 PowerShell runbook이 없습니다.</strong><span>검토한 .ps1 파일을 등록하면 선택한 Worktree에서 실행 계획을 만들 수 있습니다.</span></div>';
+    document.getElementById("runbook-list").innerHTML = (state.surfaceErrors.runbooks ? surfaceError(state.surfaceErrors.runbooks, "diagnostics") : "") + runbookContent;
+
     const cleanupContent = state.cleanup.length
       ? `<div class="item-list">${state.cleanup.map(item => `<article class="list-item"><div class="list-item-header"><h3>${escapeHTML(item.spec.repositoryId)} / ${escapeHTML(item.spec.worktreeId)}</h3><span class="chip warn">${escapeHTML(label(item.spec.decision))}</span></div><p class="meta"><code>${escapeHTML(item.spec.canonicalPath)}</code></p><p>${(item.spec.reasons || []).map(reason => escapeHTML(localize(reason))).join("<br>")}</p></article>`).join("")}</div>`
       : '<div class="empty-state"><strong>관찰된 정리 후보가 없습니다.</strong><span>Worktree가 관찰되면 안전 여부를 읽기 전용으로 평가합니다.</span></div>';
@@ -513,6 +519,7 @@
       loadSurface("safeguards", () => request("/api/safeguards/rules"), items => { state.safeguards = items; }),
       loadSurface("profiles", () => request("/api/agent-profiles"), items => { state.profiles = items; }),
       loadSurface("integrations", () => request("/api/integrations"), items => { state.integrations = items; }),
+      loadSurface("runbooks", () => request("/api/runbooks"), items => { state.runbooks = items; }),
     ]);
     state.loading.diagnostics = false;
     state.loaded.diagnostics = true;
@@ -578,6 +585,11 @@
       title.textContent = "저장소 정보 변경";
       description.textContent = "저장소 ID는 유지되며 이름과 관찰 경로만 변경됩니다.";
       editorFields.innerHTML = editorInput("edit-name", "저장소 이름", context.repository.metadata.name) + editorInput("edit-path", "Windows 저장소 경로", context.repository.spec.path, { wide: true });
+    } else if (kind === "runbook") {
+      const runbook = context.runbook;
+      title.textContent = runbook ? "PowerShell runbook 변경" : "PowerShell runbook 추가";
+      description.textContent = "구체적인 .ps1 파일만 등록합니다. 실행 값은 저장하지 않고 계획 생성 시 typed argv로 전달합니다.";
+      editorFields.innerHTML = `${runbook ? "" : editorInput("edit-id", "runbook ID")}${editorInput("edit-name", "표시 이름", runbook?.name || "")}${editorInput("edit-script", ".ps1 파일 경로", runbook?.scriptPath || "", { wide: true })}${editorTextarea("edit-parameters", "named parameter 이름 · 한 줄에 하나", (runbook?.parameters || []).join("\n"))}${editorTextarea("edit-runbook-environment", "허용 환경 변수 · 한 줄에 하나", (runbook?.environmentAllowlist || []).join("\n"))}${editorInput("edit-timeout", "제한 시간(초)", runbook?.timeoutSeconds || 300, { type: "number" })}`;
     } else if (kind === "integration") {
       const integration = context.integration;
       title.textContent = integration ? "연동 설정 변경" : "연동 설정 추가";
@@ -609,6 +621,13 @@
       await request(`/api/projects/${encode(editorTarget.projectID)}/repositories/${encode(editorTarget.repository.metadata.id)}`, { method: "PUT", headers: mutationHeaders(), body: JSON.stringify({ name: document.getElementById("edit-name").value, path: document.getElementById("edit-path").value }) });
       return "저장소 정보를 변경했습니다.";
     }
+    if (editorTarget.kind === "runbook") {
+      const runbook = editorTarget.runbook;
+      const body = { name: document.getElementById("edit-name").value, scriptPath: document.getElementById("edit-script").value, parameters: lineList(document.getElementById("edit-parameters").value), environmentAllowlist: lineList(document.getElementById("edit-runbook-environment").value), timeoutSeconds: Number(document.getElementById("edit-timeout").value) };
+      if (!runbook) body.id = document.getElementById("edit-id").value;
+      await request(runbook ? `/api/runbooks/${encode(runbook.id)}` : "/api/runbooks", { method: runbook ? "PUT" : "POST", headers: mutationHeaders(), body: JSON.stringify(body) });
+      return runbook ? "PowerShell runbook을 변경했습니다." : "PowerShell runbook을 추가했습니다.";
+    }
     if (editorTarget.kind === "integration") {
       const integration = editorTarget.integration;
       const body = { name: document.getElementById("edit-name").value, kind: document.getElementById("edit-integration-kind").value, endpoint: document.getElementById("edit-endpoint").value, credentialRef: document.getElementById("edit-credential").value, values: keyValues(document.getElementById("edit-values").value) };
@@ -639,20 +658,23 @@
       repositoryID: button.dataset.repository || "",
       profileID: button.dataset.profileId || "",
       integrationID: button.dataset.integrationId || "",
+      runbookID: button.dataset.runbookId || "",
       name: button.dataset.name,
     };
     const isProject = unregisterTarget.kind === "project";
     const isProfile = unregisterTarget.kind === "profile";
     const isIntegration = unregisterTarget.kind === "integration";
-    document.getElementById("unregister-title").textContent = isProfile ? "Agent Profile 제거" : isIntegration ? "연동 설정 제거" : isProject ? "프로젝트 등록 해제" : "저장소 등록 해제";
+    const isRunbook = unregisterTarget.kind === "runbook";
+    document.getElementById("unregister-title").textContent = isProfile ? "Agent Profile 제거" : isIntegration ? "연동 설정 제거" : isRunbook ? "PowerShell runbook 제거" : isProject ? "프로젝트 등록 해제" : "저장소 등록 해제";
     document.getElementById("unregister-description").textContent = isProfile
       ? `“${unregisterTarget.name}” Agent Profile의 저장된 실행 설정을 제거합니다.`
       : isProject
         ? `“${unregisterTarget.name}” 프로젝트의 등록과 모든 저장소 관찰 기록을 해제합니다.`
-      : isIntegration ? `“${unregisterTarget.name}” 연동 설정을 제거합니다.` : `“${unregisterTarget.name}” 저장소의 등록과 관찰 기록을 해제합니다.`;
+      : isIntegration ? `“${unregisterTarget.name}” 연동 설정을 제거합니다.` : isRunbook ? `“${unregisterTarget.name}” PowerShell runbook 설정을 제거합니다.` : `“${unregisterTarget.name}” 저장소의 등록과 관찰 기록을 해제합니다.`;
     document.getElementById("unregister-safety").textContent = isProfile
       ? "Profile 설정만 제거하며 Agent 프로그램이나 작업 파일은 삭제하지 않습니다."
       : isIntegration ? "저장소나 외부 시스템은 변경하지 않고 로컬 설정만 제거합니다."
+      : isRunbook ? "runbook 설정만 제거하며 .ps1 파일은 삭제하지 않습니다."
       : "등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.";
     document.getElementById("unregister-label").textContent = `확인 문구: “${unregisterTarget.name}”`;
     unregisterInput.value = "";
@@ -818,6 +840,38 @@
     }
     if (button.id === "add-integration") {
       openEditor("integration", {});
+      return;
+    }
+    if (button.id === "add-runbook") {
+      openEditor("runbook", {});
+      return;
+    }
+    if (button.dataset.runbook === "edit") {
+      const runbook = state.runbooks.find(item => item.id === button.dataset.id);
+      if (runbook) openEditor("runbook", { runbook });
+      return;
+    }
+    if (button.dataset.runbook === "plan") {
+      const runbookID = button.dataset.id;
+      const target = document.querySelector(`[data-runbook-target="${CSS.escape(runbookID)}"]`)?.value || "";
+      const [projectID, repositoryID, worktreeID] = target.split("|");
+      const parameters = Object.fromEntries([...document.querySelectorAll(`[data-runbook-param][data-runbook-id="${CSS.escape(runbookID)}"]`)].filter(input => input.value.trim()).map(input => [input.dataset.runbookParam, input.value]));
+      if (!projectID || !repositoryID || !worktreeID) {
+        showNotice("실행할 Worktree를 선택하세요.", true);
+        return;
+      }
+      button.disabled = true;
+      try {
+        await request(`/api/runbooks/${encode(runbookID)}/plan`, { method: "POST", headers: mutationHeaders(), body: JSON.stringify({ projectId: projectID, repositoryId: repositoryID, worktreeId: worktreeID, parameters }) });
+        showNotice("PowerShell runbook 실행 계획을 만들었습니다. 작업 화면에서 승인 후 실행하세요.");
+        state.loaded.work = false;
+        location.hash = "work";
+        await loadWorkData(true);
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
       return;
     }
     if (button.dataset.integration === "check") {
@@ -1208,6 +1262,8 @@
         ? `/api/agent-profiles/${encode(unregisterTarget.profileID)}`
         : unregisterTarget.kind === "integration"
           ? `/api/integrations/${encode(unregisterTarget.integrationID)}`
+          : unregisterTarget.kind === "runbook"
+            ? `/api/runbooks/${encode(unregisterTarget.runbookID)}`
         : `/api/projects/${encode(unregisterTarget.projectID)}/repositories/${encode(unregisterTarget.repositoryID)}`;
     const submit = document.getElementById("unregister-submit");
     submit.disabled = true;
@@ -1215,9 +1271,9 @@
       await request(path, { method: "DELETE", headers: mutationHeaders() });
       if (unregisterTarget.kind === "project") state.activeProjectID = "";
       unregisterDialog.close();
-      showNotice(unregisterTarget.kind === "profile" ? "Agent Profile을 제거했습니다." : unregisterTarget.kind === "integration" ? "연동 설정을 제거했습니다." : "등록을 해제했습니다. 원본 저장소 파일은 변경하지 않았습니다.");
+      showNotice(unregisterTarget.kind === "profile" ? "Agent Profile을 제거했습니다." : unregisterTarget.kind === "integration" ? "연동 설정을 제거했습니다." : unregisterTarget.kind === "runbook" ? "PowerShell runbook을 제거했습니다." : "등록을 해제했습니다. 원본 저장소 파일은 변경하지 않았습니다.");
       await refreshAll();
-      document.getElementById(unregisterTarget.kind === "profile" ? "add-profile" : unregisterTarget.kind === "integration" ? "add-integration" : "project-list-panel").focus();
+      document.getElementById(unregisterTarget.kind === "profile" ? "add-profile" : unregisterTarget.kind === "integration" ? "add-integration" : unregisterTarget.kind === "runbook" ? "add-runbook" : "project-list-panel").focus();
     } catch (error) {
       showNotice(error.message, true);
       submit.disabled = false;

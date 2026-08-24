@@ -40,6 +40,61 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
+	mux.HandleFunc("GET /api/runbooks", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.Runbooks(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("POST /api/runbooks", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input AddPowerShellRunbookInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.AddPowerShellRunbook(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("PUT /api/runbooks/{runbookID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input UpdatePowerShellRunbookInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.UpdatePowerShellRunbook(request.Context(), request.PathValue("runbookID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("DELETE /api/runbooks/{runbookID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := service.RemovePowerShellRunbook(request.Context(), request.PathValue("runbookID")); err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(map[string]bool{"removed": true}))
+	}))
+	mux.HandleFunc("POST /api/runbooks/{runbookID}/plan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input PowerShellRunbookPlanInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		input.RunbookID = request.PathValue("runbookID")
+		plan, err := service.PlanPowerShellRunbook(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(plan))
+	}))
 	mux.HandleFunc("POST /api/integrations", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input AddIntegrationInput
 		if err := decodeBody(response, request, &input); err != nil {

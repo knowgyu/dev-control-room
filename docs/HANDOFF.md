@@ -111,8 +111,10 @@ credential reference boundary intact. Jenkins latest build lookup is also
 implemented as a read-only operation with nested Job path resolution and
 Basic Auth or bearer credential-reference support. Kubernetes read-only Pod
 status and bounded logs are implemented with namespace/selector resolution;
-Jenkins triggers, Kubernetes mutation, and PowerShell runbooks remain
-unimplemented. No real identifiers or credentials belong in this repository.
+Jenkins triggers and Kubernetes mutation remain unimplemented. PowerShell
+runbook CRUD and Broker-backed typed plan creation are implemented; a real
+configured script still requires the separate native Windows smoke checklist.
+No real identifiers or credentials belong in this repository.
 
 ## Product intent
 
@@ -347,6 +349,8 @@ separate improvements, not falsely labelled discoveries.
 - Configured release procedures, Jenkins triggers, or cleanup execution.
 - Jenkins triggers beyond the read-only latest build lookup; GitHub trigger and
   release operations.
+- Native configured PowerShell runbook acceptance and project-specific release
+  procedure mapping.
 - Native Agent Handoff launch and provider-specific MCP client acceptance.
 - CI, hook, and launched-Handoff verification failure producers and their
   safeguard normalization. Handoff launch metadata is not a verification

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -768,6 +769,7 @@ var actionDefinitions = map[string]ActionDefinition{
 	"repository.sync":     {ActionType: "repository.sync", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, Execution: ActionExecution{Executable: "git", Arguments: []string{"pull", "--ff-only", "--prune"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 	"release.production":  {ActionType: "release.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"commit"}, Execution: ActionExecution{Executable: "devroom-release-production", Arguments: []string{"--commit", "{commit}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 	"cleanup.destructive": {ActionType: "cleanup.destructive", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Execution: ActionExecution{Executable: "devroom-cleanup-destructive", TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"powershell.runbook":  {ActionType: "powershell.runbook", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"script", "arguments", "environment", "timeout"}, Execution: ActionExecution{Executable: "pwsh", TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 }
 
 var (
@@ -1285,6 +1287,35 @@ func validActionRunStatus(status ActionRunStatus) bool {
 }
 
 func (d ActionDefinition) ExecutionFor(inputs map[string]string) (ActionExecution, error) {
+	if d.ActionType == "powershell.runbook" {
+		script := strings.TrimSpace(inputs["script"])
+		if script == "" || strings.ContainsRune(script, '\x00') {
+			return ActionExecution{}, errors.New("PowerShell runbook script is invalid")
+		}
+		var arguments []string
+		if err := json.Unmarshal([]byte(inputs["arguments"]), &arguments); err != nil {
+			return ActionExecution{}, errors.New("PowerShell runbook arguments are invalid")
+		}
+		var environmentAllowlist []string
+		if raw := inputs["environment"]; raw != "" {
+			if err := json.Unmarshal([]byte(raw), &environmentAllowlist); err != nil {
+				return ActionExecution{}, errors.New("PowerShell runbook environment is invalid")
+			}
+		}
+		timeoutSeconds := d.Execution.TimeoutSeconds
+		if raw := strings.TrimSpace(inputs["timeout"]); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				return ActionExecution{}, errors.New("PowerShell runbook timeout is invalid")
+			}
+			timeoutSeconds = parsed
+		}
+		execution := ActionExecution{Executable: "pwsh", Arguments: append([]string{"-NoProfile", "-File", script}, arguments...), EnvironmentAllowlist: environmentAllowlist, TimeoutSeconds: timeoutSeconds, MaxOutputBytes: d.Execution.MaxOutputBytes}
+		if !validActionExecution(execution) {
+			return ActionExecution{}, errors.New("PowerShell runbook execution contract is invalid")
+		}
+		return execution, nil
+	}
 	execution := d.Execution
 	execution.Arguments = append([]string(nil), execution.Arguments...)
 	for index, argument := range execution.Arguments {

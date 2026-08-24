@@ -36,7 +36,17 @@ type IntegrationHealth struct {
 	CheckedAt           time.Time       `json:"checkedAt"`
 }
 
+type PowerShellRunbookConfig struct {
+	ID                   string   `json:"id"`
+	Name                 string   `json:"name"`
+	ScriptPath           string   `json:"scriptPath"`
+	Parameters           []string `json:"parameters,omitempty"`
+	EnvironmentAllowlist []string `json:"environmentAllowlist,omitempty"`
+	TimeoutSeconds       int      `json:"timeoutSeconds,omitempty"`
+}
+
 var integrationValueKey = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
+var runbookParameterPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 
 type Config struct {
 	Version                  int                             `json:"version"`
@@ -45,6 +55,7 @@ type Config struct {
 	Environment              []domain.EnvironmentDeclaration `json:"environment,omitempty"`
 	Connectors               []domain.ConnectorReference     `json:"connectors,omitempty"`
 	Integrations             []IntegrationConfig             `json:"integrations,omitempty"`
+	Runbooks                 []PowerShellRunbookConfig       `json:"runbooks,omitempty"`
 	AgentProfilesInitialized bool                            `json:"agent_profiles_initialized,omitempty"`
 }
 

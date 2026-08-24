@@ -40,6 +40,7 @@ type QueryService interface {
 	AgentProfile(context.Context, string) (domain.AgentProfile, error)
 	Integrations(context.Context) ([]IntegrationConfig, error)
 	CheckIntegration(context.Context, string) (IntegrationHealth, error)
+	Runbooks(context.Context) ([]PowerShellRunbookConfig, error)
 	GitHubLatestRun(context.Context, string) (GitHubLatestRun, error)
 	JenkinsLatestBuild(context.Context, string) (JenkinsLatestBuild, error)
 	KubernetesStatus(context.Context, string) (KubernetesStatus, error)
@@ -80,8 +81,12 @@ type CommandService interface {
 	AddIntegration(context.Context, AddIntegrationInput) (IntegrationConfig, error)
 	UpdateIntegration(context.Context, string, UpdateIntegrationInput) (IntegrationConfig, error)
 	RemoveIntegration(context.Context, string) error
+	AddPowerShellRunbook(context.Context, AddPowerShellRunbookInput) (PowerShellRunbookConfig, error)
+	UpdatePowerShellRunbook(context.Context, string, UpdatePowerShellRunbookInput) (PowerShellRunbookConfig, error)
+	RemovePowerShellRunbook(context.Context, string) error
 	Schedule(context.Context, scheduler.Operation) (scheduler.Result, error)
 	PlanAction(context.Context, ActionPlanInput) (domain.ActionPlan, error)
+	PlanPowerShellRunbook(context.Context, PowerShellRunbookPlanInput) (domain.ActionPlan, error)
 	StartHumanApprovalCeremony(context.Context, string) (action.HumanDecisionResult, error)
 	AdmitAction(context.Context, string, string, string) (action.Admission, error)
 	ExecuteAction(context.Context, string, string, string) (domain.ActionRun, error)

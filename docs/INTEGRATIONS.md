@@ -224,6 +224,22 @@ must not accept an arbitrary shell string at click time. A runbook is reviewed,
 bound to its source digest where applicable, and invoked through the Action
 Broker with prechecks, timeout, masking, and postchecks.
 
+The current local runbook surface stores only the `.ps1` path, declared
+parameter names, environment-name allowlist, and timeout. It provides CRUD plus
+protected plan creation:
+
+```text
+GET    /api/runbooks
+POST   /api/runbooks
+PUT    /api/runbooks/{id}
+DELETE /api/runbooks/{id}
+POST   /api/runbooks/{id}/plan
+```
+
+The plan is high-impact and requires the normal human approval flow before the
+existing Action execution route can start `pwsh -NoProfile -File` with typed
+arguments in the selected Worktree.
+
 ## Redacted examples to add later
 
 When adding a real operator example, replace every value that identifies the
