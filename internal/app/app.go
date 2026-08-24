@@ -265,6 +265,16 @@ func (a *App) CleanupCandidates(ctx context.Context, projectID string) ([]domain
 	if err != nil {
 		return nil, err
 	}
+	snapshot, err := a.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	origins := make(map[string]string)
+	for _, project := range snapshot.Projects {
+		for _, repository := range project.Repos {
+			origins[project.ID+"\x00"+repository.ID] = repository.Origin
+		}
+	}
 	items := []domain.CleanupCandidate{}
 	for _, project := range projects {
 		if projectID != "" && project.Metadata.ID != projectID {
@@ -308,7 +318,21 @@ func (a *App) CleanupCandidates(ctx context.Context, projectID string) ([]domain
 				if observedAt.IsZero() {
 					observedAt = time.Now().UTC()
 				}
-				candidate := domain.CleanupCandidate{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.CleanupCandidateKind}, Metadata: domain.ObjectMeta{ID: cleanupCandidateID(project.Metadata.ID, repository.Metadata.ID, worktree.Metadata.ID), Name: "Cleanup candidate " + worktree.Metadata.ID}, Spec: domain.CleanupCandidateSpec{ProjectID: project.Metadata.ID, RepositoryID: repository.Metadata.ID, WorktreeID: worktree.Metadata.ID, CanonicalPath: worktree.Spec.CanonicalPath, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Dirty: worktree.Spec.Dirty, Untracked: worktree.Spec.Untracked, Detached: worktree.Spec.Detached, Locked: worktree.Spec.Locked, Prunable: worktree.Spec.Prunable, Ahead: worktree.Spec.Ahead, Behind: worktree.Spec.Behind, Upstream: worktree.Spec.Upstream, Decision: domain.CleanupBlocked, Reasons: reasons, ObservedAt: observedAt}}
+				decision := domain.CleanupBlocked
+				merged := false
+				mergeEvidence := ""
+				localSafetyPassed := !worktree.Spec.Primary && !worktree.Spec.Dirty && !worktree.Spec.Untracked && !worktree.Spec.Detached && !worktree.Spec.Locked && !worktree.Spec.Prunable && worktree.Spec.TombstonedAt == nil && worktree.Spec.Upstream != "" && worktree.Spec.Ahead == 0 && worktree.Spec.Error == "" && worktree.Spec.Head != ""
+				if localSafetyPassed {
+					merged, mergeEvidence, err = a.githubCommitMerged(ctx, origins[project.Metadata.ID+"\x00"+repository.Metadata.ID], worktree.Spec.Head)
+					if err != nil {
+						merged = false
+					}
+				}
+				if merged {
+					decision = domain.CleanupReviewable
+					reasons = []string{mergeEvidence, "local Worktree safety checks passed; human review is still required"}
+				}
+				candidate := domain.CleanupCandidate{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.CleanupCandidateKind}, Metadata: domain.ObjectMeta{ID: cleanupCandidateID(project.Metadata.ID, repository.Metadata.ID, worktree.Metadata.ID), Name: "Cleanup candidate " + worktree.Metadata.ID}, Spec: domain.CleanupCandidateSpec{ProjectID: project.Metadata.ID, RepositoryID: repository.Metadata.ID, WorktreeID: worktree.Metadata.ID, CanonicalPath: worktree.Spec.CanonicalPath, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Dirty: worktree.Spec.Dirty, Untracked: worktree.Spec.Untracked, Detached: worktree.Spec.Detached, Locked: worktree.Spec.Locked, Prunable: worktree.Spec.Prunable, Ahead: worktree.Spec.Ahead, Behind: worktree.Spec.Behind, Upstream: worktree.Spec.Upstream, Merged: merged, MergeEvidence: mergeEvidence, Decision: decision, Reasons: reasons, ObservedAt: observedAt}}
 				if err := candidate.Validate(); err != nil {
 					return nil, err
 				}

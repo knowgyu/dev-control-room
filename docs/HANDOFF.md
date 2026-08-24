@@ -447,11 +447,12 @@ Jenkins, and cleanup procedures be onboarded in Milestone 4.
 The generic Milestone 4 cleanup safety base is now implemented. `CleanupCandidate`
 is a read-only, Worktree-bound assessment exposed through the application
 service, CLI (`cleanup list`), loopback HTTP, and the embedded UI. Every
-candidate is currently blocked, with explicit reasons for missing merge
-evidence and unsafe Worktree state. See `docs/MILESTONE_4_VERIFICATION.md`.
-GitHub/Jenkins correlation, company release procedures, and cleanup mutation
-remain intentionally unimplemented until reviewed provider and policy inputs
-are supplied.
+candidate is blocked unless a configured GitHub integration confirms a merged
+PR and the linked Worktree passes clean/upstream/ahead/locked/prunable safety
+checks; those candidates are marked `reviewable`, never auto-deleted. See
+`docs/MILESTONE_4_VERIFICATION.md`. Jenkins correlation, company release
+procedures, and cleanup mutation remain intentionally unimplemented until
+reviewed provider and policy inputs are supplied.
 
 Milestone 5 now has bounded Guidance Doctor checks, masked Agent Handoff
 preview and protected terminal launch, optional model metadata, and a typed

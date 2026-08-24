@@ -131,12 +131,17 @@ type CleanupCandidateSpec struct {
 	Ahead         int       `json:"ahead"`
 	Behind        int       `json:"behind"`
 	Upstream      string    `json:"upstream,omitempty"`
+	Merged        bool      `json:"merged,omitempty"`
+	MergeEvidence string    `json:"mergeEvidence,omitempty"`
 	Decision      string    `json:"decision"`
 	Reasons       []string  `json:"reasons"`
 	ObservedAt    time.Time `json:"observedAt"`
 }
 
-const CleanupBlocked = "blocked"
+const (
+	CleanupBlocked    = "blocked"
+	CleanupReviewable = "reviewable"
+)
 
 type WorktreeSpec struct {
 	ProjectID              string     `json:"projectId"`
@@ -189,7 +194,7 @@ func (c CleanupCandidate) Validate() error {
 	if err := validateResource(c.TypeMeta, CleanupCandidateKind, c.Metadata); err != nil {
 		return err
 	}
-	if err := validateProjectRepository(c.Spec.ProjectID, c.Spec.RepositoryID); err != nil || !validIdentifier(c.Spec.WorktreeID) || strings.TrimSpace(c.Spec.CanonicalPath) == "" || c.Spec.Decision != CleanupBlocked || c.Spec.ObservedAt.IsZero() || len(c.Spec.Reasons) == 0 {
+	if err := validateProjectRepository(c.Spec.ProjectID, c.Spec.RepositoryID); err != nil || !validIdentifier(c.Spec.WorktreeID) || strings.TrimSpace(c.Spec.CanonicalPath) == "" || (c.Spec.Decision != CleanupBlocked && c.Spec.Decision != CleanupReviewable) || c.Spec.ObservedAt.IsZero() || len(c.Spec.Reasons) == 0 {
 		return errors.New("cleanup candidate requires an exact blocked target, reasons, and observation time")
 	}
 	return nil

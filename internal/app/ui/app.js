@@ -96,6 +96,7 @@
     verified_read_only: "읽기 전용 확인됨",
     unverified: "확인되지 않음",
     completed: "완료",
+    reviewable: "검토 가능",
     queued: "대기",
     in_progress: "진행 중",
     requested: "요청됨",

@@ -96,6 +96,11 @@ skipped repository visible without hiding successful siblings. Confirm the
 same flow through `devroom project sync plan` and
 `devroom project sync execute`.
 
+Cleanup candidates may be marked `reviewable` only when a configured GitHub
+integration supplies merged-PR evidence and the current linked Worktree is
+clean, tracked, attached, unlocked, non-prunable, upstream-connected, and not
+ahead. `reviewable` is still a human-review state, not permission to delete.
+
 ## Failure handling
 
 - Fix the smallest root cause, then rerun the failed tier and its dependent

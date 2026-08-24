@@ -27,6 +27,54 @@ type GitHubLatestRun struct {
 	CheckedAt     time.Time `json:"checkedAt"`
 }
 
+func (a *App) githubCommitMerged(ctx context.Context, origin, commit string) (bool, string, error) {
+	a.configMu.Lock()
+	integrations := make([]IntegrationConfig, len(a.config.Integrations))
+	copy(integrations, a.config.Integrations)
+	a.configMu.Unlock()
+	for _, integration := range integrations {
+		owner, repository := integration.Values["owner"], integration.Values["repository"]
+		if integration.Kind != IntegrationGitHub || owner == "" || repository == "" || !strings.Contains(origin, owner+"/"+repository) {
+			continue
+		}
+		credential, present, credentialErr := integrationCredential(integration.CredentialRef)
+		if credentialErr != nil {
+			return false, "", credentialErr
+		}
+		endpoint := strings.TrimRight(integration.Endpoint, "/") + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repository) + "/commits/" + url.PathEscape(commit) + "/pulls"
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return false, "", err
+		}
+		request.Header.Set("Accept", "application/vnd.github+json")
+		if present {
+			request.Header.Set("Authorization", "Bearer "+credential)
+		}
+		response, err := (&http.Client{Timeout: 10 * time.Second}).Do(request)
+		if err != nil {
+			return false, "", err
+		}
+		defer response.Body.Close()
+		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+			return false, "", fmt.Errorf("GitHub merged pull request lookup returned HTTP %d", response.StatusCode)
+		}
+		var pulls []struct {
+			Number   int64      `json:"number"`
+			MergedAt *time.Time `json:"merged_at"`
+		}
+		if err := json.NewDecoder(io.LimitReader(response.Body, 128<<10)).Decode(&pulls); err != nil {
+			return false, "", err
+		}
+		for _, pull := range pulls {
+			if pull.MergedAt != nil {
+				return true, fmt.Sprintf("GitHub pull request #%d merged at %s", pull.Number, pull.MergedAt.UTC().Format(time.RFC3339)), nil
+			}
+		}
+		return false, "", nil
+	}
+	return false, "", nil
+}
+
 func (a *App) GitHubLatestRun(ctx context.Context, id string) (GitHubLatestRun, error) {
 	integration, err := a.integration(id)
 	if err != nil {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,28 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestGitHubMergedCommitLookupReturnsEvidenceWithoutBodyLeak(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/repos/sample-owner/sample-repository/commits/abc123/pulls" {
+			t.Errorf("GitHub lookup path = %s", request.URL.Path)
+		}
+		_, _ = response.Write([]byte(`[{"number":12,"merged_at":"2026-08-25T00:00:00Z"}]`))
+	}))
+	defer server.Close()
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	if _, err := service.AddIntegration(context.Background(), AddIntegrationInput{ID: "github", Name: "Fixture GitHub", Kind: IntegrationGitHub, Endpoint: server.URL, Values: map[string]string{"owner": "sample-owner", "repository": "sample-repository"}}); err != nil {
+		t.Fatal(err)
+	}
+	merged, evidence, err := service.githubCommitMerged(context.Background(), "https://github.com/sample-owner/sample-repository.git", "abc123")
+	if err != nil || !merged || !strings.Contains(evidence, "#12") || bytes.Contains([]byte(evidence), []byte("merged_at")) {
+		t.Fatalf("merged evidence = %t, %q, %v", merged, evidence, err)
+	}
+}
 
 func TestCleanupCandidatesRemainBlockedAndExplainWorktreeState(t *testing.T) {
 	home := t.TempDir()
