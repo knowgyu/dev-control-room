@@ -1029,9 +1029,10 @@ func runAgent(args []string, stdout, stderr io.Writer) int {
 }
 
 func runAgentHandoff(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "preview" {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("agent handoff requires preview"))
+	if len(args) == 0 || (args[0] != "preview" && args[0] != "launch") {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("agent handoff requires preview or launch"))
 	}
+	command := args[0]
 	jsonOutput, args, err := parseJSONFlag(args[1:])
 	if err != nil {
 		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
@@ -1040,26 +1041,35 @@ func runAgentHandoff(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
 	}
-	flags := flag.NewFlagSet("agent handoff preview", flag.ContinueOnError)
+	flags := flag.NewFlagSet("agent handoff "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	profile := flags.String("profile", "", "agent profile id")
 	model := flags.String("model", "", "optional selected model metadata")
 	project := flags.String("project", "", "project id")
 	repository := flags.String("repository", "", "repository id")
 	worktree := flags.String("worktree", "", "worktree id")
+	digest := flags.String("preview-digest", "", "digest returned by handoff preview")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("agent handoff preview accepts only flags"))
+		return writeCLIErrorTo(stderr, contract.InvalidInput("agent handoff accepts only flags"))
 	}
 	service, err := openCLIService(home)
 	if err != nil {
 		return writeCLIErrorTo(stderr, err)
 	}
 	defer service.Close()
-	preview, err := service.PrepareHandoff(context.Background(), app.HandoffInput{ProfileID: *profile, ProjectID: *project, RepositoryID: *repository, WorktreeID: *worktree, Model: *model})
+	input := app.HandoffInput{ProfileID: *profile, ProjectID: *project, RepositoryID: *repository, WorktreeID: *worktree, Model: *model}
+	if command == "preview" {
+		preview, err := service.PrepareHandoff(context.Background(), input)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, preview, jsonOutput)
+	}
+	launch, err := service.LaunchHandoff(context.Background(), app.HandoffLaunchInput{HandoffInput: input, PreviewDigest: *digest})
 	if err != nil {
 		return writeCLIErrorTo(stderr, err)
 	}
-	return emitObject(stdout, preview, jsonOutput)
+	return emitObject(stdout, launch, jsonOutput)
 }
 
 func runAgentProfileMutation(service *app.App, command string, args []string, stdout, stderr io.Writer, jsonOutput bool) int {

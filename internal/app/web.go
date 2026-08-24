@@ -185,6 +185,19 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(preview))
 	}))
+	mux.HandleFunc("POST /api/handoffs/launch", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input HandoffLaunchInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		launch, err := service.LaunchHandoff(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(launch))
+	}))
 	mux.HandleFunc("GET /api/environment", func(response http.ResponseWriter, request *http.Request) {
 		health, err := service.EnvironmentHealth(request.Context(), false)
 		if err != nil {

@@ -1,6 +1,6 @@
 # Current state and implementation handoff
 
-Updated: 2026-08-24
+Updated: 2026-08-25
 
 This is the canonical current-state handoff for continuing Dev Control Room.
 It exists so the next long-running goal or implementation agent can start from
@@ -15,17 +15,72 @@ Read in this order:
 
 1. `AGENTS.md`
 2. this file;
-3. `docs/PRODUCT.md`;
-4. `docs/ARCHITECTURE.md`;
-5. `docs/CONFIGURATION.md`;
-6. `docs/AI_INTEGRATION.md`;
-7. `docs/IMPLEMENTATION_PLAN.md`;
-8. `THIRD_PARTY_POLICY.md`;
-9. the verification document for the most recently completed milestone.
+3. `docs/VERIFICATION_PLAYBOOK.md`;
+4. `docs/INTEGRATIONS.md`;
+5. `docs/PRODUCT.md`;
+6. `docs/ARCHITECTURE.md`;
+7. `docs/CONFIGURATION.md`;
+8. `docs/AI_INTEGRATION.md`;
+9. `docs/IMPLEMENTATION_PLAN.md`;
+10. `THIRD_PARTY_POLICY.md`;
+11. the verification document for the most recently completed milestone.
 
 Do not infer current behavior from the roadmap alone. `PRODUCT.md` and
 `ARCHITECTURE.md` describe the target product, while the milestone verification
 files distinguish implemented behavior from planned behavior.
+
+## 2026-08-25 continuation checkpoint
+
+This checkpoint is the shortest safe resume path for the current working tree.
+
+- Base `HEAD`: `e536297 feat: add persistent safeguard lifecycle`.
+- Branch: `main`, aligned with `origin/main` before the current uncommitted
+  Agent Handoff slice. Do not stage the user-created `.agents/` directory or
+  `skills-lock.json`.
+- Implemented in this slice: digest-bound Handoff preview, exact argv
+  contract, Worktree HEAD/state revalidation, allowlisted detached launcher,
+  Windows new-console process boundary, protected UI launch, CLI launch, and
+  launch audit metadata. Transcript collection remains false.
+- Main files: `internal/app/guidance.go`, `internal/app/service.go`,
+  `internal/app/web.go`, `internal/app/ui/app.js`,
+  `internal/environment/doctor.go`, `internal/environment/process_windows.go`,
+  `internal/environment/process_unix.go`, and
+  `cmd/dev-control-room/main.go`.
+- Fresh validation: Windows Go 1.26.7 in an NTFS temporary copy passed the
+  `internal/app` tests and race tests, the remaining package tests and race
+  tests, `go vet ./...`, `go mod verify`, Windows amd64/arm64 builds,
+  `node --check internal/app/ui/app.js`, and `git diff --check`.
+- WSL has no Linux `go`/`gofmt`; invoking Windows Go directly on the WSL UNC
+  checkout fails with `RLock ... go.mod: Incorrect function`. The temporary
+  NTFS copy is a validation workaround, not a runtime acceptance result.
+- Still required: commit/push this slice, native Windows manual UI launch
+  smoke with a real configured Agent Profile, and provider-specific MCP
+  client acceptance. CI/hook/launched-Handoff verification producers remain
+  intentionally unimplemented.
+- Repeatable native toolchain checks are documented in
+  `docs/VERIFICATION_PLAYBOOK.md` and automated by
+  `scripts/verify.ps1 -Mode Full`. The script does not replace the native UI,
+  provider MCP, or configured-agent manual checklist in
+  `docs/NATIVE_WINDOWS_SMOKE.md`.
+
+Resume commands:
+
+```text
+pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
+git status --short --branch
+git diff --check
+node --check internal/app/ui/app.js
+go test -count=1 ./...
+CGO_ENABLED=1 go test -count=1 -race ./...
+go vet ./...
+go mod verify
+go build ./...
+```
+
+For native Windows, run the commands from the NTFS checkout and then follow
+the current Handoff checklist in `docs/NATIVE_WINDOWS_SMOKE.md`. Treat the
+preview digest as review evidence: preview again if the Worktree, profile,
+model, or Findings change.
 
 ## Product intent
 
@@ -259,9 +314,10 @@ separate improvements, not falsely labelled discoveries.
   intentionally unconfigured.
 - Configured release procedures, Jenkins triggers, or cleanup execution.
 - GitHub/Jenkins connectors beyond local remote capability detection.
-- Agent Handoff terminal launch and provider-specific MCP client acceptance.
+- Native Agent Handoff launch and provider-specific MCP client acceptance.
 - CI, hook, and launched-Handoff verification failure producers and their
-  safeguard normalization. Preview-only Handoffs are deliberately not failures.
+  safeguard normalization. Handoff launch metadata is not a verification
+  result and deliberately does not create failure learning.
 - Optional AI clustering beyond deterministic exact-fingerprint safeguards.
 - Kubernetes, Harbor, or operational visibility connectors.
 - Specifier, Cleaner, Hardener, QA, CRAP, managed agent runs, or role
@@ -359,7 +415,8 @@ remain intentionally unimplemented until reviewed provider and policy inputs
 are supplied.
 
 Milestone 5 now has bounded Guidance Doctor checks, masked Agent Handoff
-preview, optional model metadata, and a typed stdio MCP adapter. Milestone 6
+preview and protected terminal launch, optional model metadata, and a typed
+stdio MCP adapter. Milestone 6
 now persists deterministic repeated-failure safeguards. Collector, Checkset,
 and Action failures share one output-free normalization path; three exact
 occurrences create a proposal. The protected UI owns owner assignment, shadow

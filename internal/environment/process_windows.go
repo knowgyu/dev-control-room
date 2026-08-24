@@ -9,9 +9,14 @@ import (
 )
 
 const createNewProcessGroup = 0x00000200
+const createNewConsole = 0x00000010
 
 func prepareCommand(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup}
+}
+
+func prepareDetachedCommand(command *exec.Cmd) {
+	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup | createNewConsole}
 }
 
 type jobObjectBasicLimitInformation struct {

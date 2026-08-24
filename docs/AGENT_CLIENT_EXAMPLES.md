@@ -8,6 +8,7 @@ devroom project list --json
 devroom finding list --project <project-id> --repository <repository-id> --json
 devroom guidance check <project-id> <repository-id> <worktree-id> --json
 devroom agent handoff preview --profile codex --project <project-id> --repository <repository-id> --worktree <worktree-id> --json
+devroom agent handoff launch --profile codex --project <project-id> --repository <repository-id> --worktree <worktree-id> --preview-digest <digest-from-preview> --json
 devroom cleanup list --project <project-id> --json
 devroom safeguard list --json
 ```

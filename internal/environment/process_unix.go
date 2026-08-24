@@ -11,6 +11,10 @@ func prepareCommand(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+func prepareDetachedCommand(command *exec.Cmd) {
+	prepareCommand(command)
+}
+
 func attachProcessTree(command *exec.Cmd) (func(), func() error, error) {
 	return func() {}, func() error { return terminateProcessTree(command) }, nil
 }

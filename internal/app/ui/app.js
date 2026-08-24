@@ -81,7 +81,7 @@
     high_impact: "고위험 변경",
     deterministic: "결정적 발견",
     direct: "직접 실행",
-    powershell_profile: "PowerShell profile",
+    powershell_profile: "PowerShell 프로필",
     enterprise: "기업 경계",
     local: "로컬 전용",
     verified_read_only: "읽기 전용 확인됨",
@@ -359,7 +359,8 @@
     if (state.guidanceMode === "guidance") {
       return `<section class="review-box"><div class="list-item-header"><strong>지침 점검 결과</strong><span class="meta">${escapeHTML(formatDate(result.checkedAt))}</span></div><dl class="detail-grid"><div class="wide"><dt>확인한 파일</dt><dd>${(result.files || []).length ? result.files.map(file => `<code>${escapeHTML(file)}</code>`).join("<br>") : "없음"}</dd></div></dl>${(result.findings || []).length ? `<div class="finding-list">${result.findings.map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(localize(item.summary))}</h3><span class="chip">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p class="meta">${escapeHTML(item.file || item.code)}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>` : '<div class="empty-state"><strong>기계적으로 확인된 문제는 없습니다.</strong><span>이 결과는 의미상 최신 상태를 보장하지 않습니다.</span></div>'}</section>`;
     }
-    return `<section class="review-box"><div class="list-item-header"><strong>Agent Handoff 검토</strong><span class="chip ok">마스킹됨</span></div><dl class="detail-grid"><div><dt>Agent Profile</dt><dd>${escapeHTML(result.profileName)} · <code>${escapeHTML(result.profileCommand)}</code></dd></div><div><dt>데이터 경계</dt><dd>${escapeHTML(result.dataBoundary)}</dd></div><div><dt>실행 방식</dt><dd>${escapeHTML(result.launchMode)}</dd></div><div><dt>모델</dt><dd>${escapeHTML(result.model || "Profile 기본값")}</dd></div><div class="wide"><dt>작업 폴더</dt><dd><code>${escapeHTML(result.workingDirectory)}</code></dd></div><div class="wide"><dt>포함 범위</dt><dd>${(result.scope || []).map(item => escapeHTML(item)).join("<br>") || "없음"}</dd></div><div class="wide"><dt>검증 명령</dt><dd>${(result.verificationCommands || []).map(item => `<code>${escapeHTML(item)}</code>`).join("<br>") || "없음"}</dd></div></dl><div class="finding-list">${(result.findings || []).map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(localize(item.summary))}</h3><span class="chip">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p class="next">${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("") || '<div class="empty-state"><span>Handoff에 포함할 확인 항목이 없습니다.</span></div>'}</div><p class="safety-note">전체 대화 기록: ${result.transcriptIncluded ? "포함됨" : "포함하지 않음"}</p></section>`;
+    const launch = result.launch;
+    return `<section class="review-box"><div class="list-item-header"><strong>Agent Handoff 검토</strong><span class="chip ok">마스킹됨</span></div><dl class="detail-grid"><div><dt>Agent Profile</dt><dd>${escapeHTML(result.profileName)} · <code>${escapeHTML(result.profileCommand)}</code></dd></div><div><dt>데이터 경계</dt><dd>${escapeHTML(result.dataBoundary)}</dd></div><div><dt>실행 방식</dt><dd>${escapeHTML(result.launchMode)}</dd></div><div><dt>모델</dt><dd>${escapeHTML(result.model || "Profile 기본값")}</dd></div><div><dt>Worktree 상태</dt><dd>${escapeHTML(result.branch || "detached")} · HEAD <code>${escapeHTML(result.head || "없음")}</code> · ${result.dirty || result.untracked ? "변경 있음" : "깨끗함"}</dd></div><div class="wide"><dt>작업 폴더</dt><dd><code>${escapeHTML(result.workingDirectory)}</code></dd></div><div class="wide"><dt>포함 범위</dt><dd>${(result.scope || []).map(item => escapeHTML(item)).join("<br>") || "없음"}</dd></div><div class="wide"><dt>검증 명령</dt><dd>${(result.verificationCommands || []).map(item => `<code>${escapeHTML(item)}</code>`).join("<br>") || "없음"}</dd></div><div class="wide"><dt>Preview digest</dt><dd><code>${escapeHTML(result.previewDigest)}</code></dd></div></dl><details><summary>실행 인자 확인</summary><pre class="command-output">${escapeHTML((result.arguments || []).join("\n"))}</pre></details><div class="finding-list">${(result.findings || []).map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(localize(item.summary))}</h3><span class="chip">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p class="next">${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("") || '<div class="empty-state"><span>Handoff에 포함할 확인 항목이 없습니다.</span></div>'}</div>${launch ? `<div class="result-box state-ok"><strong>Agent를 열었습니다.</strong><p>PID ${escapeHTML(launch.pid)} · ${escapeHTML(formatDate(launch.startedAt))}</p><p class="meta">대화 기록은 수집하지 않습니다.</p></div>` : '<div class="item-actions"><button class="button primary" type="button" data-handoff-launch>이 Agent로 열기</button></div>'}<p class="safety-note">전체 대화 기록: ${result.transcriptIncluded ? "포함됨" : "포함하지 않음"}</p></section>`;
   }
 
   function renderDiagnostics() {
@@ -847,6 +848,25 @@
       } finally {
         button.disabled = false;
       }
+    }
+    if (button.dataset.handoffLaunch !== undefined) {
+      const result = state.guidanceResult;
+      if (!result?.previewDigest) return;
+      button.disabled = true;
+      try {
+        const launch = await request("/api/handoffs/launch", {
+          method: "POST",
+          headers: mutationHeaders(),
+          body: JSON.stringify({ profileId: result.profileId, projectId: result.projectId, repositoryId: result.repositoryId, worktreeId: result.worktreeId, model: result.model, previewDigest: result.previewDigest }),
+        });
+        state.guidanceResult = { ...result, launch };
+        renderDiagnostics();
+        showNotice("Agent를 새 창에서 열었습니다. 대화 기록은 수집하지 않습니다.");
+      } catch (error) {
+        showNotice(error.message, true);
+        button.disabled = false;
+      }
+      return;
     }
   });
 

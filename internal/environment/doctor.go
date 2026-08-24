@@ -95,8 +95,50 @@ type ProcessRunner struct {
 	OutputLimit int
 }
 
+type LaunchResult struct {
+	PID int
+}
+
+type Launcher interface {
+	Launch(context.Context, string, []string, []string, string) (LaunchResult, error)
+}
+
+// ProcessLauncher starts a reviewed argv command without collecting its I/O.
+// The caller owns the reviewed command and working-directory boundary.
+type ProcessLauncher struct{}
+
+func (ProcessLauncher) Launch(parent context.Context, executable string, args []string, env []string, directory string) (LaunchResult, error) {
+	if strings.TrimSpace(executable) == "" {
+		return LaunchResult{}, errors.New("executable is required")
+	}
+	if strings.TrimSpace(directory) == "" {
+		return LaunchResult{}, errors.New("working directory is required")
+	}
+	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		return LaunchResult{}, errors.New("working directory is unavailable")
+	}
+	command := exec.CommandContext(context.WithoutCancel(parent), executable, args...)
+	prepareDetachedCommand(command)
+	command.Env = append([]string(nil), env...)
+	command.Dir = filepath.Clean(directory)
+	if err := command.Start(); err != nil {
+		return LaunchResult{}, err
+	}
+	pid := command.Process.Pid
+	if err := command.Process.Release(); err != nil {
+		return LaunchResult{}, err
+	}
+	return LaunchResult{PID: pid}, nil
+}
+
 func (r ProcessRunner) Run(parent context.Context, executable string, args []string, env []string, timeout time.Duration) (Result, error) {
 	return r.RunInDirectory(parent, executable, args, env, safeWorkingDirectory(env), timeout)
+}
+
+// SafeEnvironment returns the reviewed process environment used by diagnostics
+// and detached launches. It never returns the complete parent environment.
+func SafeEnvironment(allowlist []string) []string {
+	return safeEnvironment(allowlist)
 }
 
 // RunInDirectory executes one typed argv command in an explicit directory.

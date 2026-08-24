@@ -77,6 +77,7 @@ type CommandService interface {
 	ExecuteAction(context.Context, string, string, string) (domain.ActionRun, error)
 	TrustActionWorktree(context.Context, string) (domain.WorktreeExecutionTrust, error)
 	PrepareHandoff(context.Context, HandoffInput) (HandoffPreview, error)
+	LaunchHandoff(context.Context, HandoffLaunchInput) (HandoffLaunch, error)
 	ReviewSafeguard(context.Context, string, string) (domain.SafeguardRule, error)
 	FeedbackSafeguard(context.Context, string, domain.SafeguardFeedback) (domain.SafeguardRule, error)
 	ActivateSafeguard(context.Context, string) (domain.SafeguardRule, error)
@@ -321,6 +322,11 @@ type HandoffInput struct {
 	Model        string `json:"model,omitempty"`
 }
 
+type HandoffLaunchInput struct {
+	HandoffInput
+	PreviewDigest string `json:"previewDigest"`
+}
+
 type HandoffFinding struct {
 	ID       string `json:"id"`
 	Severity string `json:"severity"`
@@ -344,4 +350,26 @@ type HandoffPreview struct {
 	Findings              []HandoffFinding `json:"findings"`
 	VerificationCommands  []string         `json:"verificationCommands"`
 	TranscriptIncluded    bool             `json:"transcriptIncluded"`
+	Head                  string           `json:"head,omitempty"`
+	Branch                string           `json:"branch,omitempty"`
+	Dirty                 bool             `json:"dirty"`
+	Untracked             bool             `json:"untracked"`
+	PreviewDigest         string           `json:"previewDigest"`
+	Arguments             []string         `json:"arguments"`
+}
+
+type HandoffLaunch struct {
+	ProfileID          string    `json:"profileId"`
+	ProfileName        string    `json:"profileName"`
+	Model              string    `json:"model,omitempty"`
+	LaunchMode         string    `json:"launchMode"`
+	DataBoundary       string    `json:"dataBoundary"`
+	ProjectID          string    `json:"projectId"`
+	RepositoryID       string    `json:"repositoryId"`
+	WorktreeID         string    `json:"worktreeId"`
+	WorkingDirectory   string    `json:"workingDirectory"`
+	PreviewDigest      string    `json:"previewDigest"`
+	PID                int       `json:"pid"`
+	StartedAt          time.Time `json:"startedAt"`
+	TranscriptIncluded bool      `json:"transcriptIncluded"`
 }

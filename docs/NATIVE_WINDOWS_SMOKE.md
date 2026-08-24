@@ -1,6 +1,6 @@
 # Native Windows acceptance summary
 
-Updated: 2026-08-23
+Updated: 2026-08-25
 
 ## Accepted baseline
 
@@ -60,8 +60,11 @@ before treating Slice F as natively accepted.
 After the WSL suite passes, run the CLI examples in
 `docs/AGENT_CLIENT_EXAMPLES.md` on Windows, verify Guidance Doctor against a
 real selected Worktree, and exercise `devroom mcp serve` with a provider that
-supports stdio MCP. Confirm that handoff preview does not launch a process or
-include transcript content. Review repeated-failure proposals as shadow-only;
+supports stdio MCP. Confirm that handoff preview remains non-launching, then
+exercise the protected handoff launch with its returned preview digest. Confirm
+the selected profile, exact Worktree, allowlisted environment, detached
+process, and no transcript content. Review repeated-failure proposals as
+shadow-only;
 no activation or cleanup mutation is expected from this build.
 
 ## 2026-08-24 RC acceptance: stopped before manual gates

@@ -45,6 +45,7 @@ type App struct {
 	broker        *action.Broker
 	collector     collector.GitCollector
 	doctor        environment.Doctor
+	launcher      environment.Launcher
 	scheduler     scheduler.Adapter
 	scanNow       chan string
 	scanMu        sync.Mutex
@@ -102,7 +103,7 @@ func New(home, listen string) (*App, error) {
 	}
 	service := &App{
 		home: home, listen: listen, config: config, mutationToken: randomToken(), masker: masker,
-		store: persistence, broker: broker, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), scheduler: scheduler.NewAdapter(), scanNow: make(chan string, 1),
+		store: persistence, broker: broker, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), launcher: environment.ProcessLauncher{}, scheduler: scheduler.NewAdapter(), scanNow: make(chan string, 1),
 	}
 	var scheduled scheduler.Result
 	if found, err := persistence.LoadSingleton(context.Background(), "scheduler_state", &scheduled); err != nil {
