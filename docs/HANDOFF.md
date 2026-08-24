@@ -352,9 +352,10 @@ separate improvements, not falsely labelled discoveries.
 - Native configured PowerShell runbook acceptance and project-specific release
   procedure mapping.
 - Native Agent Handoff launch and provider-specific MCP client acceptance.
-- CI, hook, and launched-Handoff verification failure producers and their
-  safeguard normalization. Handoff launch metadata is not a verification
-  result and deliberately does not create failure learning.
+- Hook and launched-Handoff verification failure producers and their safeguard
+  normalization remain pending. Repository CI gates are present, but native
+  UI/provider acceptance is still manual. Handoff launch metadata is not a
+  verification result and deliberately does not create failure learning.
 - Optional AI clustering beyond deterministic exact-fingerprint safeguards.
 - Kubernetes mutation, Harbor, or operational visibility beyond the bounded
   Pod status/log surface.

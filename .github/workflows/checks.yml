@@ -1,0 +1,59 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check formatting and embedded UI syntax
+        shell: bash
+        run: |
+          test -z "$(gofmt -l $(git ls-files '*.go'))"
+          node --check internal/app/ui/app.js
+          git diff --check
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Race test
+        env:
+          CGO_ENABLED: "1"
+        run: go test -count=1 -race ./...
+      - name: Vet, build, and verify modules
+        run: |
+          go vet ./...
+          go build ./...
+          go mod verify
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check formatting and embedded UI syntax
+        shell: pwsh
+        run: |
+          $formatted = gofmt -l (git ls-files '*.go')
+          if ($formatted) { $formatted | Write-Error; exit 1 }
+          node --check internal/app/ui/app.js
+      - name: Windows Go test and build
+        shell: pwsh
+        run: |
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          go mod verify

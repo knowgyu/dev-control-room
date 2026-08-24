@@ -18,6 +18,12 @@ the changed boundary.
 | 3. Native Windows smoke | Exercise the actual supported runtime | Windows 11/PowerShell UI, CLI, MCP stdio, process and filesystem boundaries covered by the checklist | production safety, company integrations, or release assets unless separately tested |
 | 4. Acceptance/release | Prove a named candidate or release | exact source SHA, isolated fixture, required acceptance flows, asset/hash and remote-release checks when performed | any flow omitted from the recorded checklist |
 
+Repository CI runs the repeatable Linux formatting/UI syntax, test, race, vet,
+build, and module checks plus a Windows Go test/vet/build/module gate. CI is a
+regression gate; it does not prove native interactive UI, configured provider
+credentials, PowerShell profile behavior, Scheduler side effects, or published
+release assets.
+
 The repeatable native toolchain runner is:
 
 ```powershell
