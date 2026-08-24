@@ -19,6 +19,17 @@ import (
 
 const CurrentSchemaVersion = 12
 
+// acceptedHistoricalMigrationChecksums permits only the checksum emitted by a
+// released build whose migration-11 SQL was later corrected before the next
+// schema version shipped. Keeping this narrow exception preserves the
+// tamper-detection guarantee for every other migration history entry while
+// allowing those existing local databases to advance to version 12.
+var acceptedHistoricalMigrationChecksums = map[int]map[string]struct{}{
+	11: {
+		"702c15eb78f7a8a8df908067791f986258907d6620ad0a8a9dd45f302e19c772": {},
+	},
+}
+
 type Migration struct {
 	Version int
 	Name    string
@@ -499,12 +510,30 @@ func validateMigrationHistory(ctx context.Context, db *sql.DB) (int, error) {
 		if migration.Version > current {
 			break
 		}
-		expected := migration.Name + "\x00" + migrationChecksum(migration.SQL)
-		if history, ok := seen[migration.Version]; !ok || history != expected {
+		expectedChecksum := migrationChecksum(migration.SQL)
+		history, ok := seen[migration.Version]
+		if !ok || !migrationHistoryMatches(migration.Version, migration.Name, expectedChecksum, history) {
 			return 0, fmt.Errorf("schema migration history mismatch at version %d", migration.Version)
 		}
 	}
 	return current, nil
+}
+
+func migrationHistoryMatches(version int, name, expectedChecksum, history string) bool {
+	expected := name + "\x00" + expectedChecksum
+	if history == expected {
+		return true
+	}
+	legacyChecksums, ok := acceptedHistoricalMigrationChecksums[version]
+	if !ok {
+		return false
+	}
+	legacyPrefix := name + "\x00"
+	if !strings.HasPrefix(history, legacyPrefix) {
+		return false
+	}
+	_, ok = legacyChecksums[strings.TrimPrefix(history, legacyPrefix)]
+	return ok
 }
 
 func migrationChecksum(sqlText string) string {

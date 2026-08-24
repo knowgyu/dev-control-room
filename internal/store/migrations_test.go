@@ -62,6 +62,33 @@ func TestMigrationTwelveAddsActionRunsFromVersionEleven(t *testing.T) {
 	}
 }
 
+func TestMigrationTwelveAcceptsReleasedMigrationElevenChecksum(t *testing.T) {
+	db := openUnmigratedTestDatabase(t, "action-runs-v11-released-checksum")
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:11] {
+		checksum := migrationChecksum(migration.SQL)
+		if migration.Version == 11 {
+			checksum = "702c15eb78f7a8a8df908067791f986258907d6620ad0a8a9dd45f302e19c772"
+		}
+		if _, err := db.Exec(migration.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)`, migration.Version, migration.Name, checksum); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("legacy checksum migration version = %d, %v", version, err)
+	}
+}
+
 func TestMigrationEightAppliesForwardFromVersionSeven(t *testing.T) {
 	db := openUnmigratedTestDatabase(t, "check-runs-v7-forward")
 	defer db.Close()
