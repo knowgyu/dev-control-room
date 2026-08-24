@@ -85,6 +85,18 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(health))
 	}))
+	mux.HandleFunc("POST /api/integrations/{integrationID}/github/latest-run", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("GitHub latest run accepts an empty body only"))
+			return
+		}
+		run, err := service.GitHubLatestRun(request.Context(), request.PathValue("integrationID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(run))
+	}))
 	mux.HandleFunc("GET /api/projects", func(response http.ResponseWriter, request *http.Request) {
 		projects, err := service.Projects(request.Context())
 		if err != nil {

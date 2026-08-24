@@ -40,6 +40,7 @@ type QueryService interface {
 	AgentProfile(context.Context, string) (domain.AgentProfile, error)
 	Integrations(context.Context) ([]IntegrationConfig, error)
 	CheckIntegration(context.Context, string) (IntegrationHealth, error)
+	GitHubLatestRun(context.Context, string) (GitHubLatestRun, error)
 	ActionStatus(context.Context, string) (ActionApprovalStatus, error)
 	ActionPlans(context.Context) ([]domain.ActionPlan, error)
 	ActionRuns(context.Context, string) ([]domain.ActionRun, error)

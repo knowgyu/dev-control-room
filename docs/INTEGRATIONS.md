@@ -106,6 +106,18 @@ GET, and returns status metadata without response body or credential material.
 `credential_manager:` remains an explicit unavailable result until its native
 adapter is implemented.
 
+The first provider-specific read-only operation is GitHub latest workflow
+lookup. It resolves `owner`, `repository`, and `workflow` values at request
+time and exposes only run ID, status, conclusion, branch, timestamp, and a
+provider URL. The protected UI route is:
+
+```text
+POST /api/integrations/{id}/github/latest-run
+```
+
+It accepts an empty body, uses the configured credential reference only for the
+outbound request, and never persists or returns the credential or raw response.
+
 ## Initial operations
 
 The first implemented group operation treats the repositories of the selected
@@ -142,8 +154,12 @@ Worktree mutation is inferred from a button labelled “latest”.
 
 ### GitHub/Jenkins CI and release
 
-The first implementation should support both of these sources without forcing
-one into the other:
+The implementation supports these sources without forcing one into the other:
+
+- GitHub latest workflow lookup is available as a read-only configured
+  operation; stable target values are `owner`, `repository`, and `workflow`.
+- Jenkins latest build and trigger remain pending and must use the same
+  credential-reference and Action Broker boundaries.
 
 - a reviewed local CLI/PowerShell runbook with exact argv and named parameters;
 - a typed REST adapter using a configured endpoint, operation, and credential

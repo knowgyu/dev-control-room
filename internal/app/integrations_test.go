@@ -102,3 +102,79 @@ func TestCheckIntegrationResolvesEnvironmentReferenceWithoutExposingResponse(t *
 		t.Fatalf("missing credential health = %#v, err = %v", health, err)
 	}
 }
+
+func TestGitHubLatestRunUsesReferenceAndReturnsBoundedMetadata(t *testing.T) {
+	const credential = "fixture-github-token"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/repos/sample-owner/sample-repository/actions/workflows/checks.yml/runs" || request.URL.Query().Get("per_page") != "1" {
+			t.Fatalf("unexpected GitHub request: %s", request.URL.String())
+		}
+		if request.Header.Get("Authorization") != "Bearer "+credential {
+			t.Fatalf("authorization header = %q", request.Header.Get("Authorization"))
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"workflow_runs":[{"id":42,"status":"completed","conclusion":"success","head_branch":"main","html_url":"https://github.example.invalid/run/42","created_at":"2026-08-25T00:00:00Z"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("DEVROOM_GITHUB_TOKEN", credential)
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	if _, err := service.AddIntegration(context.Background(), AddIntegrationInput{
+		ID: "github", Name: "Fixture GitHub", Kind: IntegrationGitHub, Endpoint: server.URL,
+		CredentialRef: "env:DEVROOM_GITHUB_TOKEN",
+		Values:        map[string]string{"owner": "sample-owner", "repository": "sample-repository", "workflow": "checks.yml"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/integrations/github/github/latest-run", nil)
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("unprotected latest run = %d", recorder.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/integrations/github/github/latest-run", nil)
+	request.Header.Set("X-Control-Room-Token", service.mutationToken)
+	recorder = httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("latest run = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var envelope contract.Envelope[GitHubLatestRun]
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error != nil || envelope.Data.RunID != 42 || envelope.Data.Conclusion != "success" || envelope.Data.Branch != "main" {
+		t.Fatalf("latest run envelope = %#v", envelope)
+	}
+	if bytes.Contains(recorder.Body.Bytes(), []byte(credential)) {
+		t.Fatal("latest run response exposed credential")
+	}
+}
+
+func TestGitHubLatestRunIsUnavailableWithoutCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	if _, err := service.AddIntegration(context.Background(), AddIntegrationInput{
+		ID: "github", Name: "Fixture GitHub", Kind: IntegrationGitHub, Endpoint: server.URL,
+		CredentialRef: "env:DEVROOM_MISSING_GITHUB_TOKEN",
+		Values:        map[string]string{"owner": "sample-owner", "repository": "sample-repository", "workflow": "checks.yml"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.GitHubLatestRun(context.Background(), "github")
+	if contract.Classify(err).Code != contract.ErrorUnavailable {
+		t.Fatalf("missing credential error = %v", err)
+	}
+}
