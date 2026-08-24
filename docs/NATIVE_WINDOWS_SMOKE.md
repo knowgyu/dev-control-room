@@ -94,3 +94,55 @@ To preserve existing user data, no default-home files are deleted here. No UI,
 MCP, Guidance Doctor, handoff preview, Action execution, cleanup mutation,
 production operation, Scheduler install, or Scheduler uninstall is claimed by
 this run. The RC tag and prerelease were not created.
+
+## 2026-08-24 Slice F RC acceptance: passed
+
+Timestamp: `2026-08-24T21:42:29+09:00`  
+Accepted source SHA: `0c41b126d817d54c5871dd053f86209596e074ba`
+
+This was a native Windows 11 NTFS checkout using PowerShell `7.6.4`, Go
+`go1.26.7 windows/amd64`, and `gcc.exe (MSYS2) 16.2.0`. The checked-in
+`prepare-slice-f-acceptance.ps1` fixture returned an `appDataRoot` below a
+fresh temporary `dev-control-room-rc-*` root; it did not use the default user
+home or existing application data.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `go test -count=1 ./...` | 0 | PASS. |
+| `CGO_ENABLED=1 go test -count=1 -race ./...` | 0 | PASS. |
+| `go vet ./...` | 0 | PASS. |
+| `go build ./...` | 0 | PASS. |
+| `go mod verify` | 0 | PASS; all modules verified. |
+| `prepare-slice-f-acceptance.ps1 -BinaryPath artifacts\\dev-control-room.exe` | 0 | PASS; fixture source SHA matched the accepted source SHA. |
+
+The native loopback UI showed Projects and repositories, Pre-PR checksets,
+Environment Health, Actions, Cleanup queue, Guidance Doctor, and Repeated
+failures. Environment Health displayed tool/profile findings. The cleanup
+candidate was read-only and `blocked`, with every uncertainty represented as a
+blocking reason. Repeated-failure safeguards remained shadow-only (no
+proposal was activated).
+
+In the selected generic fixture Worktree, the UI planned
+`repository.refresh`, required an explicit execution-ready transition, then
+ran the server-owned typed `git fetch --prune` against the fixture's local bare
+origin. The reviewed ActionRun was `succeeded` with no output. No approval was
+granted by CLI/API/MCP; the native approval ceremony remains a separate UI-only
+boundary. The complete suite covers changed/unverified scope, expired approval,
+lock, nonzero-exit, idempotency, timeout/process-tree, argv, and masking
+fail-closed behavior.
+
+Guidance Doctor checked only the selected fixture Worktree. Handoff preview
+used the selected optional model metadata, reported `transcriptIncluded:false`,
+and did not launch an agent. The typed stdio MCP `initialize`, `tools/list`,
+and `project.list` calls succeeded. Its tool list exposed only `project.list`,
+`finding.list`, `cleanup.list`, `guidance.check`, and `handoff.preview`; no
+generic shell, unrestricted file reader, Action approval, or Action execution
+tool was present.
+
+The documented CLI examples were executed with the fixture Project,
+Repository, and Worktree IDs. CLI/API/MCP/SQLite output was inspected through
+the fixture flow; no secret value or canary was exposed. No production action,
+destructive cleanup, Scheduler install, or Scheduler uninstall was performed.
+
+The Windows amd64 artifact SHA-256 before release packaging was
+`6b1211b0e1ce6d594e8d85712291556ee4d419070dda6ab989de7a4d3a191de6`.
