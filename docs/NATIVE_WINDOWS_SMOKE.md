@@ -63,3 +63,34 @@ real selected Worktree, and exercise `devroom mcp serve` with a provider that
 supports stdio MCP. Confirm that handoff preview does not launch a process or
 include transcript content. Review repeated-failure proposals as shadow-only;
 no activation or cleanup mutation is expected from this build.
+
+## 2026-08-24 RC acceptance: stopped before manual gates
+
+Timestamp: `2026-08-24T21:21:56+09:00`  
+Requested baseline SHA: `64742d87d0dda53a5c149531589b72acf1cf18b3`  
+Checked-out SHA: `64742d87d0dda53a5c149531589b72acf1cf18b3`
+
+This was a native Windows 11 NTFS checkout run from PowerShell `7.6.4`, not
+WSL. Tool versions were Go `go1.26.7 windows/amd64` and `gcc.exe (MSYS2) 16.2.0`.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `go test -count=1 ./...` | 0 | PASS; all packages passed. |
+| `CGO_ENABLED=1 go test -count=1 -race ./...` | 0 | PASS; all packages passed. |
+| `go vet ./...` | 0 | PASS. |
+| `go build ./...` | 0 | PASS. |
+| `go mod verify` | 0 | PASS; all modules verified. |
+| `go build -trimpath -o artifacts\\dev-control-room.exe .\\cmd\\dev-control-room` | 0 | PASS; SHA-256 `e572d9bf8f75c302c155673ea23783c61a29fde2c10c54a3505d2da34e5b158e`. |
+
+The Slice F manual fixture setup did **not** satisfy the temporary-home
+requirement: its PowerShell script attempted to assign the reserved `$HOME`
+variable, so PowerShell retained the process default home. The fixture command
+therefore opened the application with the default user home instead of the
+intended fresh temporary application home. The generic fixture itself was
+local-only and its Git scan returned `verified_read_only`, but this result is
+invalid for acceptance.
+
+To preserve existing user data, no default-home files are deleted here. No UI,
+MCP, Guidance Doctor, handoff preview, Action execution, cleanup mutation,
+production operation, Scheduler install, or Scheduler uninstall is claimed by
+this run. The RC tag and prerelease were not created.
