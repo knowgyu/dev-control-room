@@ -82,6 +82,32 @@ the current Handoff checklist in `docs/NATIVE_WINDOWS_SMOKE.md`. Treat the
 preview digest as review evidence: preview again if the Worktree, profile,
 model, or Findings change.
 
+## 2026-08-25 repository group sync checkpoint
+
+The first generic multi-repository operation is now implemented without
+company-specific configuration. A selected Project acts as a one-to-many
+logical group for a latest-sync plan. The service, protected HTTP routes,
+embedded Korean UI, and CLI all share the same persisted per-repository Action
+plans and Broker execution boundary.
+
+- Plan route: `POST /api/projects/{projectID}/repository-sync/plan`.
+- Execute route: `POST /api/projects/{projectID}/repository-sync/execute` with
+  only returned `planIds` and a caller request ID.
+- CLI: `project sync plan` and `project sync execute`.
+- Command: typed `git pull --ff-only --prune`; no shell interpolation.
+- Eligibility: primary active Worktree, verified observation, clean and
+  tracked branch, upstream present, no local-ahead commits, and not locked or
+  prunable.
+- Execution: bounded two-target concurrency, per-target ActionRun evidence,
+  post-sync scan, and immediate Korean result summary with output details.
+- Focused native Windows evidence: `go test -count=1 ./...`,
+  `CGO_ENABLED=1 go test -count=1 -race ./...`, `go vet ./...`, `go build ./...`,
+  and `go mod verify` all passed in an NTFS temporary checkout using Windows Go.
+
+Provider-specific GitHub/Jenkins/Kubernetes/PowerShell connectors remain
+designed but unimplemented; no real identifiers or credentials belong in this
+repository.
+
 ## Product intent
 
 Dev Control Room is a Windows-native, local-first engineering automation

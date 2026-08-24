@@ -14,6 +14,8 @@
     environment: { available: false, findings: [] },
     workItems: [],
     actionDetails: [],
+    repositorySyncPlan: null,
+    repositorySyncResult: null,
     cleanup: [],
     safeguards: [],
     profiles: [],
@@ -321,6 +323,22 @@
     return `<article class="run-detail"><div class="list-item-header"><strong>${escapeHTML(label(run.spec.status))}</strong><span class="meta">${escapeHTML(formatDate(run.spec.completedAt || run.spec.startedAt))}</span></div><dl class="detail-grid"><div><dt>실행 종료 코드</dt><dd>${escapeHTML(run.spec.exitCode ?? (run.spec.status === "succeeded" ? 0 : "없음"))}</dd></div><div><dt>실행자</dt><dd>${escapeHTML(run.spec.holder)}</dd></div><div><dt>Worktree</dt><dd>${escapeHTML(run.spec.worktreeId)}</dd></div><div><dt>HEAD</dt><dd><code>${escapeHTML(run.spec.executionContext?.head)}</code></dd></div></dl>${renderActionEvidence("사전 점검", run.spec.prechecks)}${run.spec.stdout ? `<div><strong class="result-label">표준 출력</strong><pre class="command-output">${escapeHTML(run.spec.stdout)}</pre></div>` : ""}${run.spec.stderr ? `<div><strong class="result-label">오류 출력</strong><pre class="command-output error-output">${escapeHTML(run.spec.stderr)}</pre></div>` : ""}${renderActionEvidence("사후 점검", run.spec.postchecks)}</article>`;
   }
 
+  function renderRepositorySyncPlan() {
+    const plan = state.repositorySyncPlan;
+    const result = state.repositorySyncResult;
+    if (!plan && !result) return "";
+    if (!plan && result) {
+      const outcomes = (result.outcomes || []).map(item => {
+        const run = item.run;
+        const status = run?.spec?.status || (item.error ? "failed" : "succeeded");
+        return `<article class="list-item"><div class="list-item-header"><div><strong>${escapeHTML(item.repositoryId)}</strong><p class="meta">${escapeHTML(item.worktreeId)}</p></div><span class="chip ${status === "succeeded" ? "ok" : "bad"}">${escapeHTML(label(status))}</span></div>${run ? `<dl class="detail-grid"><div><dt>종료 코드</dt><dd>${escapeHTML(run.spec.exitCode ?? (status === "succeeded" ? 0 : "없음"))}</dd></div><div><dt>실행 기록</dt><dd><code>${escapeHTML(item.planId)}</code></dd></div></dl>${run.spec.stdout ? `<pre class="command-output">${escapeHTML(run.spec.stdout)}</pre>` : ""}${run.spec.stderr ? `<pre class="command-output error-output">${escapeHTML(run.spec.stderr)}</pre>` : ""}` : `<p class="next">${escapeHTML(item.error || "실행 기록이 없습니다.")}</p>`}</article>`;
+      }).join("");
+      return `<section class="review-box"><div class="list-item-header"><div><strong>프로젝트 저장소 최신화 결과</strong><p class="meta">저장소별 실행 결과를 확인하세요.</p></div><span class="chip ok">완료</span></div><div class="item-list">${outcomes || '<div class="empty-state">실행 결과가 없습니다.</div>'}</div></section>`;
+    }
+    const skipped = (plan.skipped || []).map(item => `<li><strong>${escapeHTML(item.repositoryName || item.repositoryId)}</strong> · ${escapeHTML(item.reason)}</li>`).join("");
+    return `<section class="review-box"><div class="list-item-header"><div><strong>프로젝트 저장소 전체 최신화 계획</strong><p class="meta">실행 가능한 저장소 ${escapeHTML((plan.plans || []).length)}개 · 제외 ${escapeHTML((plan.skipped || []).length)}개</p></div><span class="chip ${(plan.plans || []).length ? "warn" : ""}">${(plan.plans || []).length ? "검토 필요" : "실행 대상 없음"}</span></div><p>변경 없는 기본 Worktree만 <code>git pull --ff-only --prune</code>으로 처리합니다. 계획에 없는 저장소는 실행하지 않습니다.</p>${skipped ? `<details open><summary>제외된 저장소 보기</summary><ul>${skipped}</ul></details>` : ""}${(plan.plans || []).length ? `<div class="item-actions"><button class="button primary" type="button" data-repository-sync="execute">계획된 저장소 모두 최신화</button></div>` : ""}</section>`;
+  }
+
   function renderWork() {
     const targets = targetOptions();
     const proposalHTML = state.workItems.flatMap(item => (item.proposals || []).map(proposal => proposalCard(proposal, item))).join("");
@@ -343,7 +361,8 @@
           : "";
       return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(detail.plan.metadata.name)}</h3><p class="meta">${escapeHTML(detail.plan.spec.projectId)} / ${escapeHTML(detail.plan.spec.repositoryId)} / ${escapeHTML(detail.plan.spec.worktreeId)}</p></div><span class="chip ${admission === "eligible" ? "ok" : admission === "approval_required" ? "warn" : "bad"}">${escapeHTML(label(admission))}</span></div><details><summary>계획과 승인 근거</summary><dl class="detail-grid"><div><dt>Action</dt><dd><code>${escapeHTML(detail.plan.spec.actionType)}</code></dd></div><div><dt>위험 등급</dt><dd>${escapeHTML(label(detail.plan.spec.risk))}</dd></div><div><dt>정책 판단</dt><dd>${escapeHTML(label(detail.plan.spec.policyDecision))}</dd></div><div><dt>요청 시각</dt><dd>${escapeHTML(formatDate(detail.plan.spec.requestedAt))}</dd></div><div class="wide"><dt>실행 명령</dt><dd><code>${escapeHTML([detail.plan.spec.execution?.executable, ...(detail.plan.spec.execution?.arguments || [])].join(" "))}</code></dd></div><div class="wide"><dt>승인 기록</dt><dd>${detail.status.approvals?.length ? detail.status.approvals.map(approval => `${escapeHTML(label(approval.spec.status))} · ${escapeHTML(formatDate(approval.spec.decidedAt))}`).join("<br>") : "없음"}</dd></div><div class="wide"><dt>감사 이벤트</dt><dd>${detail.status.events?.length ? detail.status.events.map(item => `${escapeHTML(item.spec.eventType)} · ${escapeHTML(formatDate(item.spec.occurredAt))}`).join("<br>") : "없음"}</dd></div></dl></details><div class="item-actions"><button class="button small" type="button" data-action="trust" data-id="${escapeHTML(detail.plan.metadata.id)}">실행 대상으로 표시</button>${actionButtons}<button class="button small" type="button" data-action="runs" data-id="${escapeHTML(detail.plan.metadata.id)}">${resultVisible ? "결과 닫기" : "결과 보기"}</button></div>${resultVisible ? `<div class="result-box">${detail.runs.length ? detail.runs.map(renderActionRun).join("") : "아직 실행 결과가 없습니다."}</div>` : latest ? `<p class="meta">최근 결과 ${escapeHTML(label(latest.spec.status))}</p>` : ""}</article>`;
     }).join("");
-    document.getElementById("action-ui").innerHTML = `${state.surfaceErrors.actions ? surfaceError(state.surfaceErrors.actions, "work") : ""}<div class="toolbar"><select id="action-target" aria-label="Action 대상 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button id="action-plan" class="button primary" type="button" ${targets.length ? "" : "disabled"}>저장소 새로고침 계획</button></div>${plans ? `<div class="item-list">${plans}</div>` : '<div class="empty-state"><strong>검토된 Action 계획이 없습니다.</strong><span>대상 Worktree를 선택해 저장소 새로고침 계획을 만들 수 있습니다.</span></div>'}`;
+    const projects = state.snapshot.projects || [];
+    document.getElementById("action-ui").innerHTML = `${state.surfaceErrors.actions ? surfaceError(state.surfaceErrors.actions, "work") : ""}<div class="toolbar"><select id="sync-project" aria-label="전체 최신화 대상 프로젝트">${projects.length ? projects.map(project => `<option value="${escapeHTML(project.id)}">${escapeHTML(project.name)} · ${escapeHTML(project.repos.length)}개 저장소</option>`).join("") : '<option value="">등록된 프로젝트 없음</option>'}</select><button id="repository-sync-plan" class="button primary" type="button" ${projects.length ? "" : "disabled"}>프로젝트 저장소 전체 최신화 계획</button></div>${renderRepositorySyncPlan()}<div class="toolbar"><select id="action-target" aria-label="Action 대상 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button id="action-plan" class="button" type="button" ${targets.length ? "" : "disabled"}>단일 저장소 새로고침 계획</button></div>${plans ? `<div class="item-list">${plans}</div>` : '<div class="empty-state"><strong>검토된 Action 계획이 없습니다.</strong><span>대상 Worktree를 선택해 저장소 새로고침 계획을 만들 수 있습니다.</span></div>'}`;
   }
 
   function environmentSource(type) {
@@ -751,6 +770,43 @@
     if (button.dataset.profile === "edit") {
       const profile = state.profiles.find(item => item.metadata.id === button.dataset.id);
       if (profile) openEditor("profile", { profile });
+      return;
+    }
+    if (button.id === "repository-sync-plan") {
+      const projectID = document.getElementById("sync-project").value;
+      button.disabled = true;
+      try {
+        state.repositorySyncResult = null;
+        state.repositorySyncPlan = await request(`/api/projects/${encode(projectID)}/repository-sync/plan`, { method: "POST", headers: mutationHeaders(), body: "" });
+        showNotice("프로젝트 저장소 최신화 계획을 만들었습니다. 제외된 저장소의 사유도 확인하세요.");
+        await refreshAll();
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+    if (button.dataset.repositorySync === "execute") {
+      const plan = state.repositorySyncPlan;
+      if (!plan?.plans?.length) return;
+      button.disabled = true;
+      try {
+        const result = await request(`/api/projects/${encode(plan.projectId)}/repository-sync/execute`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          body: JSON.stringify({ planIds: plan.plans.map(item => item.metadata.id), requestId: `ui-sync-${Date.now()}` }),
+        });
+        const failed = (result.outcomes || []).filter(item => item.error).length;
+        showNotice(failed ? `${result.outcomes.length - failed}개 저장소를 최신화했고 ${failed}개는 완료되지 않았습니다.` : "프로젝트 저장소를 모두 최신화했습니다.", failed > 0);
+        state.repositorySyncPlan = null;
+        state.repositorySyncResult = result;
+        await refreshAll();
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
       return;
     }
     if (button.id === "action-plan") {

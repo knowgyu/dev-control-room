@@ -77,6 +77,19 @@ Worktree HEAD/state, relevant findings, or fixture changes. Never record secret
 values, transcript contents, company paths, tokens, or default-user data in an
 evidence artifact.
 
+## Repository group sync acceptance
+
+After a fresh scan, use the Project action surface to create a group plan. The
+plan must show one persisted Action plan for each eligible primary Worktree and
+one explicit Korean skip reason for every dirty, detached, ahead, missing-
+upstream, locked, prunable, unverified, or incompletely observed repository.
+
+Execute only the returned plan IDs. Confirm the result contains one outcome per
+plan, preserves the ActionRun status and bounded output, and leaves a failed or
+skipped repository visible without hiding successful siblings. Confirm the
+same flow through `devroom project sync plan` and
+`devroom project sync execute`.
+
 ## Failure handling
 
 - Fix the smallest root cause, then rerun the failed tier and its dependent

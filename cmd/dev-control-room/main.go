@@ -119,7 +119,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 
 func runProject(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("project requires list, show, add, update, remove, repository, worktree, discover, export, import, or scan"))
+		return writeCLIErrorTo(stderr, contract.InvalidInput("project requires list, show, add, update, remove, repository, worktree, discover, sync, export, import, or scan"))
 	}
 	subcommand := args[0]
 	args = args[1:]
@@ -131,6 +131,9 @@ func runProject(args []string, stdout, stderr io.Writer) int {
 	}
 	if subcommand == "discover" {
 		return runDiscover(args, stdout, stderr)
+	}
+	if subcommand == "sync" {
+		return runProjectSync(args, stdout, stderr)
 	}
 	jsonOutput, args, err := parseJSONFlag(args)
 	if err != nil {
@@ -209,6 +212,49 @@ func runProject(args []string, stdout, stderr io.Writer) int {
 		return emitObject(stdout, map[string]string{"status": "completed"}, jsonOutput)
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown project command: "+subcommand))
+	}
+}
+
+func runProjectSync(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("project sync requires plan or execute"))
+	}
+	subcommand := args[0]
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	ctx := context.Background()
+	switch subcommand {
+	case "plan":
+		if len(args) != 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("project sync plan requires a project id"))
+		}
+		plan, err := service.RepositorySyncPlan(ctx, args[0])
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, plan, jsonOutput)
+	case "execute":
+		if len(args) < 2 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("project sync execute requires a project id and at least one plan id"))
+		}
+		result, err := service.ExecuteRepositorySync(ctx, app.ExecuteRepositorySyncInput{ProjectID: args[0], PlanIDs: args[1:], RequestID: fmt.Sprintf("cli-sync-%d", time.Now().UnixNano())})
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, result, jsonOutput)
+	default:
+		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown project sync command: "+subcommand))
 	}
 }
 

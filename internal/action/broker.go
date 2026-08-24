@@ -468,9 +468,14 @@ func (b *Broker) ExecuteWithRevalidation(ctx context.Context, admission Admissio
 				status, terminalErr = domain.ActionRunPostcheckFailed, ErrActionPostcheck
 			}
 		}
-		if err := b.validateExecutionContext(ctx, plan); err != nil {
-			postchecks[0].Passed = false
-			status, terminalErr = domain.ActionRunPostcheckFailed, ErrActionPostcheck
+		// repository.sync is intentionally allowed to advance HEAD through a
+		// fast-forward pull. Its application-level revalidation still enforces
+		// the exact path, branch, clean state, and upstream contract.
+		if plan.Spec.ActionType != "repository.sync" {
+			if err := b.validateExecutionContext(ctx, plan); err != nil {
+				postchecks[0].Passed = false
+				status, terminalErr = domain.ActionRunPostcheckFailed, ErrActionPostcheck
+			}
 		}
 	}
 	run := domain.ActionRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ActionRunKind}, Metadata: domain.ObjectMeta{ID: runID, Name: plan.Metadata.Name}, Spec: domain.ActionRunSpec{ActionPlanID: plan.Metadata.ID, ActionPlanDigest: digest, ProjectID: plan.Spec.ProjectID, RepositoryID: plan.Spec.RepositoryID, WorktreeID: plan.Spec.WorktreeID, Holder: admission.Lock.Holder, ExecutionContext: plan.Spec.ExecutionContext, StartedAt: started, CompletedAt: completed, Status: status, ExitCode: result.ExitCode, Stdout: b.maskOutput(result.Stdout, command.EnvironmentAllowlist), Stderr: b.maskOutput(result.Stderr, command.EnvironmentAllowlist), Prechecks: prechecks, Postchecks: postchecks}}

@@ -765,6 +765,7 @@ type ActionDefinition struct {
 
 var actionDefinitions = map[string]ActionDefinition{
 	"repository.refresh":  {ActionType: "repository.refresh", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, Execution: ActionExecution{Executable: "git", Arguments: []string{"fetch", "--prune"}, TimeoutSeconds: 60, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"repository.sync":     {ActionType: "repository.sync", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, Execution: ActionExecution{Executable: "git", Arguments: []string{"pull", "--ff-only", "--prune"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 	"release.production":  {ActionType: "release.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"commit"}, Execution: ActionExecution{Executable: "devroom-release-production", Arguments: []string{"--commit", "{commit}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 	"cleanup.destructive": {ActionType: "cleanup.destructive", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Execution: ActionExecution{Executable: "devroom-cleanup-destructive", TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 }

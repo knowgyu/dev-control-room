@@ -90,6 +90,25 @@ Action process, and masked from logs, events, UI, CLI, HTTP, MCP, and handoffs.
 
 ## Initial operations
 
+The first implemented group operation treats the repositories of the selected
+Project as one logical group. It is available only after a fresh observation:
+
+```text
+POST /api/projects/{project-id}/repository-sync/plan
+POST /api/projects/{project-id}/repository-sync/execute
+  {"planIds":["<persisted-plan-id>"],"requestId":"<caller-request-id>"}
+
+devroom project sync plan <project-id>
+devroom project sync execute <project-id> <persisted-plan-id> ...
+```
+
+Planning creates one persisted Action plan per eligible primary Worktree and
+returns a separate skip reason for every other repository. Execution accepts
+only those persisted plan IDs, runs through the Action Broker, and returns one
+bounded result per target. The current implementation uses two concurrent
+local Git processes and runs `git pull --ff-only --prune`; it does not merge,
+rebase, force-update, or touch a dirty Worktree.
+
 ### Git repository group: sync latest
 
 For each selected repository, the operation may:

@@ -41,6 +41,7 @@ type QueryService interface {
 	ActionStatus(context.Context, string) (ActionApprovalStatus, error)
 	ActionPlans(context.Context) ([]domain.ActionPlan, error)
 	ActionRuns(context.Context, string) ([]domain.ActionRun, error)
+	RepositorySyncPlan(context.Context, string) (RepositorySyncPlan, error)
 	FailureFingerprints(context.Context, int) ([]domain.FailureFingerprint, error)
 	Safeguards(context.Context, int) ([]domain.SafeguardRule, error)
 	Safeguard(context.Context, string) (domain.SafeguardRule, error)
@@ -75,6 +76,7 @@ type CommandService interface {
 	StartHumanApprovalCeremony(context.Context, string) (action.HumanDecisionResult, error)
 	AdmitAction(context.Context, string, string, string) (action.Admission, error)
 	ExecuteAction(context.Context, string, string, string) (domain.ActionRun, error)
+	ExecuteRepositorySync(context.Context, ExecuteRepositorySyncInput) (RepositorySyncResult, error)
 	TrustActionWorktree(context.Context, string) (domain.WorktreeExecutionTrust, error)
 	PrepareHandoff(context.Context, HandoffInput) (HandoffPreview, error)
 	LaunchHandoff(context.Context, HandoffLaunchInput) (HandoffLaunch, error)
@@ -199,12 +201,15 @@ func (a *App) ExecuteAction(ctx context.Context, planID, holder, idempotencyKey 
 		return domain.ActionRun{}, classifyActionError(err)
 	}
 	revalidate := func(ctx context.Context) error {
-		_, changed, err := a.discoveryWorktree(ctx, admission.Plan.Spec.ProjectID, admission.Plan.Spec.RepositoryID, admission.Plan.Spec.WorktreeID)
+		current, changed, err := a.discoveryWorktree(ctx, admission.Plan.Spec.ProjectID, admission.Plan.Spec.RepositoryID, admission.Plan.Spec.WorktreeID)
 		if err != nil {
 			return err
 		}
 		if changed {
 			return errors.New("action Worktree evidence changed")
+		}
+		if admission.Plan.Spec.ActionType == repositorySyncAction {
+			return validateRepositorySyncState(current, admission.Plan.Spec.ExecutionContext)
 		}
 		return nil
 	}

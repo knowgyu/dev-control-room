@@ -427,6 +427,34 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusCreated, contract.Success(plan))
 	}))
+	mux.HandleFunc("POST /api/projects/{projectID}/repository-sync/plan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("repository sync planning accepts an empty body only"))
+			return
+		}
+		plan, err := service.RepositorySyncPlan(request.Context(), request.PathValue("projectID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(plan))
+	}))
+	mux.HandleFunc("POST /api/projects/{projectID}/repository-sync/execute", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			PlanIDs   []string `json:"planIds"`
+			RequestID string   `json:"requestId"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		result, err := service.ExecuteRepositorySync(request.Context(), ExecuteRepositorySyncInput{ProjectID: request.PathValue("projectID"), PlanIDs: input.PlanIDs, RequestID: input.RequestID})
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	}))
 	mux.HandleFunc("POST /api/actions/plans/{planID}/admit", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input struct {
 			Holder         string `json:"holder"`
