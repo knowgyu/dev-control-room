@@ -1,6 +1,7 @@
 # Go build and test artifacts
 /dev-control-room
 /dev-control-room.exe
+/artifacts/
 *.test
 *.out
 

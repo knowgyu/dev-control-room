@@ -56,10 +56,25 @@ go build ./...
 go mod verify
 ```
 
+Prepare the isolated local-only fixture with the checked-in script. It uses
+dedicated `$acceptanceRoot` and `$appDataRoot` variables, passes the app data
+root explicitly, and never assigns PowerShell's reserved home variable or
+deletes any existing user data:
+
+```powershell
+.\scripts\prepare-slice-f-acceptance.ps1 -BinaryPath .\artifacts\dev-control-room.exe
+```
+
+The script creates a temporary bare Git origin and Worktree, registers them in
+a fresh application data directory, runs Guidance/handoff/cleanup/MCP read-only
+smokes, starts the fixture server on `127.0.0.1:38472`, and prints a JSON context
+containing the exact paths, IDs, source commit, and server PID. Preserve that
+temporary root until its evidence has been reviewed.
+
 Also manually verify, using a generic fixture only:
 
 - UI trust transition and native approval ceremony remain separate;
-- approved `repository.refresh` runs in the selected Worktree directory;
+- admitted `repository.refresh` runs in the selected Worktree directory;
 - argv is preserved without shell interpretation;
 - timeout/cancellation kills the full child process tree;
 - stdout/stderr and SQLite/API/CLI results contain no secret canary;
