@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func TestTypedRepositoriesPreserveScopedIdentityAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure := domain.FailureFingerprint{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.FailureFingerprintKind}, Metadata: domain.ObjectMeta{ID: "failure-1", Name: "fixture failure"}, Spec: domain.FailureFingerprintSpec{Fingerprint: "sha256:failure", Category: "fixture", FirstSeen: now, LastSeen: now, OccurrenceCount: 1}}
-	if err := persistence.SaveFailureFingerprint(ctx, failure); err != nil {
+	if _, err := persistence.RecordFailureFingerprint(ctx, failure); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := persistence.LatestScanRun(ctx, "project-a"); err != nil {
@@ -66,6 +67,65 @@ func TestTypedRepositoriesPreserveScopedIdentityAndHistory(t *testing.T) {
 	}
 	if _, err := persistence.GetRepository(ctx, "project-a", "backend"); err == nil || err != sql.ErrNoRows {
 		t.Fatalf("project deletion did not cascade repository: %v", err)
+	}
+}
+
+func TestSafeguardRuleRoundTripPreservesLifecycleAndMetrics(t *testing.T) {
+	db := openTestDatabase(t, "safeguard-rule-round-trip")
+	persistence, err := New(db, masking.New(nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	project := domain.NewProject("project-a", "Project A", []domain.Repository{domain.NewRepository("repo-a", "Repo A", "/tmp/repo-a")})
+	if err := persistence.SaveProject(context.Background(), project); err != nil {
+		t.Fatal(err)
+	}
+	rule := domain.SafeguardRule{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.SafeguardRuleKind},
+		Metadata: domain.ObjectMeta{ID: "safeguard-1", Name: "fixture safeguard"},
+		Spec: domain.SafeguardRuleSpec{
+			Fingerprint: "sha256:" + strings.Repeat("a", 64), Category: "checkset",
+			ProjectID: "project-a", RepositoryID: "repo-a",
+			State: domain.SafeguardShadow, Revision: 1, Owner: "local-user", OccurrenceCount: 3,
+			FirstSeen: now.Add(-time.Hour), LastSeen: now, CreatedAt: now, UpdatedAt: now,
+			Metrics: domain.SafeguardMetrics{Evaluations: 2, Hits: 1, Misses: 1, EvaluationCostUnits: 2},
+		},
+	}
+	created, err := persistence.CreateSafeguardRule(context.Background(), rule)
+	if err != nil || !created {
+		t.Fatalf("create safeguard = %t, %v", created, err)
+	}
+	stored, err := persistence.GetSafeguardRule(context.Background(), rule.Metadata.ID)
+	if err != nil || stored.Spec.Owner != "local-user" || stored.Spec.Metrics.Hits != 1 {
+		t.Fatalf("stored safeguard = %#v, %v", stored, err)
+	}
+	updated := stored
+	updated.Spec.Revision++
+	updated.Spec.UpdatedAt = now.Add(time.Second)
+	updated.Spec.Metrics.Evaluations++
+	updated.Spec.Metrics.Misses++
+	updated.Spec.Metrics.EvaluationCostUnits++
+	changed, err := persistence.UpdateSafeguardRule(context.Background(), updated, stored.Spec.Revision)
+	if err != nil || !changed {
+		t.Fatalf("update safeguard = %t, %v", changed, err)
+	}
+	stale := stored
+	stale.Spec.Revision++
+	stale.Spec.UpdatedAt = now.Add(2 * time.Second)
+	changed, err = persistence.UpdateSafeguardRule(context.Background(), stale, stored.Spec.Revision)
+	if err != nil || changed {
+		t.Fatalf("stale safeguard update = %t, %v", changed, err)
+	}
+	items, err := persistence.ListSafeguardRules(context.Background(), 10)
+	if err != nil || len(items) != 1 || items[0].Metadata.ID != rule.Metadata.ID {
+		t.Fatalf("safeguard list = %#v, %v", items, err)
+	}
+	if err := persistence.DeleteProject(context.Background(), project.Metadata.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persistence.GetSafeguardRule(context.Background(), rule.Metadata.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("project deletion left stale safeguard: %v", err)
 	}
 }
 

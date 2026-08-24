@@ -49,7 +49,7 @@
   - 작업: exact-Worktree discovery, Proposal evidence review, Pre-PR Checkset
     execution/results, and Action planning/approval/execution/results
   - 진단: 개발 환경, Agent Profile CRUD, structured Guidance/Handoff review,
-    정리 후보, 반복된 실패
+    정리 후보, 반복 실패 safeguard lifecycle과 지표
   - 기록: complete activity history
 
 ## Design principles
@@ -81,7 +81,7 @@
   the current application-service HTTP APIs
 - New/changed components: application shell, navigation links, view headers,
   Project cards, status chips, evidence disclosure panels, structured run
-  results, empty states, toast, and native `dialog`
+  results, safeguard lifecycle cards, empty states, toast, and native `dialog`
 - Variants and states: default, hover, focus-visible, selected, disabled,
   loading, empty, warning, error, and success
 - Token/component ownership: CSS custom properties and semantic classes in the

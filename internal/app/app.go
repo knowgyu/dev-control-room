@@ -49,6 +49,7 @@ type App struct {
 	scanNow       chan string
 	scanMu        sync.Mutex
 	environmentMu sync.Mutex
+	safeguardMu   sync.Mutex
 }
 
 func New(home, listen string) (*App, error) {
@@ -511,6 +512,11 @@ func (a *App) RunCheckset(ctx context.Context, id string) (domain.CheckRun, erro
 	if err := a.store.SaveCheckRun(context.WithoutCancel(ctx), run); err != nil {
 		return domain.CheckRun{}, err
 	}
+	if shouldRecordCheckRunFailure(run.Spec.Status) {
+		if err := a.recordFailureOccurrence(context.WithoutCancel(ctx), checkRunFailureOccurrence(item, run)); err != nil {
+			return domain.CheckRun{}, err
+		}
+	}
 	return run, nil
 }
 
@@ -791,7 +797,7 @@ func (a *App) scanProject(ctx context.Context, project domain.Project, trigger s
 			}
 		}
 		if collectErr != nil {
-			if err := a.recordCollectorFailure(ctx, collectErr); err != nil {
+			if err := a.recordCollectorFailure(ctx, project.Metadata.ID, repository.Metadata.ID, collectErr); err != nil {
 				return collectorFailed, err
 			}
 		}
@@ -1152,19 +1158,39 @@ func (a *App) ImportProject(ctx context.Context, data []byte) (domain.Project, e
 	return exported.Project, nil
 }
 
-func (a *App) recordCollectorFailure(ctx context.Context, err error) error {
-	data := []byte(err.Error())
-	sum := sha256.Sum256(data)
-	fingerprint := "sha256:" + hex.EncodeToString(sum[:])
-	now := time.Now().UTC()
-	item := domain.FailureFingerprint{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.FailureFingerprintKind}, Metadata: domain.ObjectMeta{ID: "failure-" + hex.EncodeToString(sum[:])[:48], Name: "Git collector failure"}, Spec: domain.FailureFingerprintSpec{Fingerprint: fingerprint, Category: "collector.git", FirstSeen: now, LastSeen: now, OccurrenceCount: 1}}
-	if prior, lookupErr := a.store.GetFailureFingerprint(ctx, fingerprint); lookupErr == nil {
-		item.Spec.FirstSeen = prior.Spec.FirstSeen
-		item.Spec.OccurrenceCount = prior.Spec.OccurrenceCount + 1
-	} else if !errors.Is(lookupErr, sql.ErrNoRows) {
-		return lookupErr
+func (a *App) recordCollectorFailure(ctx context.Context, projectID, repositoryID string, err error) error {
+	return a.recordFailureOccurrence(ctx, failureOccurrence{
+		Category: "collector.git", SourceType: fmt.Sprintf("%T", err), Status: string(contract.Classify(err).Code),
+		ExitCode: -1, ProjectID: projectID, RepositoryID: repositoryID,
+	})
+}
+
+func checkRunFailureOccurrence(checkset domain.Checkset, run domain.CheckRun) failureOccurrence {
+	parts := make([]string, 0, len(run.Spec.Steps)+1)
+	parts = append(parts, checkset.Metadata.ID)
+	exitCode := 0
+	for _, step := range run.Spec.Steps {
+		if step.Status == domain.CheckPassed || step.Status == domain.CheckSkipped {
+			continue
+		}
+		parts = append(parts, step.StepID+"="+string(step.Status)+":"+fmt.Sprintf("%d", step.ExitCode))
+		if exitCode == 0 {
+			exitCode = step.ExitCode
+		}
 	}
-	return a.store.SaveFailureFingerprint(ctx, item)
+	return failureOccurrence{
+		Category: "checkset", SourceType: strings.Join(parts, ","), Status: string(run.Spec.Status), ExitCode: exitCode,
+		ProjectID: run.Spec.ProjectID, RepositoryID: run.Spec.RepositoryID, WorktreeID: run.Spec.WorktreeID, EvidenceRef: run.Metadata.ID,
+	}
+}
+
+func shouldRecordCheckRunFailure(status domain.CheckRunStatus) bool {
+	switch status {
+	case domain.CheckFailed, domain.CheckTimedOut, domain.CheckUnavailable:
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *App) recordEvent(event domain.Event) error {

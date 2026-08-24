@@ -138,18 +138,3 @@ func (a *App) FailureFingerprints(ctx context.Context, limit int) ([]domain.Fail
 	}
 	return a.store.ListFailureFingerprints(ctx, limit)
 }
-
-func (a *App) SafeguardProposals(ctx context.Context, limit int) ([]SafeguardProposal, error) {
-	fingerprints, err := a.FailureFingerprints(ctx, limit)
-	if err != nil {
-		return nil, err
-	}
-	items := make([]SafeguardProposal, 0)
-	for _, fingerprint := range fingerprints {
-		if fingerprint.Spec.OccurrenceCount < 3 {
-			continue
-		}
-		items = append(items, SafeguardProposal{Fingerprint: fingerprint.Spec.Fingerprint, Category: fingerprint.Spec.Category, OccurrenceCount: fingerprint.Spec.OccurrenceCount, FirstSeen: fingerprint.Spec.FirstSeen, LastSeen: fingerprint.Spec.LastSeen, Mode: "shadow", State: "proposal", Summary: "repeated verified failure may justify a deterministic safeguard", Next: "review the masked evidence and approve a removable shadow rule"})
-	}
-	return items, nil
-}

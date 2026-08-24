@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 12
+const CurrentSchemaVersion = 13
 
 // acceptedHistoricalMigrationChecksums permits only the checksum emitted by a
 // released build whose migration-11 SQL was later corrected before the next
@@ -371,6 +371,28 @@ CREATE TABLE IF NOT EXISTS action_runs (
  FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_action_runs_plan_started ON action_runs(action_plan_id, started_at DESC, id DESC);
+		`,
+	},
+	{
+		Version: 13,
+		Name:    "safeguard-rule-lifecycle",
+		SQL: `
+CREATE TABLE IF NOT EXISTS safeguard_rules (
+ id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+ fingerprint TEXT NOT NULL UNIQUE,
+ category TEXT NOT NULL,
+ project_id TEXT NOT NULL,
+ repository_id TEXT NOT NULL,
+ worktree_id TEXT,
+ state TEXT NOT NULL CHECK (state IN ('proposal', 'shadow', 'active', 'retired')),
+ revision INTEGER NOT NULL CHECK (revision > 0),
+ updated_at TEXT NOT NULL,
+ object_json TEXT NOT NULL,
+ FOREIGN KEY (project_id, repository_id) REFERENCES repositories(project_id, id) ON DELETE CASCADE,
+ FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_safeguard_rules_state_updated ON safeguard_rules(state, updated_at DESC, id);
+CREATE INDEX IF NOT EXISTS idx_safeguard_rules_scope_category ON safeguard_rules(project_id, repository_id, worktree_id, category, id);
 `,
 	},
 }

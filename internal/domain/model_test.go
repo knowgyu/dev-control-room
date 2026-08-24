@@ -321,6 +321,63 @@ func TestAgentProfileRejectsShellSurfaces(t *testing.T) {
 	}
 }
 
+func TestSafeguardRuleLifecycleRequiresEvidenceOwnerAndFeedback(t *testing.T) {
+	now := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	rule := SafeguardRule{
+		TypeMeta: TypeMeta{APIVersion: APIVersion, Kind: SafeguardRuleKind},
+		Metadata: ObjectMeta{ID: "safeguard-1", Name: "checkset safeguard"},
+		Spec: SafeguardRuleSpec{
+			Fingerprint:     "sha256:" + strings.Repeat("a", 64),
+			Category:        "checkset",
+			ProjectID:       "project-1",
+			RepositoryID:    "repo-1",
+			State:           SafeguardProposal,
+			Revision:        1,
+			OccurrenceCount: 3,
+			FirstSeen:       now.Add(-time.Hour),
+			LastSeen:        now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+	}
+	if err := rule.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rule.Transition(SafeguardActive, "owner", now.Add(time.Minute)); err == nil {
+		t.Fatal("proposal activated without shadow evaluation")
+	}
+	if err := rule.Transition(SafeguardShadow, "", now.Add(time.Minute)); err == nil {
+		t.Fatal("shadow transition accepted without owner")
+	}
+	if err := rule.Transition(SafeguardShadow, "local-user", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := rule.RecordFeedback(SafeguardFeedbackPositive, now.Add(2*time.Minute)); err == nil {
+		t.Fatal("feedback accepted before an exact evaluation hit")
+	}
+	if err := rule.RecordEvaluation(true, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := rule.RecordFeedback(SafeguardFeedbackPositive, now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := rule.Transition(SafeguardActive, "local-user", now.Add(4*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if rule.Spec.ActivationApprovedBy != "local-user" {
+		t.Fatalf("activation approver = %q", rule.Spec.ActivationApprovedBy)
+	}
+	if err := rule.Transition(SafeguardShadow, "", now.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := rule.Transition(SafeguardRetired, "", now.Add(6*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := rule.Transition(SafeguardShadow, "local-user", now.Add(7*time.Minute)); err == nil {
+		t.Fatal("retired safeguard returned to shadow")
+	}
+}
+
 func futureTime() *time.Time {
 	value := time.Now().UTC().Add(time.Hour)
 	return &value

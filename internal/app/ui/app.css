@@ -129,6 +129,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 4vw, 44px)
 .item-actions, .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
 .toolbar { margin: 0 0 14px; }
 .toolbar select { min-width: 190px; }
+.owner-input { width: min(240px, 100%); }
 .result-box { margin-top: 10px; padding: 10px; border-radius: 8px; background: #f4f6f9; white-space: pre-wrap; overflow-wrap: anywhere; }
 .section-heading { margin-top: 24px; align-items: flex-end; }
 details { margin-top: 11px; }

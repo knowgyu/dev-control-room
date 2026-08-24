@@ -261,6 +261,14 @@ Manual UI acceptance on the fixture service:
 11. Recreate or retain a fixture as needed and smoke Pre-PR Checkset review,
    Action planning/trust/execution review, Guidance Doctor, Handoff preview,
    Cleanup candidates, and repeated-failure safeguards from their new screens.
+12. Produce the same fixture Checkset or Action failure three times. In
+    `진단 -> 반복된 실패`, confirm one persistent proposal appears with exact
+    Project/Repository/Worktree scope and no raw output. Enter an owner and start
+    shadow mode. Produce one different same-scope failure and one exact failure;
+    confirm miss and hit each increase once. Record `유효한 방지`, activate the
+    rule, roll it back to shadow, then retire it. Restart the service and confirm
+    lifecycle, owner, local human activation approval, and metrics persist. Verify an unprotected request and an
+    `/api/safeguards/{id}/activate` request cannot mutate the rule.
 
 Do not perform production work, destructive cleanup, Scheduler
 install/uninstall, release tagging, or release publication as part of this UI

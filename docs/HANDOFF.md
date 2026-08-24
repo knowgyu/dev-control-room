@@ -69,7 +69,7 @@ Current contract versions:
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
-- SQLite schema: version 12;
+- SQLite schema: version 13;
 - Go module target: Go 1.23.
 
 ## Repository state at this handoff
@@ -260,7 +260,9 @@ separate improvements, not falsely labelled discoveries.
 - Configured release procedures, Jenkins triggers, or cleanup execution.
 - GitHub/Jenkins connectors beyond local remote capability detection.
 - Agent Handoff terminal launch and provider-specific MCP client acceptance.
-- Safeguard activation, rollback, retirement, and effectiveness metrics.
+- CI, hook, and launched-Handoff verification failure producers and their
+  safeguard normalization. Preview-only Handoffs are deliberately not failures.
+- Optional AI clustering beyond deterministic exact-fingerprint safeguards.
 - Kubernetes, Harbor, or operational visibility connectors.
 - Specifier, Cleaner, Hardener, QA, CRAP, managed agent runs, or role
   orchestration.
@@ -358,10 +360,17 @@ are supplied.
 
 Milestone 5 now has bounded Guidance Doctor checks, masked Agent Handoff
 preview, optional model metadata, and a typed stdio MCP adapter. Milestone 6
-now exposes repeated fingerprints as shadow-only safeguard proposals. Native
-Windows launch/provider checks and safeguard activation/feedback remain
-explicit verification gaps; see `docs/MILESTONE_5_VERIFICATION.md` and
-`docs/MILESTONE_6_VERIFICATION.md`.
+now persists deterministic repeated-failure safeguards. Collector, Checkset,
+and Action failures share one output-free normalization path; three exact
+occurrences create a proposal. The protected UI owns owner assignment, shadow
+feedback, activation, rollback, retirement, and effectiveness metrics. CLI
+remains read-only and MCP exposes no mutation tool. SQLite atomic failure
+counts and revision-CAS rule updates preserve concurrent service/CLI writers.
+Activation stores the
+server-derived local human approver and time. Sources that do not yet execute
+(CI connector, hook, launched Handoff verification) are not claimed. Native Windows lifecycle
+acceptance remains an explicit verification gap; see
+`docs/MILESTONE_5_VERIFICATION.md` and `docs/MILESTONE_6_VERIFICATION.md`.
 
 ### Slice F: typed Action execution (implemented and natively accepted)
 
@@ -405,6 +414,7 @@ actually needs them.
 - `internal/contract/cli.go`: shared envelopes, errors, and exit codes.
 - `internal/app/service.go`: common application query/command interface.
 - `internal/app/app.go`: Project lifecycle, scans, observations, Findings.
+- `internal/app/safeguard.go`: repeated-failure normalization and safeguard lifecycle.
 - `internal/app/environment.go`: Agent Profiles, Environment Doctor, scheduler
   service operations.
 - `internal/app/config.go`: user-local config and forward migration.

@@ -42,7 +42,8 @@ type QueryService interface {
 	ActionPlans(context.Context) ([]domain.ActionPlan, error)
 	ActionRuns(context.Context, string) ([]domain.ActionRun, error)
 	FailureFingerprints(context.Context, int) ([]domain.FailureFingerprint, error)
-	SafeguardProposals(context.Context, int) ([]SafeguardProposal, error)
+	Safeguards(context.Context, int) ([]domain.SafeguardRule, error)
+	Safeguard(context.Context, string) (domain.SafeguardRule, error)
 }
 
 type CommandService interface {
@@ -76,6 +77,11 @@ type CommandService interface {
 	ExecuteAction(context.Context, string, string, string) (domain.ActionRun, error)
 	TrustActionWorktree(context.Context, string) (domain.WorktreeExecutionTrust, error)
 	PrepareHandoff(context.Context, HandoffInput) (HandoffPreview, error)
+	ReviewSafeguard(context.Context, string, string) (domain.SafeguardRule, error)
+	FeedbackSafeguard(context.Context, string, domain.SafeguardFeedback) (domain.SafeguardRule, error)
+	ActivateSafeguard(context.Context, string) (domain.SafeguardRule, error)
+	RollbackSafeguard(context.Context, string) (domain.SafeguardRule, error)
+	RetireSafeguard(context.Context, string) (domain.SafeguardRule, error)
 	RenewAction(context.Context, action.Admission) (action.Admission, error)
 	ReleaseAction(context.Context, action.Admission) error
 }
@@ -202,7 +208,23 @@ func (a *App) ExecuteAction(ctx context.Context, planID, holder, idempotencyKey 
 		return nil
 	}
 	run, err := a.broker.ExecuteWithRevalidation(ctx, admission, revalidate)
+	if run.Metadata.ID != "" && shouldRecordActionRunFailure(run.Spec.Status) {
+		recordErr := a.recordFailureOccurrence(context.WithoutCancel(ctx), failureOccurrence{
+			Category: "action", SourceType: admission.Plan.Spec.ActionType, Status: string(run.Spec.Status), ExitCode: run.Spec.ExitCode,
+			ProjectID: run.Spec.ProjectID, RepositoryID: run.Spec.RepositoryID, WorktreeID: run.Spec.WorktreeID, EvidenceRef: run.Metadata.ID,
+		})
+		err = errors.Join(err, recordErr)
+	}
 	return run, classifyActionError(err)
+}
+
+func shouldRecordActionRunFailure(status domain.ActionRunStatus) bool {
+	switch status {
+	case domain.ActionRunPrecheckFailed, domain.ActionRunFailed, domain.ActionRunTimedOut, domain.ActionRunPostcheckFailed, domain.ActionRunUnavailable:
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *App) TrustActionWorktree(ctx context.Context, planID string) (domain.WorktreeExecutionTrust, error) {
@@ -322,16 +344,4 @@ type HandoffPreview struct {
 	Findings              []HandoffFinding `json:"findings"`
 	VerificationCommands  []string         `json:"verificationCommands"`
 	TranscriptIncluded    bool             `json:"transcriptIncluded"`
-}
-
-type SafeguardProposal struct {
-	Fingerprint     string    `json:"fingerprint"`
-	Category        string    `json:"category"`
-	OccurrenceCount int       `json:"occurrenceCount"`
-	FirstSeen       time.Time `json:"firstSeen"`
-	LastSeen        time.Time `json:"lastSeen"`
-	Mode            string    `json:"mode"`
-	State           string    `json:"state"`
-	Summary         string    `json:"summary"`
-	Next            string    `json:"recommendedNextAction"`
 }

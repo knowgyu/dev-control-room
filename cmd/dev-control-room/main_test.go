@@ -109,6 +109,16 @@ func TestCleanupListJSONUsesStableEnvelope(t *testing.T) {
 	}
 }
 
+func TestSafeguardCLIIsReadOnly(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"safeguard", "activate", "safeguard-1"}, &stdout, &stderr); code != int(contract.ExitInvalidInput) {
+		t.Fatalf("safeguard mutation exit = %d, stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "safeguard requires list") {
+		t.Fatalf("safeguard mutation error = %s", stderr.String())
+	}
+}
+
 func TestEnvironmentDoctorJSONUsesStableEnvelopeAndHidesSecret(t *testing.T) {
 	const canary = "secret-canary-value"
 	if err := os.Setenv("DEVROOM_CLI_SECRET", canary); err != nil {

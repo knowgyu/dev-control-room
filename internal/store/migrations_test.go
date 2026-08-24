@@ -28,7 +28,7 @@ func TestMigrateCreatesContractSchemaAndIsIdempotent(t *testing.T) {
 	if version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, want %d", version, CurrentSchemaVersion)
 	}
-	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "check_runs", "actions", "action_plans", "approvals", "action_locks", "action_idempotency", "action_events", "action_runs", "agent_profiles", "events", "scan_runs", "failure_fingerprints", "environment_health", "scheduler_state", "proposals"} {
+	for _, table := range []string{"projects", "repositories", "observations", "findings", "checksets", "check_runs", "actions", "action_plans", "approvals", "action_locks", "action_idempotency", "action_events", "action_runs", "agent_profiles", "events", "scan_runs", "failure_fingerprints", "safeguard_rules", "environment_health", "scheduler_state", "proposals"} {
 		var count int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
 			t.Fatal(err)
@@ -36,6 +36,29 @@ func TestMigrateCreatesContractSchemaAndIsIdempotent(t *testing.T) {
 		if count != 1 {
 			t.Fatalf("table %q was not created", table)
 		}
+	}
+}
+
+func TestMigrationThirteenAddsSafeguardRulesFromVersionTwelve(t *testing.T) {
+	db := openUnmigratedTestDatabase(t, "safeguards-v12-forward")
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:12] {
+		if _, err := db.Exec(migration.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)`, migration.Version, migration.Name, migrationChecksum(migration.SQL)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Migrate(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='safeguard_rules'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("safeguard rules migration = %d, %v", count, err)
 	}
 }
 

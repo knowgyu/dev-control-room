@@ -258,12 +258,38 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		if value, err := strconv.Atoi(request.URL.Query().Get("limit")); err == nil && value >= 0 && value <= 1000 {
 			limit = value
 		}
-		items, err := service.SafeguardProposals(request.Context(), limit)
+		items, err := service.Safeguards(request.Context(), limit)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		proposals := make([]domain.SafeguardRule, 0, len(items))
+		for _, item := range items {
+			if item.Spec.State == domain.SafeguardProposal {
+				proposals = append(proposals, item)
+			}
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(proposals))
+	})
+	mux.HandleFunc("GET /api/safeguards/rules", func(response http.ResponseWriter, request *http.Request) {
+		limit := 100
+		if value, err := strconv.Atoi(request.URL.Query().Get("limit")); err == nil && value >= 0 && value <= 1000 {
+			limit = value
+		}
+		items, err := service.Safeguards(request.Context(), limit)
 		if err != nil {
 			writeServiceError(response, err)
 			return
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/safeguards/rules/{ruleID}", func(response http.ResponseWriter, request *http.Request) {
+		rule, err := service.Safeguard(request.Context(), request.PathValue("ruleID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(rule))
 	})
 	// This is intentionally a UI ceremony route, not an automation API. The
 	// native prompt derives all decision data from the persisted plan.
@@ -278,6 +304,72 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 			return
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	}))
+	mux.HandleFunc("POST /ui/safeguards/{ruleID}/shadow", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Owner string `json:"owner"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		rule, err := service.ReviewSafeguard(request.Context(), request.PathValue("ruleID"), input.Owner)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(rule))
+	}))
+	mux.HandleFunc("POST /ui/safeguards/{ruleID}/feedback", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Feedback domain.SafeguardFeedback `json:"feedback"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		rule, err := service.FeedbackSafeguard(request.Context(), request.PathValue("ruleID"), input.Feedback)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(rule))
+	}))
+	mux.HandleFunc("POST /ui/safeguards/{ruleID}/activate", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("safeguard activation accepts an empty body only"))
+			return
+		}
+		rule, err := service.ActivateSafeguard(request.Context(), request.PathValue("ruleID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(rule))
+	}))
+	mux.HandleFunc("POST /ui/safeguards/{ruleID}/rollback", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("safeguard rollback accepts an empty body only"))
+			return
+		}
+		rule, err := service.RollbackSafeguard(request.Context(), request.PathValue("ruleID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(rule))
+	}))
+	mux.HandleFunc("POST /ui/safeguards/{ruleID}/retire", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("safeguard retirement accepts an empty body only"))
+			return
+		}
+		rule, err := service.RetireSafeguard(request.Context(), request.PathValue("ruleID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(rule))
 	}))
 	mux.HandleFunc("POST /api/scan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		if err := service.QueueScan(request.Context(), "manual"); err != nil {

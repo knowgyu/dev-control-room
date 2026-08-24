@@ -24,7 +24,7 @@ func TestServeExposesOnlyTypedToolsAndStableResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
-	if len(lines) != 3 || !strings.Contains(output.String(), `"dev-control-room"`) || strings.Contains(output.String(), "shell") || strings.Contains(output.String(), "file.read") {
+	if len(lines) != 3 || !strings.Contains(output.String(), `"dev-control-room"`) || strings.Contains(output.String(), "shell") || strings.Contains(output.String(), "file.read") || strings.Contains(output.String(), "safeguard.activate") || strings.Contains(output.String(), "safeguard.feedback") {
 		t.Fatalf("unexpected MCP output: %s", output.String())
 	}
 	var call map[string]any

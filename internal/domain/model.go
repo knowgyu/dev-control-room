@@ -39,6 +39,7 @@ const (
 	EventKind               = "Event"
 	ScanRunKind             = "ScanRun"
 	FailureFingerprintKind  = "FailureFingerprint"
+	SafeguardRuleKind       = "SafeguardRule"
 )
 
 var (
@@ -914,6 +915,57 @@ type FailureFingerprintSpec struct {
 	EvidenceRefs    []string  `json:"evidenceRefs,omitempty"`
 }
 
+type SafeguardRule struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta        `json:"metadata"`
+	Spec     SafeguardRuleSpec `json:"spec"`
+}
+
+type SafeguardRuleSpec struct {
+	Fingerprint          string             `json:"fingerprint"`
+	Category             string             `json:"category"`
+	ProjectID            string             `json:"projectId,omitempty"`
+	RepositoryID         string             `json:"repositoryId,omitempty"`
+	WorktreeID           string             `json:"worktreeId,omitempty"`
+	State                SafeguardRuleState `json:"state"`
+	Revision             int64              `json:"revision"`
+	Owner                string             `json:"owner,omitempty"`
+	OccurrenceCount      int                `json:"occurrenceCount"`
+	FirstSeen            time.Time          `json:"firstSeen"`
+	LastSeen             time.Time          `json:"lastSeen"`
+	CreatedAt            time.Time          `json:"createdAt"`
+	UpdatedAt            time.Time          `json:"updatedAt"`
+	ActivatedAt          *time.Time         `json:"activatedAt,omitempty"`
+	ActivationApprovedBy string             `json:"activationApprovedBy,omitempty"`
+	RetiredAt            *time.Time         `json:"retiredAt,omitempty"`
+	Metrics              SafeguardMetrics   `json:"metrics"`
+}
+
+type SafeguardMetrics struct {
+	Evaluations         int `json:"evaluations"`
+	Hits                int `json:"hits"`
+	Misses              int `json:"misses"`
+	PositiveFeedback    int `json:"positiveFeedback"`
+	FalsePositives      int `json:"falsePositives"`
+	EvaluationCostUnits int `json:"evaluationCostUnits"`
+}
+
+type SafeguardRuleState string
+
+const (
+	SafeguardProposal SafeguardRuleState = "proposal"
+	SafeguardShadow   SafeguardRuleState = "shadow"
+	SafeguardActive   SafeguardRuleState = "active"
+	SafeguardRetired  SafeguardRuleState = "retired"
+)
+
+type SafeguardFeedback string
+
+const (
+	SafeguardFeedbackPositive      SafeguardFeedback = "positive"
+	SafeguardFeedbackFalsePositive SafeguardFeedback = "false_positive"
+)
+
 const (
 	FindingDirty          = "dirty_state"
 	FindingUpstreamDrift  = "upstream_drift"
@@ -951,6 +1003,152 @@ func (f FailureFingerprint) Validate() error {
 		return errors.New("failure fingerprint last seen cannot precede first seen")
 	}
 	return nil
+}
+
+func (r SafeguardRule) Validate() error {
+	if err := validateResource(r.TypeMeta, SafeguardRuleKind, r.Metadata); err != nil {
+		return err
+	}
+	if !planDigestPattern.MatchString(r.Spec.Fingerprint) || strings.TrimSpace(r.Spec.Category) == "" ||
+		r.Spec.OccurrenceCount < 3 || r.Spec.FirstSeen.IsZero() || r.Spec.LastSeen.IsZero() ||
+		r.Spec.CreatedAt.IsZero() || r.Spec.UpdatedAt.IsZero() || r.Spec.LastSeen.Before(r.Spec.FirstSeen) ||
+		r.Spec.UpdatedAt.Before(r.Spec.CreatedAt) || r.Spec.Revision < 1 || !validSafeguardState(r.Spec.State) {
+		return errors.New("safeguard rule requires repeated failure evidence, lifecycle state, and timestamps")
+	}
+	if validateProjectRepository(r.Spec.ProjectID, r.Spec.RepositoryID) != nil || (r.Spec.WorktreeID != "" && !validIdentifier(r.Spec.WorktreeID)) {
+		return errors.New("safeguard requires a valid project and repository scope")
+	}
+	metrics := r.Spec.Metrics
+	if metrics.Evaluations < 0 || metrics.Hits < 0 || metrics.Misses < 0 || metrics.PositiveFeedback < 0 ||
+		metrics.FalsePositives < 0 || metrics.EvaluationCostUnits < 0 ||
+		metrics.Evaluations != metrics.Hits+metrics.Misses || metrics.EvaluationCostUnits != metrics.Evaluations ||
+		metrics.PositiveFeedback+metrics.FalsePositives > metrics.Hits {
+		return errors.New("safeguard metrics are inconsistent")
+	}
+	if (r.Spec.State == SafeguardShadow || r.Spec.State == SafeguardActive) && strings.TrimSpace(r.Spec.Owner) == "" {
+		return errors.New("shadow and active safeguards require an owner")
+	}
+	if r.Spec.State == SafeguardProposal && (r.Spec.ActivatedAt != nil || r.Spec.ActivationApprovedBy != "" || r.Spec.RetiredAt != nil) {
+		return errors.New("proposed safeguard cannot have lifecycle completion timestamps")
+	}
+	if (r.Spec.ActivatedAt == nil) != (strings.TrimSpace(r.Spec.ActivationApprovedBy) == "") {
+		return errors.New("safeguard activation time and human approval must be recorded together")
+	}
+	if r.Spec.State == SafeguardActive && r.Spec.ActivatedAt == nil {
+		return errors.New("active safeguard requires a human-approved activation")
+	}
+	if (r.Spec.State == SafeguardRetired) != (r.Spec.RetiredAt != nil) {
+		return errors.New("retired safeguard requires exactly one retirement time")
+	}
+	return nil
+}
+
+func (r *SafeguardRule) Transition(next SafeguardRuleState, owner string, at time.Time) error {
+	if r == nil || at.IsZero() || at.Before(r.Spec.UpdatedAt) {
+		return errors.New("safeguard transition requires a current rule and monotonic time")
+	}
+	updated := *r
+	switch r.Spec.State {
+	case SafeguardProposal:
+		if next != SafeguardShadow && next != SafeguardRetired {
+			return errors.New("proposed safeguard can only enter shadow mode or retire")
+		}
+	case SafeguardShadow:
+		if next != SafeguardActive && next != SafeguardRetired {
+			return errors.New("shadow safeguard can only activate or retire")
+		}
+	case SafeguardActive:
+		if next != SafeguardShadow && next != SafeguardRetired {
+			return errors.New("active safeguard can only roll back or retire")
+		}
+	case SafeguardRetired:
+		return errors.New("retired safeguard is terminal")
+	default:
+		return errors.New("safeguard has an invalid lifecycle state")
+	}
+	if r.Spec.State == SafeguardProposal && next == SafeguardShadow {
+		updated.Spec.Owner = strings.TrimSpace(owner)
+		if updated.Spec.Owner == "" {
+			return errors.New("shadow safeguard requires an owner")
+		}
+	}
+	if next == SafeguardActive {
+		metrics := r.Spec.Metrics
+		if metrics.Hits < 1 || metrics.PositiveFeedback < 1 || metrics.FalsePositives != 0 {
+			return errors.New("safeguard activation requires an exact hit, positive feedback, and no false positives")
+		}
+		updated.Spec.ActivationApprovedBy = strings.TrimSpace(owner)
+		if updated.Spec.ActivationApprovedBy == "" {
+			return errors.New("safeguard activation requires a human approver")
+		}
+		activated := at.UTC()
+		updated.Spec.ActivatedAt = &activated
+	}
+	if next == SafeguardRetired {
+		retired := at.UTC()
+		updated.Spec.RetiredAt = &retired
+	}
+	updated.Spec.State = next
+	updated.Spec.UpdatedAt = at.UTC()
+	if err := updated.Validate(); err != nil {
+		return err
+	}
+	*r = updated
+	return nil
+}
+
+func (r *SafeguardRule) RecordEvaluation(hit bool, at time.Time) error {
+	if r == nil || (r.Spec.State != SafeguardShadow && r.Spec.State != SafeguardActive) || at.IsZero() || at.Before(r.Spec.UpdatedAt) {
+		return errors.New("only current shadow or active safeguards can record evaluations")
+	}
+	updated := *r
+	updated.Spec.Metrics.Evaluations++
+	updated.Spec.Metrics.EvaluationCostUnits++
+	if hit {
+		updated.Spec.Metrics.Hits++
+	} else {
+		updated.Spec.Metrics.Misses++
+	}
+	updated.Spec.UpdatedAt = at.UTC()
+	if err := updated.Validate(); err != nil {
+		return err
+	}
+	*r = updated
+	return nil
+}
+
+func (r *SafeguardRule) RecordFeedback(feedback SafeguardFeedback, at time.Time) error {
+	if r == nil || (r.Spec.State != SafeguardShadow && r.Spec.State != SafeguardActive) || at.IsZero() || at.Before(r.Spec.UpdatedAt) {
+		return errors.New("only current shadow or active safeguards can receive feedback")
+	}
+	metrics := r.Spec.Metrics
+	if metrics.PositiveFeedback+metrics.FalsePositives >= metrics.Hits {
+		return errors.New("safeguard feedback requires an unreviewed exact evaluation hit")
+	}
+	updated := *r
+	switch feedback {
+	case SafeguardFeedbackPositive:
+		updated.Spec.Metrics.PositiveFeedback++
+	case SafeguardFeedbackFalsePositive:
+		updated.Spec.Metrics.FalsePositives++
+	default:
+		return errors.New("safeguard feedback is invalid")
+	}
+	updated.Spec.UpdatedAt = at.UTC()
+	if err := updated.Validate(); err != nil {
+		return err
+	}
+	*r = updated
+	return nil
+}
+
+func validSafeguardState(state SafeguardRuleState) bool {
+	switch state {
+	case SafeguardProposal, SafeguardShadow, SafeguardActive, SafeguardRetired:
+		return true
+	default:
+		return false
+	}
 }
 
 func NewProject(id, name string, repositories []Repository) Project {

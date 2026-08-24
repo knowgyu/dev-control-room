@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -781,41 +782,57 @@ func (s *Store) LatestScanRun(ctx context.Context, projectID string) (domain.Sca
 	return run, nil
 }
 
-func (s *Store) SaveFailureFingerprint(ctx context.Context, fingerprint domain.FailureFingerprint) error {
-	if err := fingerprint.Validate(); err != nil {
-		return fmt.Errorf("validate failure fingerprint: %w", err)
+func (s *Store) RecordFailureFingerprint(ctx context.Context, occurrence domain.FailureFingerprint) (domain.FailureFingerprint, error) {
+	if err := occurrence.Validate(); err != nil {
+		return domain.FailureFingerprint{}, fmt.Errorf("validate failure occurrence: %w", err)
 	}
-	object, err := s.maskedJSON(fingerprint)
+	if occurrence.Spec.OccurrenceCount != 1 {
+		return domain.FailureFingerprint{}, errors.New("failure occurrence count must start at one")
+	}
+	object, err := s.maskedJSON(occurrence)
 	if err != nil {
-		return err
+		return domain.FailureFingerprint{}, err
 	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO failure_fingerprints(fingerprint, first_seen, last_seen, occurrence_count, object_json)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(fingerprint) DO UPDATE SET first_seen=excluded.first_seen,
-last_seen=excluded.last_seen, occurrence_count=excluded.occurrence_count, object_json=excluded.object_json`,
-		fingerprint.Spec.Fingerprint, fingerprint.Spec.FirstSeen.UTC().Format(timeFormat),
-		fingerprint.Spec.LastSeen.UTC().Format(timeFormat), fingerprint.Spec.OccurrenceCount, object)
+VALUES (?, ?, ?, 1, ?)
+ON CONFLICT(fingerprint) DO UPDATE SET
+first_seen=CASE WHEN excluded.first_seen < failure_fingerprints.first_seen THEN excluded.first_seen ELSE failure_fingerprints.first_seen END,
+last_seen=CASE WHEN excluded.last_seen > failure_fingerprints.last_seen THEN excluded.last_seen ELSE failure_fingerprints.last_seen END,
+occurrence_count=failure_fingerprints.occurrence_count + 1`, occurrence.Spec.Fingerprint,
+		occurrence.Spec.FirstSeen.UTC().Format(timeFormat), occurrence.Spec.LastSeen.UTC().Format(timeFormat), object)
 	if err != nil {
-		return fmt.Errorf("save failure fingerprint: %w", err)
+		return domain.FailureFingerprint{}, fmt.Errorf("record failure fingerprint: %w", err)
 	}
-	return nil
+	for range 20 {
+		item, storedObject, err := s.failureFingerprintRecord(ctx, occurrence.Spec.Fingerprint)
+		if err != nil {
+			return domain.FailureFingerprint{}, err
+		}
+		item.Spec.EvidenceRefs = mergeEvidenceRefs(item.Spec.EvidenceRefs, occurrence.Spec.EvidenceRefs)
+		updatedObject, err := s.maskedJSON(item)
+		if err != nil {
+			return domain.FailureFingerprint{}, err
+		}
+		result, err := s.db.ExecContext(ctx, `UPDATE failure_fingerprints SET object_json = ? WHERE fingerprint = ? AND occurrence_count = ? AND object_json = ?`,
+			updatedObject, item.Spec.Fingerprint, item.Spec.OccurrenceCount, storedObject)
+		if err != nil {
+			return domain.FailureFingerprint{}, fmt.Errorf("merge failure fingerprint evidence: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected == 1 {
+			return item, nil
+		}
+	}
+	return domain.FailureFingerprint{}, errors.New("failure fingerprint update conflicted repeatedly")
 }
 
 func (s *Store) GetFailureFingerprint(ctx context.Context, value string) (domain.FailureFingerprint, error) {
-	var object string
-	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM failure_fingerprints WHERE fingerprint = ?`, value).Scan(&object); err != nil {
-		return domain.FailureFingerprint{}, err
-	}
-	var item domain.FailureFingerprint
-	if err := json.Unmarshal([]byte(object), &item); err != nil {
-		return domain.FailureFingerprint{}, fmt.Errorf("decode failure fingerprint: %w", err)
-	}
-	return item, nil
+	item, _, err := s.failureFingerprintRecord(ctx, value)
+	return item, err
 }
 
 func (s *Store) ListFailureFingerprints(ctx context.Context, limit int) ([]domain.FailureFingerprint, error) {
-	query := `SELECT object_json FROM failure_fingerprints ORDER BY last_seen DESC, fingerprint`
+	query := `SELECT first_seen, last_seen, occurrence_count, object_json FROM failure_fingerprints ORDER BY last_seen DESC, fingerprint`
 	args := []any{}
 	if limit > 0 {
 		query += ` LIMIT ?`
@@ -828,13 +845,148 @@ func (s *Store) ListFailureFingerprints(ctx context.Context, limit int) ([]domai
 	defer rows.Close()
 	items := make([]domain.FailureFingerprint, 0)
 	for rows.Next() {
+		var firstSeen, lastSeen, object string
+		var occurrenceCount int
+		if err := rows.Scan(&firstSeen, &lastSeen, &occurrenceCount, &object); err != nil {
+			return nil, err
+		}
+		item, err := decodeFailureFingerprint(object, firstSeen, lastSeen, occurrenceCount)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) failureFingerprintRecord(ctx context.Context, fingerprint string) (domain.FailureFingerprint, string, error) {
+	var firstSeen, lastSeen, object string
+	var occurrenceCount int
+	if err := s.db.QueryRowContext(ctx, `SELECT first_seen, last_seen, occurrence_count, object_json FROM failure_fingerprints WHERE fingerprint = ?`, fingerprint).
+		Scan(&firstSeen, &lastSeen, &occurrenceCount, &object); err != nil {
+		return domain.FailureFingerprint{}, "", err
+	}
+	item, err := decodeFailureFingerprint(object, firstSeen, lastSeen, occurrenceCount)
+	return item, object, err
+}
+
+func decodeFailureFingerprint(object, firstSeen, lastSeen string, occurrenceCount int) (domain.FailureFingerprint, error) {
+	var item domain.FailureFingerprint
+	if err := json.Unmarshal([]byte(object), &item); err != nil {
+		return domain.FailureFingerprint{}, fmt.Errorf("decode failure fingerprint: %w", err)
+	}
+	first, err := time.Parse(timeFormat, firstSeen)
+	if err != nil {
+		return domain.FailureFingerprint{}, fmt.Errorf("decode failure fingerprint first seen: %w", err)
+	}
+	last, err := time.Parse(timeFormat, lastSeen)
+	if err != nil {
+		return domain.FailureFingerprint{}, fmt.Errorf("decode failure fingerprint last seen: %w", err)
+	}
+	item.Spec.FirstSeen = first
+	item.Spec.LastSeen = last
+	item.Spec.OccurrenceCount = occurrenceCount
+	return item, nil
+}
+
+func mergeEvidenceRefs(current, added []string) []string {
+	merged := append([]string(nil), current...)
+	for _, value := range added {
+		if value == "" || slices.Contains(merged, value) {
+			continue
+		}
+		merged = append(merged, value)
+	}
+	if len(merged) > 20 {
+		merged = merged[len(merged)-20:]
+	}
+	return merged
+}
+
+func (s *Store) CreateSafeguardRule(ctx context.Context, rule domain.SafeguardRule) (bool, error) {
+	if err := rule.Validate(); err != nil {
+		return false, fmt.Errorf("validate safeguard rule: %w", err)
+	}
+	object, err := s.maskedJSON(rule)
+	if err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+INSERT INTO safeguard_rules(id, fingerprint, category, project_id, repository_id, worktree_id, state, revision, updated_at, object_json)
+VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?)
+ON CONFLICT DO NOTHING`, rule.Metadata.ID, rule.Spec.Fingerprint, rule.Spec.Category, rule.Spec.ProjectID, rule.Spec.RepositoryID, rule.Spec.WorktreeID, rule.Spec.State, rule.Spec.Revision,
+		rule.Spec.UpdatedAt.UTC().Format(timeFormat), object)
+	if err != nil {
+		return false, fmt.Errorf("create safeguard rule: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	return affected == 1, err
+}
+
+func (s *Store) UpdateSafeguardRule(ctx context.Context, rule domain.SafeguardRule, previousRevision int64) (bool, error) {
+	if err := rule.Validate(); err != nil {
+		return false, fmt.Errorf("validate safeguard rule: %w", err)
+	}
+	if previousRevision < 1 || rule.Spec.Revision != previousRevision+1 {
+		return false, errors.New("safeguard revision must advance exactly once")
+	}
+	object, err := s.maskedJSON(rule)
+	if err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE safeguard_rules SET fingerprint = ?, category = ?, project_id = ?, repository_id = ?, worktree_id = NULLIF(?, ''),
+state = ?, revision = ?, updated_at = ?, object_json = ? WHERE id = ? AND revision = ?`,
+		rule.Spec.Fingerprint, rule.Spec.Category, rule.Spec.ProjectID, rule.Spec.RepositoryID, rule.Spec.WorktreeID,
+		rule.Spec.State, rule.Spec.Revision, rule.Spec.UpdatedAt.UTC().Format(timeFormat), object, rule.Metadata.ID, previousRevision)
+	if err != nil {
+		return false, fmt.Errorf("update safeguard rule: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	return affected == 1, err
+}
+
+func (s *Store) GetSafeguardRule(ctx context.Context, id string) (domain.SafeguardRule, error) {
+	return s.getSafeguardRule(ctx, `SELECT object_json FROM safeguard_rules WHERE id = ?`, id)
+}
+
+func (s *Store) GetSafeguardRuleByFingerprint(ctx context.Context, fingerprint string) (domain.SafeguardRule, error) {
+	return s.getSafeguardRule(ctx, `SELECT object_json FROM safeguard_rules WHERE fingerprint = ?`, fingerprint)
+}
+
+func (s *Store) getSafeguardRule(ctx context.Context, query, value string) (domain.SafeguardRule, error) {
+	var object string
+	if err := s.db.QueryRowContext(ctx, query, value).Scan(&object); err != nil {
+		return domain.SafeguardRule{}, err
+	}
+	var rule domain.SafeguardRule
+	if err := json.Unmarshal([]byte(object), &rule); err != nil {
+		return domain.SafeguardRule{}, fmt.Errorf("decode safeguard rule: %w", err)
+	}
+	return rule, nil
+}
+
+func (s *Store) ListSafeguardRules(ctx context.Context, limit int) ([]domain.SafeguardRule, error) {
+	query := `SELECT object_json FROM safeguard_rules ORDER BY updated_at DESC, id`
+	args := []any{}
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list safeguard rules: %w", err)
+	}
+	defer rows.Close()
+	items := make([]domain.SafeguardRule, 0)
+	for rows.Next() {
 		var object string
 		if err := rows.Scan(&object); err != nil {
 			return nil, err
 		}
-		var item domain.FailureFingerprint
+		var item domain.SafeguardRule
 		if err := json.Unmarshal([]byte(object), &item); err != nil {
-			return nil, fmt.Errorf("decode failure fingerprint: %w", err)
+			return nil, fmt.Errorf("decode safeguard rule: %w", err)
 		}
 		items = append(items, item)
 	}

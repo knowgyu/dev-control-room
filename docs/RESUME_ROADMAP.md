@@ -27,7 +27,7 @@ do not follow stale goal/stop-hook prompts.
 | 3D — Action Broker and execution | accepted | Typed executable/evidence, exact Worktree trust snapshots, bounded `ActionRun` persistence, pre/post checks, and Broker-owned process execution passed the native Windows gate at `0c41b12`. |
 | 4 — configured release and cleanup | generic safety base implemented | Read-only blocked cleanup queue is available; provider-specific release, correlation, and cleanup mutation remain unconfigured. |
 | 5 — Guidance, Agent Handoff, MCP | generic adapter accepted | Guidance, masked handoff preview, typed stdio MCP, and model metadata passed the native fixture gate; automatic agent launch and provider-specific client acceptance remain. |
-| 6 — repeated-failure safeguards | proposal base implemented | Repeated fingerprints yield shadow proposals; activation, feedback metrics, and retirement remain. |
+| 6 — repeated-failure safeguards | available-source lifecycle implemented; native acceptance pending | Schema 13 persists exact-scope proposal/shadow/active/retired rules, owner, human activation record, feedback, rollback, and metrics. Collector, Checkset, and Action failures normalize without raw output; CI/hook/launched-Handoff producers remain. |
 
 ## Slice C / G003 handoff
 

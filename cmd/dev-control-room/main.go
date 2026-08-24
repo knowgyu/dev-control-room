@@ -860,7 +860,7 @@ func runSafeguard(args []string, stdout, stderr io.Writer) int {
 		return writeCLIErrorTo(stderr, err)
 	}
 	defer service.Close()
-	items, err := service.SafeguardProposals(context.Background(), *limit)
+	items, err := service.Safeguards(context.Background(), *limit)
 	if err != nil {
 		return writeCLIErrorTo(stderr, err)
 	}

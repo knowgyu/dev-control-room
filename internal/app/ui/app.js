@@ -67,6 +67,11 @@
     postcheck_failed: "사후 점검 실패",
     blocked: "차단됨",
     shadow: "검토 전 모의 적용",
+    proposal: "검토 대기",
+    active: "활성",
+    retired: "사용 종료",
+    positive: "유효한 방지",
+    false_positive: "오탐",
     granted: "승인됨",
     allowed: "허용됨",
     denied: "차단됨",
@@ -372,9 +377,29 @@
     document.getElementById("cleanup-queue").innerHTML = (state.surfaceErrors.cleanup ? surfaceError(state.surfaceErrors.cleanup, "diagnostics") : "") + cleanupContent;
 
     const safeguardContent = state.safeguards.length
-      ? `<div class="item-list">${state.safeguards.map(item => `<article class="list-item"><div class="list-item-header"><h3>${escapeHTML(item.category)}</h3><span class="chip warn">${escapeHTML(label(item.mode))}</span></div><p>${escapeHTML(localize(item.summary))}</p><p class="next">${escapeHTML(item.occurrenceCount)}회 발생 · ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>`
-      : '<div class="empty-state"><strong>반복된 실패 제안이 없습니다.</strong><span>검증된 실패가 반복되면 검토 가능한 safeguard 제안이 나타납니다.</span></div>';
+      ? `<div class="item-list">${state.safeguards.map(renderSafeguardRule).join("")}</div>`
+      : '<div class="empty-state"><strong>반복된 실패 규칙이 없습니다.</strong><span>같은 형태의 검증된 실패가 3회 반복되면 검토 가능한 규칙이 나타납니다.</span></div>';
     document.getElementById("safeguards").innerHTML = (state.surfaceErrors.safeguards ? surfaceError(state.surfaceErrors.safeguards, "diagnostics") : "") + safeguardContent;
+  }
+
+  function renderSafeguardRule(item) {
+    const spec = item.spec;
+    const metrics = spec.metrics || {};
+    const feedbackCount = (metrics.positiveFeedback || 0) + (metrics.falsePositives || 0);
+    const canFeedback = ["shadow", "active"].includes(spec.state) && (metrics.hits || 0) > feedbackCount;
+    const canActivate = spec.state === "shadow" && (metrics.hits || 0) > 0 && (metrics.positiveFeedback || 0) > 0 && (metrics.falsePositives || 0) === 0;
+    const activationHint = spec.state === "shadow" ? `<p class="next">활성화 조건: 정확히 일치 1회 이상, 유효한 방지 1회 이상, 오탐 0회. 현재 ${escapeHTML(metrics.hits || 0)} / ${escapeHTML(metrics.positiveFeedback || 0)} / ${escapeHTML(metrics.falsePositives || 0)}</p>` : "";
+    const scope = [spec.projectId, spec.repositoryId, spec.worktreeId].filter(Boolean).join(" / ") || "전체 로컬 범위";
+    let controls = "";
+    if (spec.state === "proposal") {
+      controls = `<input class="owner-input" data-safeguard-owner aria-label="재발 방지 규칙 담당자" placeholder="담당자 이름"><button class="button primary small" type="button" data-safeguard="shadow" data-owner-submit data-id="${escapeHTML(item.metadata.id)}" disabled>모의 적용 시작</button><button class="button small" type="button" data-safeguard="retire" data-id="${escapeHTML(item.metadata.id)}">제안 폐기</button>`;
+    } else if (spec.state === "shadow") {
+      controls = `<button class="button small" type="button" data-safeguard="positive" data-id="${escapeHTML(item.metadata.id)}" ${canFeedback ? "" : "disabled"}>유효한 방지</button><button class="button small" type="button" data-safeguard="false_positive" data-id="${escapeHTML(item.metadata.id)}" ${canFeedback ? "" : "disabled"}>오탐</button><button class="button primary small" type="button" data-safeguard="activate" data-id="${escapeHTML(item.metadata.id)}" ${canActivate ? "" : "disabled"}>활성화</button><button class="button small" type="button" data-safeguard="retire" data-id="${escapeHTML(item.metadata.id)}">사용 종료</button>`;
+    } else if (spec.state === "active") {
+      controls = `<button class="button small" type="button" data-safeguard="positive" data-id="${escapeHTML(item.metadata.id)}" ${canFeedback ? "" : "disabled"}>유효한 방지</button><button class="button small" type="button" data-safeguard="false_positive" data-id="${escapeHTML(item.metadata.id)}" ${canFeedback ? "" : "disabled"}>오탐</button><button class="button small" type="button" data-safeguard="rollback" data-id="${escapeHTML(item.metadata.id)}">모의 적용으로 되돌리기</button><button class="button small" type="button" data-safeguard="retire" data-id="${escapeHTML(item.metadata.id)}">사용 종료</button>`;
+    }
+    const stateClass = spec.state === "active" ? "ok" : spec.state === "retired" ? "" : "warn";
+    return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(spec.category)}</h3><p class="meta">${escapeHTML(scope)} · ${escapeHTML(spec.occurrenceCount)}회 반복</p></div><span class="chip ${stateClass}">${escapeHTML(label(spec.state))}</span></div><p>출력 내용이 아니라 실패 종류·상태·종료 코드가 정확히 같은 경우만 일치로 계산합니다.</p><dl class="detail-grid"><div><dt>담당자</dt><dd>${escapeHTML(spec.owner || "미지정")}</dd></div><div><dt>마지막 발생</dt><dd>${escapeHTML(formatDate(spec.lastSeen))}</dd></div><div><dt>활성 승인</dt><dd>${escapeHTML(spec.activationApprovedBy || "아직 없음")}</dd></div><div><dt>평가</dt><dd>${escapeHTML(metrics.evaluations || 0)}회</dd></div><div><dt>일치 / 불일치</dt><dd>${escapeHTML(metrics.hits || 0)} / ${escapeHTML(metrics.misses || 0)}</dd></div><div><dt>유효한 방지 / 오탐</dt><dd>${escapeHTML(metrics.positiveFeedback || 0)} / ${escapeHTML(metrics.falsePositives || 0)}</dd></div><div><dt>평가 비용</dt><dd>로컬 비교 ${escapeHTML(metrics.evaluationCostUnits || 0)}회</dd></div><div class="wide"><dt>Fingerprint</dt><dd><code>${escapeHTML(spec.fingerprint)}</code></dd></div></dl>${activationHint}${controls ? `<div class="item-actions">${controls}</div>` : ""}</article>`;
   }
 
   function renderActivity() {
@@ -433,7 +458,7 @@
     state.loading.diagnostics = true;
     await Promise.all([
       loadSurface("cleanup", () => request("/api/cleanup/candidates"), items => { state.cleanup = items; }),
-      loadSurface("safeguards", () => request("/api/safeguards/proposals"), items => { state.safeguards = items; }),
+      loadSurface("safeguards", () => request("/api/safeguards/rules"), items => { state.safeguards = items; }),
       loadSurface("profiles", () => request("/api/agent-profiles"), items => { state.profiles = items; }),
     ]);
     state.loading.diagnostics = false;
@@ -777,6 +802,30 @@
       }
       return;
     }
+    if (button.dataset.safeguard) {
+      const action = button.dataset.safeguard;
+      const id = button.dataset.id;
+      button.disabled = true;
+      try {
+        let path = `/ui/safeguards/${encode(id)}/${action}`;
+        let body = "";
+        if (action === "shadow") {
+          const owner = button.closest(".list-item").querySelector("[data-safeguard-owner]").value.trim();
+          body = JSON.stringify({ owner });
+        } else if (["positive", "false_positive"].includes(action)) {
+          path = `/ui/safeguards/${encode(id)}/feedback`;
+          body = JSON.stringify({ feedback: action });
+        }
+        await request(path, { method: "POST", headers: mutationHeaders(), body });
+        showNotice(action === "shadow" ? "재발 방지 규칙의 모의 적용을 시작했습니다." : action === "activate" ? "재발 방지 규칙을 활성화했습니다." : action === "rollback" ? "재발 방지 규칙을 모의 적용으로 되돌렸습니다." : action === "retire" ? "재발 방지 규칙 사용을 종료했습니다." : "재발 방지 규칙 평가를 기록했습니다.");
+        await loadDiagnosticsData(true);
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
     if (["guidance-check", "handoff-preview"].includes(button.id)) {
       const target = document.getElementById("guidance-target").value.split("|");
       button.disabled = true;
@@ -923,6 +972,12 @@
       state.findingFilters.state = event.target.value;
       renderProjects();
     }
+  });
+
+  document.addEventListener("input", event => {
+    if (!event.target.matches("[data-safeguard-owner]")) return;
+    const submit = event.target.closest(".list-item").querySelector("[data-owner-submit]");
+    submit.disabled = event.target.value.trim() === "";
   });
 
   document.getElementById("editor-cancel").addEventListener("click", () => editorDialog.close());
