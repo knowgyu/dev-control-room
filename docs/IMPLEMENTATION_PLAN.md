@@ -142,7 +142,7 @@ Work:
 - Add local sync, fast-forward prechecks, backend/frontend separation,
   stage/production promotion, Jenkins triggers, and post-deploy evidence.
 - Add configured GitHub/Jenkins read-only collectors. GitHub latest workflow
-  lookup is implemented; Jenkins latest build remains pending.
+  and Jenkins latest build lookup are implemented; mutation remains pending.
 - Implement cleanup candidate correlation for merged PRs, branches, worktrees,
   remote branches, and explicit issue links.
 - Re-observe every candidate worktree immediately before cleanup and block

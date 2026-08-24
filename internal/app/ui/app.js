@@ -22,6 +22,7 @@
     integrations: [],
     integrationHealth: {},
     githubLatestRuns: {},
+    jenkinsLatestBuilds: {},
     activeProjectID: "",
     checkRuns: new Map(),
     expandedChecks: new Set(),
@@ -98,6 +99,7 @@
     waiting: "대기",
   };
   const conclusionLabels = { success: "성공", failure: "실패", cancelled: "취소됨", skipped: "건너뜀", neutral: "중립" };
+  const buildResultLabels = { SUCCESS: "성공", FAILURE: "실패", ABORTED: "중단됨", UNSTABLE: "불안정", NOT_BUILT: "빌드 안 됨" };
   const confidenceLabels = {
     confirmed: "확인됨",
     likely: "가능성 높음",
@@ -407,7 +409,10 @@
         const latest = state.githubLatestRuns[item.id];
         const latestURL = latest?.url && /^https?:\/\//i.test(latest.url) ? latest.url : "";
         const latestMarkup = item.kind === "github" && latest ? `<div class="wide"><dt>최근 workflow</dt><dd>${latest.runId ? `${escapeHTML(label(latest.status))} · ${escapeHTML(conclusionLabels[latest.conclusion] || latest.conclusion || "결과 없음")} · ${escapeHTML(latest.branch || "브랜치 없음")} · 실행 #${escapeHTML(latest.runId)}${latestURL ? ` · <a href="${escapeHTML(latestURL)}" target="_blank" rel="noreferrer">실행 열기</a>` : ""}` : "최근 실행이 없습니다."}</dd></div>` : "";
-        return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · ${escapeHTML(item.kind)}</p></div><span class="chip ${healthStatus === "passed" ? "ok" : healthStatus === "failed" ? "bad" : "warn"}">${escapeHTML(health ? label(healthStatus) : "미확인")}</span></div><dl class="detail-grid"><div class="wide"><dt>Endpoint</dt><dd><code>${escapeHTML(item.endpoint)}</code></dd></div><div><dt>Credential</dt><dd><code>${escapeHTML(item.credentialRef || "없음")}</code></dd></div><div class="wide"><dt>대상 값</dt><dd>${Object.entries(item.values || {}).map(([key, value]) => `<code>${escapeHTML(key)}=${escapeHTML(value)}</code>`).join("<br>") || "없음"}</dd></div>${health ? `<div class="wide"><dt>마지막 확인</dt><dd>${escapeHTML(health.message)}${health.httpStatus ? ` · HTTP ${escapeHTML(health.httpStatus)}` : ""}</dd></div>` : ""}${latestMarkup}</dl><div class="item-actions"><button class="button small" type="button" data-integration="check" data-id="${escapeHTML(item.id)}">연결 확인</button>${item.kind === "github" ? `<button class="button small" type="button" data-integration="github-latest" data-id="${escapeHTML(item.id)}">최근 workflow 확인</button>` : ""}<button class="button small" type="button" data-integration="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="integration" data-integration-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`;
+        const build = state.jenkinsLatestBuilds[item.id];
+        const buildURL = build?.url && /^https?:\/\//i.test(build.url) ? build.url : "";
+        const buildMarkup = item.kind === "jenkins" && build ? `<div class="wide"><dt>최근 빌드</dt><dd>${build.buildNumber ? `${build.building ? "빌드 중" : escapeHTML(buildResultLabels[build.result] || build.result || "결과 없음")} · ${escapeHTML(build.displayName || `#${build.buildNumber}`)}${buildURL ? ` · <a href="${escapeHTML(buildURL)}" target="_blank" rel="noreferrer">빌드 열기</a>` : ""}` : "최근 빌드가 없습니다."}</dd></div>` : "";
+        return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · ${escapeHTML(item.kind)}</p></div><span class="chip ${healthStatus === "passed" ? "ok" : healthStatus === "failed" ? "bad" : "warn"}">${escapeHTML(health ? label(healthStatus) : "미확인")}</span></div><dl class="detail-grid"><div class="wide"><dt>Endpoint</dt><dd><code>${escapeHTML(item.endpoint)}</code></dd></div><div><dt>Credential</dt><dd><code>${escapeHTML(item.credentialRef || "없음")}</code></dd></div><div class="wide"><dt>대상 값</dt><dd>${Object.entries(item.values || {}).map(([key, value]) => `<code>${escapeHTML(key)}=${escapeHTML(value)}</code>`).join("<br>") || "없음"}</dd></div>${health ? `<div class="wide"><dt>마지막 확인</dt><dd>${escapeHTML(health.message)}${health.httpStatus ? ` · HTTP ${escapeHTML(health.httpStatus)}` : ""}</dd></div>` : ""}${latestMarkup}${buildMarkup}</dl><div class="item-actions"><button class="button small" type="button" data-integration="check" data-id="${escapeHTML(item.id)}">연결 확인</button>${item.kind === "github" ? `<button class="button small" type="button" data-integration="github-latest" data-id="${escapeHTML(item.id)}">최근 workflow 확인</button>` : ""}${item.kind === "jenkins" ? `<button class="button small" type="button" data-integration="jenkins-latest" data-id="${escapeHTML(item.id)}">최근 빌드 확인</button>` : ""}<button class="button small" type="button" data-integration="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="integration" data-integration-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`;
       }).join("")}</div>`
       : '<div class="empty-state"><strong>등록된 연동이 없습니다.</strong><span>먼저 주소와 credential reference만 등록하세요.</span></div>';
     document.getElementById("integration-list").innerHTML = (state.surfaceErrors.integrations ? surfaceError(state.surfaceErrors.integrations, "diagnostics") : "") + integrationContent;
@@ -827,6 +832,19 @@
         state.githubLatestRuns[button.dataset.id] = await request(`/api/integrations/${encode(button.dataset.id)}/github/latest-run`, { method: "POST", headers: mutationHeaders(), body: "" });
         renderDiagnostics();
         showNotice("최근 GitHub workflow 실행을 확인했습니다.");
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+    if (button.dataset.integration === "jenkins-latest") {
+      button.disabled = true;
+      try {
+        state.jenkinsLatestBuilds[button.dataset.id] = await request(`/api/integrations/${encode(button.dataset.id)}/jenkins/latest-build`, { method: "POST", headers: mutationHeaders(), body: "" });
+        renderDiagnostics();
+        showNotice("최근 Jenkins 빌드를 확인했습니다.");
       } catch (error) {
         showNotice(error.message, true);
       } finally {

@@ -118,6 +118,15 @@ POST /api/integrations/{id}/github/latest-run
 It accepts an empty body, uses the configured credential reference only for the
 outbound request, and never persists or returns the credential or raw response.
 
+Jenkins latest build lookup is also read-only. It resolves the stable `job`
+value as nested Jenkins Job segments; an optional non-secret `username` value
+selects Basic Auth, otherwise the credential reference is sent as a bearer
+token. The protected route is:
+
+```text
+POST /api/integrations/{id}/jenkins/latest-build
+```
+
 ## Initial operations
 
 The first implemented group operation treats the repositories of the selected
@@ -158,8 +167,10 @@ The implementation supports these sources without forcing one into the other:
 
 - GitHub latest workflow lookup is available as a read-only configured
   operation; stable target values are `owner`, `repository`, and `workflow`.
-- Jenkins latest build and trigger remain pending and must use the same
-  credential-reference and Action Broker boundaries.
+- Jenkins latest build lookup is available as a read-only configured
+  operation; stable target values are `job` and optional `username`.
+- Jenkins triggers remain pending and must use the same credential-reference
+  and Action Broker boundaries.
 
 - a reviewed local CLI/PowerShell runbook with exact argv and named parameters;
 - a typed REST adapter using a configured endpoint, operation, and credential

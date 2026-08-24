@@ -107,7 +107,9 @@ plans and Broker execution boundary.
 The first provider-specific operation is implemented as a read-only GitHub
 latest workflow lookup. It resolves generic `owner`, `repository`, and
 `workflow` values at request time through a protected UI route and keeps the
-credential reference boundary intact. Jenkins runtime operations,
+credential reference boundary intact. Jenkins latest build lookup is also
+implemented as a read-only operation with nested Job path resolution and
+Basic Auth or bearer credential-reference support. Jenkins triggers,
 Kubernetes REST visibility, and PowerShell runbooks remain unimplemented; no
 real identifiers or credentials belong in this repository.
 
@@ -342,8 +344,8 @@ separate improvements, not falsely labelled discoveries.
   and UI/CLI/HTTP result review; company-specific release commands remain
   intentionally unconfigured.
 - Configured release procedures, Jenkins triggers, or cleanup execution.
-- Jenkins connectors beyond local remote capability detection; GitHub trigger
-  and release operations.
+- Jenkins triggers beyond the read-only latest build lookup; GitHub trigger and
+  release operations.
 - Native Agent Handoff launch and provider-specific MCP client acceptance.
 - CI, hook, and launched-Handoff verification failure producers and their
   safeguard normalization. Handoff launch metadata is not a verification

@@ -178,3 +178,57 @@ func TestGitHubLatestRunIsUnavailableWithoutCredential(t *testing.T) {
 		t.Fatalf("missing credential error = %v", err)
 	}
 }
+
+func TestJenkinsLatestBuildSupportsBasicAuthAndReturnsMetadata(t *testing.T) {
+	const credential = "fixture-jenkins-password"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/job/folder/job/sample-build/lastBuild/api/json" {
+			t.Errorf("unexpected Jenkins request path: %s", request.URL.Path)
+		}
+		username, password, ok := request.BasicAuth()
+		if !ok || username != "fixture-user" || password != credential {
+			t.Errorf("basic auth = %q, %q, %t", username, password, ok)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"number":17,"building":false,"result":"SUCCESS","displayName":"#17","url":"https://jenkins.example.invalid/job/17","timestamp":1724544000000}`))
+	}))
+	defer server.Close()
+	t.Setenv("DEVROOM_JENKINS_PASSWORD", credential)
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	if _, err := service.AddIntegration(context.Background(), AddIntegrationInput{
+		ID: "jenkins", Name: "Fixture Jenkins", Kind: IntegrationJenkins, Endpoint: server.URL,
+		CredentialRef: "env:DEVROOM_JENKINS_PASSWORD",
+		Values:        map[string]string{"job": "folder/sample-build", "username": "fixture-user"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/integrations/jenkins/jenkins/latest-build", nil)
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("unprotected latest build = %d", recorder.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/integrations/jenkins/jenkins/latest-build", nil)
+	request.Header.Set("X-Control-Room-Token", service.mutationToken)
+	recorder = httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("latest build = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var envelope contract.Envelope[JenkinsLatestBuild]
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error != nil || envelope.Data.BuildNumber != 17 || envelope.Data.Result != "SUCCESS" || envelope.Data.Job != "folder/sample-build" {
+		t.Fatalf("latest build envelope = %#v", envelope)
+	}
+	if bytes.Contains(recorder.Body.Bytes(), []byte(credential)) {
+		t.Fatal("latest build response exposed credential")
+	}
+}
