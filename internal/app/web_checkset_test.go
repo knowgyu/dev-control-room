@@ -27,6 +27,10 @@ func TestEmbeddedUIExposesChecksetReviewFlow(t *testing.T) {
 		"Pre-PR checksets", "Create Checkset", "Apply", "Run", "Review results",
 		"/api/checksets", "/apply", "/run", "/runs", "X-Control-Room-Token", "alert(e.message)",
 		"Choose folder", "Find repositories below", "/api/projects/discover", "/api/folder-picker",
+		"Agent profile", "refreshEnvironment", "Actions", "/api/actions/plans", "Plan repository refresh", "Mark worktree execution-ready",
+		"Cleanup queue", "/api/cleanup/candidates", "Every candidate stays blocked",
+		"Guidance Doctor", "/api/handoffs/preview", "transcriptIncluded",
+		"Repeated failures", "/api/safeguards/proposals", "shadow mode",
 	} {
 		if !strings.Contains(recorder.Body.String(), value) {
 			t.Errorf("embedded UI missing %q", value)

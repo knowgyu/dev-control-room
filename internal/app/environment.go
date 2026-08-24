@@ -68,7 +68,7 @@ func (a *App) AddAgentProfile(ctx context.Context, input AddAgentProfileInput) (
 	profile := domain.AgentProfile{
 		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentProfileKind},
 		Metadata: domain.ObjectMeta{ID: id, Name: strings.TrimSpace(input.Name)},
-		Spec:     domain.AgentProfileSpec{Command: strings.TrimSpace(input.Command), VersionProbe: append([]string(nil), input.VersionProbe...), TimeoutSeconds: input.TimeoutSeconds, EnvironmentAllowlist: append([]string(nil), input.EnvironmentAllowlist...), LaunchMode: input.LaunchMode, DataBoundary: input.DataBoundary},
+		Spec:     domain.AgentProfileSpec{Command: strings.TrimSpace(input.Command), VersionProbe: append([]string(nil), input.VersionProbe...), TimeoutSeconds: input.TimeoutSeconds, ModelArgumentTemplate: strings.TrimSpace(input.ModelArgumentTemplate), EnvironmentAllowlist: append([]string(nil), input.EnvironmentAllowlist...), LaunchMode: input.LaunchMode, DataBoundary: input.DataBoundary},
 	}
 	if profile.Spec.LaunchMode == "" {
 		profile.Spec.LaunchMode = domain.AgentLaunchDirect
@@ -101,6 +101,9 @@ func (a *App) UpdateAgentProfile(ctx context.Context, id string, input UpdateAge
 	}
 	if input.TimeoutSeconds != 0 {
 		profile.Spec.TimeoutSeconds = input.TimeoutSeconds
+	}
+	if strings.TrimSpace(input.ModelArgumentTemplate) != "" {
+		profile.Spec.ModelArgumentTemplate = strings.TrimSpace(input.ModelArgumentTemplate)
 	}
 	if input.EnvironmentAllowlist != nil {
 		profile.Spec.EnvironmentAllowlist = append([]string(nil), input.EnvironmentAllowlist...)

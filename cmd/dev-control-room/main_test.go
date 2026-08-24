@@ -90,6 +90,25 @@ func TestProjectListJSONUsesStableEnvelope(t *testing.T) {
 	}
 }
 
+func TestCleanupListJSONUsesStableEnvelope(t *testing.T) {
+	home := t.TempDir()
+	service, err := app.New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"cleanup", "list", "--home", home, "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("cleanup list exit code = %d, stderr=%s", code, stderr.String())
+	}
+	var envelope contract.Envelope[[]domain.CleanupCandidate]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil || len(*envelope.Data) != 0 {
+		t.Fatalf("unexpected cleanup envelope: %s (%v)", stdout.String(), err)
+	}
+}
+
 func TestEnvironmentDoctorJSONUsesStableEnvelopeAndHidesSecret(t *testing.T) {
 	const canary = "secret-canary-value"
 	if err := os.Setenv("DEVROOM_CLI_SECRET", canary); err != nil {

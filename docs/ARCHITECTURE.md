@@ -173,10 +173,9 @@ public agent contract in the initial release.
 
 ### MCP after the application contract
 
-A stdio MCP adapter is added only after the CLI and application service are
-stable. It provides narrow typed tools such as listing projects/findings,
-running a Checkset, planning an Action, and preparing an Agent Handoff. It must
-not provide a generic shell tool.
+A stdio MCP adapter is available after the CLI and application service became
+stable. It provides narrow typed project, finding, cleanup, Guidance, and Agent
+Handoff preview tools. It must not provide a generic shell tool.
 
 Read-only tools follow project scope. Mutating tools call the Action broker and
 cannot manufacture human approval. External and high-impact actions return an

@@ -167,6 +167,45 @@ func TestActionUIApprovalCeremonyFailsClosedWithoutNativePrompt(t *testing.T) {
 	}
 }
 
+func TestActionHTTPExecuteUsesBrokerAndReturnsRun(t *testing.T) {
+	service, project := actionAdapterFixture(t)
+	fake := &fakeActionProcessRunner{}
+	broker, err := action.NewWithRunner(service.store, nil, fake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.broker = broker
+	plan, err := service.PlanAction(context.Background(), ActionPlanInput{ID: "plan-execute", Name: "Refresh", ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", ActionType: "repository.refresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustRequest := httptest.NewRequest(http.MethodPost, "/ui/actions/plans/"+plan.Metadata.ID+"/worktree-trust", nil)
+	trustRequest.Header.Set("X-Control-Room-Token", service.mutationToken)
+	trustRecorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(trustRecorder, trustRequest)
+	if trustRecorder.Code != http.StatusOK {
+		t.Fatalf("trust HTTP = %d: %s", trustRecorder.Code, trustRecorder.Body.String())
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/actions/plans/"+plan.Metadata.ID+"/execute", strings.NewReader(`{"holder":"runner","idempotencyKey":"execute-1"}`))
+	request.Header.Set("X-Control-Room-Token", service.mutationToken)
+	recorder := httptest.NewRecorder()
+	service.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("execute HTTP = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response contract.Envelope[domain.ActionRun]
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Data == nil || response.Data.Spec.Status != domain.ActionRunSucceeded || fake.calls != 1 {
+		t.Fatalf("execute response = %d: %#v, fake = %#v", recorder.Code, response, fake)
+	}
+}
+
+type fakeActionProcessRunner struct{ calls int }
+
+func (r *fakeActionProcessRunner) Run(context.Context, string, []string, []string, string, time.Duration, int) (action.ProcessResult, error) {
+	r.calls++
+	return action.ProcessResult{ExitCode: 0, Stdout: "ok"}, nil
+}
+
 type fakeApprovalPrompt struct {
 	decision action.HumanDecision
 	request  action.HumanDecisionRequest

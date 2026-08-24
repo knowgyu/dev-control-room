@@ -35,12 +35,31 @@ section is the authoritative final result.
 ## Scope boundary
 
 This accepts Milestones 0–3, including 3A–3D and the W5 ceremony, on native
-Windows. It does not implement or exercise real Action process execution,
-target mutation, postchecks, Scheduler install/uninstall, configured release
-or cleanup (Milestone 4), Guidance/Agent Handoff/MCP (Milestone 5), or
-repeated-failure safeguards (Milestone 6). Those remain separate, typed slices.
+Windows. It does not exercise the new Action process execution, target
+mutation, postchecks, Scheduler install/uninstall, configured release or
+cleanup mutation, native Agent CLI launch, provider MCP clients, or safeguard
+activation. The generic read-only Milestone 4–6 surfaces have separate WSL
+evidence in their verification documents.
 
 The UI, CLI, and future MCP adapters must continue to call one application
 service. Secrets remain masked, the Action Broker remains the only mutation
 boundary, telemetry remains disabled, and no unreviewed dependency may be
 added.
+
+## Post-baseline Slice F gate
+
+Typed Action execution and the related UI/API/CLI surfaces were added after
+the accepted `3dbc90d` native run. They have WSL tests, race tests, vet,
+module verification, and Windows cross-build evidence in
+`docs/SLICE_F_VERIFICATION.md`, but are not covered by the native results above.
+Repeat the native test and manual Action execution checklist from that document
+before treating Slice F as natively accepted.
+
+## Post-Milestone 5/6 operator gate
+
+After the WSL suite passes, run the CLI examples in
+`docs/AGENT_CLIENT_EXAMPLES.md` on Windows, verify Guidance Doctor against a
+real selected Worktree, and exercise `devroom mcp serve` with a provider that
+supports stdio MCP. Confirm that handoff preview does not launch a process or
+include transcript content. Review repeated-failure proposals as shadow-only;
+no activation or cleanup mutation is expected from this build.

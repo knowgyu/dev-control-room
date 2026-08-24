@@ -1008,6 +1008,98 @@ func (s *Store) ListCheckRuns(ctx context.Context, checksetID string) ([]domain.
 	return items, rows.Err()
 }
 
+// SaveActionRunAndEvent commits one terminal execution result with its audit
+// event. The run and event are both masked before they cross the persistence
+// boundary and must refer to the same immutable plan digest.
+func (s *Store) SaveActionRunAndEvent(ctx context.Context, run domain.ActionRun, event domain.ActionEvent, now time.Time) error {
+	if err := run.Validate(); err != nil {
+		return fmt.Errorf("validate action run: %w", err)
+	}
+	if err := event.Validate(); err != nil {
+		return fmt.Errorf("validate action run event: %w", err)
+	}
+	plan, err := s.GetActionPlan(ctx, run.Spec.ActionPlanID)
+	if err != nil {
+		return fmt.Errorf("get action run action plan: %w", err)
+	}
+	digest, err := plan.Digest()
+	if err != nil {
+		return fmt.Errorf("digest action run action plan: %w", err)
+	}
+	if run.Spec.ActionPlanDigest != digest || event.Spec.ActionPlanID != plan.Metadata.ID || event.Spec.ActionPlanDigest != digest {
+		return errors.New("action run or event digest does not match plan")
+	}
+	if run.Spec.ProjectID != plan.Spec.ProjectID || run.Spec.RepositoryID != plan.Spec.RepositoryID || run.Spec.WorktreeID != plan.Spec.WorktreeID || run.Spec.ExecutionContext != plan.Spec.ExecutionContext {
+		return errors.New("action run target does not match plan")
+	}
+	runJSON, err := s.maskedJSON(run)
+	if err != nil {
+		return err
+	}
+	eventJSON, err := s.maskedJSON(event)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin action run: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO action_runs(id, action_plan_id, project_id, repository_id, worktree_id, action_plan_digest, started_at, completed_at, status, object_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO NOTHING`, run.Metadata.ID, run.Spec.ActionPlanID, run.Spec.ProjectID, run.Spec.RepositoryID, run.Spec.WorktreeID, run.Spec.ActionPlanDigest, run.Spec.StartedAt.UTC().Format(timeFormat), run.Spec.CompletedAt.UTC().Format(timeFormat), run.Spec.Status, runJSON); err != nil {
+		return fmt.Errorf("save action run: %w", err)
+	}
+	var existing string
+	if err := tx.QueryRowContext(ctx, `SELECT object_json FROM action_runs WHERE id = ?`, run.Metadata.ID).Scan(&existing); err != nil {
+		return fmt.Errorf("read action run: %w", err)
+	}
+	if existing != runJSON {
+		return errors.New("action run is immutable")
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO action_events(id, action_plan_id, action_plan_digest, event_type, actor_kind, actor_id, occurred_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, event.Metadata.ID, event.Spec.ActionPlanID, event.Spec.ActionPlanDigest, event.Spec.EventType, event.Spec.Actor.Kind, event.Spec.Actor.ID, event.Spec.OccurredAt.UTC().Format(timeFormat), eventJSON); err != nil {
+		return fmt.Errorf("save action run event: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit action run: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetActionRun(ctx context.Context, id string) (domain.ActionRun, error) {
+	var object string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM action_runs WHERE id = ?`, id).Scan(&object); err != nil {
+		return domain.ActionRun{}, err
+	}
+	var run domain.ActionRun
+	if err := json.Unmarshal([]byte(object), &run); err != nil {
+		return domain.ActionRun{}, fmt.Errorf("decode action run: %w", err)
+	}
+	return run, nil
+}
+
+func (s *Store) ListActionRuns(ctx context.Context, actionPlanID string) ([]domain.ActionRun, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_json FROM action_runs WHERE action_plan_id = ? ORDER BY started_at DESC, id DESC`, actionPlanID)
+	if err != nil {
+		return nil, fmt.Errorf("list action runs: %w", err)
+	}
+	defer rows.Close()
+	items := []domain.ActionRun{}
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			return nil, fmt.Errorf("scan action run: %w", err)
+		}
+		var run domain.ActionRun
+		if err := json.Unmarshal([]byte(object), &run); err != nil {
+			return nil, fmt.Errorf("decode action run: %w", err)
+		}
+		items = append(items, run)
+	}
+	return items, rows.Err()
+}
+
 // SaveActionPlan persists one immutable, typed plan. It never replaces a
 // plan with the same ID because that would invalidate a previously reviewed
 // approval without changing its reference.
@@ -1086,6 +1178,27 @@ func (s *Store) GetActionPlan(ctx context.Context, id string) (domain.ActionPlan
 		return domain.ActionPlan{}, fmt.Errorf("decode action plan: %w", err)
 	}
 	return plan, nil
+}
+
+func (s *Store) ListActionPlans(ctx context.Context) ([]domain.ActionPlan, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT object_json FROM action_plans ORDER BY created_at DESC, id DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list action plans: %w", err)
+	}
+	defer rows.Close()
+	items := []domain.ActionPlan{}
+	for rows.Next() {
+		var object string
+		if err := rows.Scan(&object); err != nil {
+			return nil, fmt.Errorf("scan action plan: %w", err)
+		}
+		var plan domain.ActionPlan
+		if err := json.Unmarshal([]byte(object), &plan); err != nil {
+			return nil, fmt.Errorf("decode action plan: %w", err)
+		}
+		items = append(items, plan)
+	}
+	return items, rows.Err()
 }
 
 func (s *Store) SaveApproval(ctx context.Context, approval domain.Approval) error {

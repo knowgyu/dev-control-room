@@ -29,8 +29,10 @@ const (
 	FindingKind             = "Finding"
 	ChecksetKind            = "Checkset"
 	CheckRunKind            = "CheckRun"
+	CleanupCandidateKind    = "CleanupCandidate"
 	ActionKind              = "Action"
 	ActionPlanKind          = "ActionPlan"
+	ActionRunKind           = "ActionRun"
 	ApprovalKind            = "Approval"
 	ActionEventKind         = "ActionEvent"
 	AgentProfileKind        = "AgentProfile"
@@ -104,6 +106,36 @@ type Worktree struct {
 	Spec     WorktreeSpec `json:"spec"`
 }
 
+// CleanupCandidate is a read-only safety assessment. It is never permission
+// to delete a branch, worktree, remote, or issue.
+type CleanupCandidate struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta           `json:"metadata"`
+	Spec     CleanupCandidateSpec `json:"spec"`
+}
+
+type CleanupCandidateSpec struct {
+	ProjectID     string    `json:"projectId"`
+	RepositoryID  string    `json:"repositoryId"`
+	WorktreeID    string    `json:"worktreeId"`
+	CanonicalPath string    `json:"canonicalPath"`
+	Branch        string    `json:"branch,omitempty"`
+	Head          string    `json:"head,omitempty"`
+	Dirty         bool      `json:"dirty"`
+	Untracked     bool      `json:"untracked"`
+	Detached      bool      `json:"detached"`
+	Locked        bool      `json:"locked"`
+	Prunable      bool      `json:"prunable"`
+	Ahead         int       `json:"ahead"`
+	Behind        int       `json:"behind"`
+	Upstream      string    `json:"upstream,omitempty"`
+	Decision      string    `json:"decision"`
+	Reasons       []string  `json:"reasons"`
+	ObservedAt    time.Time `json:"observedAt"`
+}
+
+const CleanupBlocked = "blocked"
+
 type WorktreeSpec struct {
 	ProjectID              string     `json:"projectId"`
 	RepositoryID           string     `json:"repositoryId"`
@@ -147,6 +179,16 @@ func (w Worktree) Validate() error {
 	}
 	if !w.Spec.Primary && w.Spec.Trust == WorktreeTrustVerifiedReadOnly && strings.TrimSpace(w.Spec.AssociationFingerprint) == "" {
 		return errors.New("linked worktree requires an association fingerprint")
+	}
+	return nil
+}
+
+func (c CleanupCandidate) Validate() error {
+	if err := validateResource(c.TypeMeta, CleanupCandidateKind, c.Metadata); err != nil {
+		return err
+	}
+	if err := validateProjectRepository(c.Spec.ProjectID, c.Spec.RepositoryID); err != nil || !validIdentifier(c.Spec.WorktreeID) || strings.TrimSpace(c.Spec.CanonicalPath) == "" || c.Spec.Decision != CleanupBlocked || c.Spec.ObservedAt.IsZero() || len(c.Spec.Reasons) == 0 {
+		return errors.New("cleanup candidate requires an exact blocked target, reasons, and observation time")
 	}
 	return nil
 }
@@ -622,6 +664,52 @@ type ActionEvidenceContract struct {
 	Required bool               `json:"required"`
 }
 
+// ActionEvidence is the bounded, masked result of one reviewed evidence
+// contract. Detail contains metadata only; command output lives on the run.
+type ActionEvidence struct {
+	ID     string             `json:"id"`
+	Kind   ActionEvidenceKind `json:"kind"`
+	Passed bool               `json:"passed"`
+	Detail string             `json:"detail,omitempty"`
+}
+
+type ActionRun struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta    `json:"metadata"`
+	Spec     ActionRunSpec `json:"spec"`
+}
+
+type ActionRunSpec struct {
+	ActionPlanID     string                   `json:"actionPlanId"`
+	ActionPlanDigest string                   `json:"actionPlanDigest"`
+	ProjectID        string                   `json:"projectId"`
+	RepositoryID     string                   `json:"repositoryId"`
+	WorktreeID       string                   `json:"worktreeId"`
+	Holder           string                   `json:"holder"`
+	ExecutionContext WorktreeExecutionContext `json:"executionContext"`
+	StartedAt        time.Time                `json:"startedAt"`
+	CompletedAt      time.Time                `json:"completedAt"`
+	Status           ActionRunStatus          `json:"status"`
+	ExitCode         int                      `json:"exitCode,omitempty"`
+	Stdout           string                   `json:"stdout,omitempty"`
+	Stderr           string                   `json:"stderr,omitempty"`
+	Prechecks        []ActionEvidence         `json:"prechecks"`
+	Postchecks       []ActionEvidence         `json:"postchecks"`
+}
+
+type ActionRunStatus string
+
+const (
+	ActionRunPrecheckFailed  ActionRunStatus = "precheck_failed"
+	ActionRunRunning         ActionRunStatus = "running"
+	ActionRunSucceeded       ActionRunStatus = "succeeded"
+	ActionRunFailed          ActionRunStatus = "failed"
+	ActionRunCancelled       ActionRunStatus = "cancelled"
+	ActionRunTimedOut        ActionRunStatus = "timed_out"
+	ActionRunPostcheckFailed ActionRunStatus = "postcheck_failed"
+	ActionRunUnavailable     ActionRunStatus = "unavailable"
+)
+
 // WorktreeExecutionTrust is the explicit transition from read-only discovery
 // to eligibility for a future execution contract. It binds that grant to one
 // immutable observed context; a later observation invalidates it.
@@ -968,6 +1056,35 @@ func (a ActionPlan) Validate() error {
 	return nil
 }
 
+func (r ActionRun) Validate() error {
+	if err := validateResource(r.TypeMeta, ActionRunKind, r.Metadata); err != nil {
+		return err
+	}
+	if !validIdentifier(r.Spec.ActionPlanID) || !planDigestPattern.MatchString(r.Spec.ActionPlanDigest) ||
+		validateProjectRepository(r.Spec.ProjectID, r.Spec.RepositoryID) != nil || !validIdentifier(r.Spec.WorktreeID) ||
+		strings.TrimSpace(r.Spec.Holder) == "" || !validExecutionContext(r.Spec.ExecutionContext) ||
+		r.Spec.ExecutionContext.ProjectID != r.Spec.ProjectID || r.Spec.ExecutionContext.RepositoryID != r.Spec.RepositoryID ||
+		r.Spec.ExecutionContext.WorktreeID != r.Spec.WorktreeID || r.Spec.StartedAt.IsZero() || r.Spec.CompletedAt.IsZero() ||
+		r.Spec.CompletedAt.Before(r.Spec.StartedAt) || !validActionRunStatus(r.Spec.Status) {
+		return errors.New("action run requires an exact target, holder, context, timing, and status")
+	}
+	for _, evidence := range append(append([]ActionEvidence{}, r.Spec.Prechecks...), r.Spec.Postchecks...) {
+		if !validIdentifier(evidence.ID) || !validEvidenceKind(evidence.Kind) {
+			return errors.New("action run evidence requires valid ids and kinds")
+		}
+	}
+	return nil
+}
+
+func validActionRunStatus(status ActionRunStatus) bool {
+	switch status {
+	case ActionRunPrecheckFailed, ActionRunRunning, ActionRunSucceeded, ActionRunFailed, ActionRunCancelled, ActionRunTimedOut, ActionRunPostcheckFailed, ActionRunUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 func (d ActionDefinition) ExecutionFor(inputs map[string]string) (ActionExecution, error) {
 	execution := d.Execution
 	execution.Arguments = append([]string(nil), execution.Arguments...)
@@ -1056,6 +1173,10 @@ func validEvidenceContract(contract ActionEvidenceContract) bool {
 		return false
 	}
 	return contract.Kind == EvidenceWorktreeIdentity || contract.Kind == EvidenceWorktreeHead || contract.Kind == EvidenceProcessExit
+}
+
+func validEvidenceKind(kind ActionEvidenceKind) bool {
+	return kind == EvidenceWorktreeIdentity || kind == EvidenceWorktreeHead || kind == EvidenceProcessExit
 }
 
 // Digest binds an approval to the complete immutable ActionPlan. Callers must

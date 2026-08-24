@@ -257,6 +257,70 @@ func (a *App) Worktree(ctx context.Context, projectID, repositoryID, worktreeID 
 	return item, err
 }
 
+func (a *App) CleanupCandidates(ctx context.Context, projectID string) ([]domain.CleanupCandidate, error) {
+	projects, err := a.Projects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := []domain.CleanupCandidate{}
+	for _, project := range projects {
+		if projectID != "" && project.Metadata.ID != projectID {
+			continue
+		}
+		for _, repository := range project.Spec.Repositories {
+			worktrees, err := a.store.ListWorktrees(ctx, project.Metadata.ID, repository.Metadata.ID)
+			if err != nil {
+				return nil, err
+			}
+			for _, worktree := range worktrees {
+				reasons := []string{"merged change evidence is unavailable without a configured provider"}
+				if worktree.Spec.Primary {
+					reasons = append(reasons, "primary Worktree is never an automatic cleanup target")
+				}
+				if worktree.Spec.Dirty {
+					reasons = append(reasons, "Worktree is dirty")
+				}
+				if worktree.Spec.Untracked {
+					reasons = append(reasons, "Worktree has untracked files")
+				}
+				if worktree.Spec.Detached {
+					reasons = append(reasons, "Worktree is detached")
+				}
+				if worktree.Spec.Locked {
+					reasons = append(reasons, "Worktree is locked")
+				}
+				if worktree.Spec.Prunable || worktree.Spec.TombstonedAt != nil {
+					reasons = append(reasons, "Worktree is prunable or tombstoned")
+				}
+				if worktree.Spec.Upstream == "" {
+					reasons = append(reasons, "Worktree has no upstream")
+				}
+				if worktree.Spec.Ahead > 0 {
+					reasons = append(reasons, "Worktree has unpushed commits")
+				}
+				if worktree.Spec.Error != "" {
+					reasons = append(reasons, "Worktree observation is incomplete")
+				}
+				observedAt := worktree.Spec.LastObserved
+				if observedAt.IsZero() {
+					observedAt = time.Now().UTC()
+				}
+				candidate := domain.CleanupCandidate{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.CleanupCandidateKind}, Metadata: domain.ObjectMeta{ID: cleanupCandidateID(project.Metadata.ID, repository.Metadata.ID, worktree.Metadata.ID), Name: "Cleanup candidate " + worktree.Metadata.ID}, Spec: domain.CleanupCandidateSpec{ProjectID: project.Metadata.ID, RepositoryID: repository.Metadata.ID, WorktreeID: worktree.Metadata.ID, CanonicalPath: worktree.Spec.CanonicalPath, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Dirty: worktree.Spec.Dirty, Untracked: worktree.Spec.Untracked, Detached: worktree.Spec.Detached, Locked: worktree.Spec.Locked, Prunable: worktree.Spec.Prunable, Ahead: worktree.Spec.Ahead, Behind: worktree.Spec.Behind, Upstream: worktree.Spec.Upstream, Decision: domain.CleanupBlocked, Reasons: reasons, ObservedAt: observedAt}}
+				if err := candidate.Validate(); err != nil {
+					return nil, err
+				}
+				items = append(items, candidate)
+			}
+		}
+	}
+	return items, nil
+}
+
+func cleanupCandidateID(projectID, repositoryID, worktreeID string) string {
+	sum := sha256.Sum256([]byte(projectID + "\x00" + repositoryID + "\x00" + worktreeID))
+	return "cleanup-" + hex.EncodeToString(sum[:])[:56]
+}
+
 func (a *App) Proposals(ctx context.Context, projectID, repositoryID, worktreeID string) ([]domain.Proposal, error) {
 	if _, err := a.Worktree(ctx, projectID, repositoryID, worktreeID); err != nil && worktreeID != "" {
 		return nil, err

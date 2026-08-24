@@ -1,5 +1,5 @@
-// Package action contains the policy-only Action Broker core. It records and
-// admits reviewed actions; it never starts a process or mutates a target.
+// Package action contains the policy and execution boundary for reviewed
+// Actions. It only starts server-owned typed commands after Broker admission.
 package action
 
 import (
@@ -8,10 +8,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/environment"
+	"github.com/knowgyu/dev-control-room/internal/masking"
 	"github.com/knowgyu/dev-control-room/internal/store"
 )
 
@@ -25,6 +30,9 @@ var (
 	ErrExecutionContextStale    = errors.New("action worktree execution context is stale")
 	ErrHumanDecisionUnavailable = errors.New("native human decision prompt is unavailable")
 	ErrHumanDecisionInProgress  = errors.New("a human decision ceremony is already active")
+	ErrActionExecution          = errors.New("action execution failed")
+	ErrActionPrecheck           = errors.New("action precheck failed")
+	ErrActionPostcheck          = errors.New("action postcheck failed")
 )
 
 const (
@@ -63,11 +71,24 @@ type Broker struct {
 	store          *store.Store
 	now            func() time.Time
 	prompt         HumanDecisionPrompt
+	runner         ProcessRunner
+	masker         *masking.Masker
 	ceremonyMu     sync.Mutex
 	ceremonyActive bool
 }
 
 func New(persistence *store.Store, now func() time.Time, prompts ...HumanDecisionPrompt) (*Broker, error) {
+	return newBroker(persistence, now, defaultProcessRunner{}, prompts...)
+}
+
+func NewWithRunner(persistence *store.Store, now func() time.Time, runner ProcessRunner, prompts ...HumanDecisionPrompt) (*Broker, error) {
+	if runner == nil {
+		runner = defaultProcessRunner{}
+	}
+	return newBroker(persistence, now, runner, prompts...)
+}
+
+func newBroker(persistence *store.Store, now func() time.Time, runner ProcessRunner, prompts ...HumanDecisionPrompt) (*Broker, error) {
 	if persistence == nil {
 		return nil, errors.New("action persistence is required")
 	}
@@ -78,7 +99,25 @@ func New(persistence *store.Store, now func() time.Time, prompts ...HumanDecisio
 	if len(prompts) > 0 && prompts[0] != nil {
 		prompt = prompts[0]
 	}
-	return &Broker{store: persistence, now: now, prompt: prompt}, nil
+	return &Broker{store: persistence, now: now, prompt: prompt, runner: runner, masker: masking.New(nil, []string{"TOKEN", "PASSWORD", "SECRET", "API_KEY", "AUTHORIZATION"})}, nil
+}
+
+// ProcessResult is the bounded result returned by one typed Action command.
+type ProcessResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+type ProcessRunner interface {
+	Run(context.Context, string, []string, []string, string, time.Duration, int) (ProcessResult, error)
+}
+
+type defaultProcessRunner struct{}
+
+func (defaultProcessRunner) Run(ctx context.Context, executable string, args []string, env []string, directory string, timeout time.Duration, outputLimit int) (ProcessResult, error) {
+	result, err := (environment.ProcessRunner{OutputLimit: outputLimit}).RunInDirectory(ctx, executable, args, env, directory, timeout)
+	return ProcessResult{Stdout: result.Stdout, Stderr: result.Stderr, ExitCode: result.ExitCode}, err
 }
 
 // PlanRequest deliberately excludes risk and policy. Those fields are derived
@@ -329,6 +368,152 @@ func (b *Broker) Renew(ctx context.Context, admission Admission) (Admission, err
 
 func (b *Broker) Release(ctx context.Context, admission Admission) error {
 	return b.store.ReleaseActionLock(ctx, admission.Lock)
+}
+
+// TrustWorktreeForExecution records the explicit user-facing transition from
+// read-only observation to eligibility. It never approves an ActionPlan.
+func (b *Broker) TrustWorktreeForExecution(ctx context.Context, projectID, repositoryID, worktreeID string, at time.Time) (domain.WorktreeExecutionTrust, error) {
+	worktree, err := b.store.GetWorktree(ctx, projectID, repositoryID, worktreeID)
+	if err != nil {
+		return domain.WorktreeExecutionTrust{}, err
+	}
+	if worktree.Spec.Trust != domain.WorktreeTrustVerifiedReadOnly {
+		return domain.WorktreeExecutionTrust{}, ErrWorktreeUntrusted
+	}
+	return b.store.TrustWorktreeForExecution(ctx, projectID, repositoryID, worktreeID, at.UTC())
+}
+
+// Execute consumes an already admitted plan. It is the only process execution
+// path: the caller cannot provide an executable, arguments, working directory,
+// environment, approval, or target outside the persisted admission.
+func (b *Broker) Execute(ctx context.Context, admission Admission) (domain.ActionRun, error) {
+	return b.ExecuteWithRevalidation(ctx, admission, nil)
+}
+
+// ExecuteWithRevalidation lets the application layer refresh read-only Git
+// evidence immediately before launch and after completion. Broker checks still
+// run against the persisted exact Worktree context at both boundaries.
+func (b *Broker) ExecuteWithRevalidation(ctx context.Context, admission Admission, revalidate func(context.Context) error) (domain.ActionRun, error) {
+	plan, err := b.store.GetActionPlan(ctx, admission.Lock.ActionPlanID)
+	if err != nil {
+		return domain.ActionRun{}, err
+	}
+	if admission.Plan.Metadata.ID != plan.Metadata.ID || admission.Lock.ActionPlanID != plan.Metadata.ID || admission.Lock.Scope != scope(plan) || admission.Lock.Holder == "" || !admission.Lock.ExpiresAt.After(b.now().UTC()) {
+		return domain.ActionRun{}, ErrLockConflict
+	}
+	digest, err := plan.Digest()
+	if err != nil || digest != admission.Lock.ActionPlanDigest {
+		return domain.ActionRun{}, ErrExecutionContextStale
+	}
+	admissionDigest, admissionErr := admission.Plan.Digest()
+	if admissionErr != nil || admissionDigest != digest {
+		return domain.ActionRun{}, ErrExecutionContextStale
+	}
+	if plan.Spec.PolicyDecision == domain.PolicyDenied {
+		return domain.ActionRun{}, ErrPolicyDenied
+	}
+	if plan.Spec.ApprovalRequired {
+		approvals, approvalErr := b.store.ListApprovals(ctx, plan.Metadata.ID)
+		if approvalErr != nil {
+			return domain.ActionRun{}, approvalErr
+		}
+		approved := false
+		for _, approval := range approvals {
+			if approval.Spec.Status == domain.ApprovalGranted && approval.ValidateForAt(plan, b.now().UTC()) == nil {
+				approved = true
+				break
+			}
+		}
+		if !approved {
+			return domain.ActionRun{}, ErrApprovalRequired
+		}
+	}
+	defer func() { _ = b.Release(context.Background(), admission) }()
+	if revalidate != nil {
+		if err := revalidate(ctx); err != nil {
+			return b.saveRejectedRun(ctx, plan, admission.Lock.Holder, b.now().UTC(), "precheck_failed", err)
+		}
+	}
+	if err := b.validateExecutionContext(ctx, plan); err != nil {
+		return b.saveRejectedRun(ctx, plan, admission.Lock.Holder, b.now().UTC(), "precheck_failed", err)
+	}
+	prechecks := []domain.ActionEvidence{{ID: "worktree-identity", Kind: domain.EvidenceWorktreeIdentity, Passed: true, Detail: "verified execution context"}, {ID: "worktree-head", Kind: domain.EvidenceWorktreeHead, Passed: true, Detail: plan.Spec.ExecutionContext.Head}}
+	started := b.now().UTC()
+	runID := actionRunID(plan.Metadata.ID, admission.Lock.Holder, started)
+	if err := b.audit(ctx, plan, "started", domain.Actor{Kind: domain.ActorSystem, ID: admission.Lock.Holder}, started, runID+"-started"); err != nil {
+		return domain.ActionRun{}, err
+	}
+	command := plan.Spec.Execution
+	result, processErr := b.runner.Run(ctx, command.Executable, command.Arguments, environment.AllowlistedEnvironment(command.EnvironmentAllowlist), plan.Spec.ExecutionContext.CanonicalPath, time.Duration(command.TimeoutSeconds)*time.Second, command.MaxOutputBytes)
+	completed := b.now().UTC()
+	postchecks := []domain.ActionEvidence{{ID: "process-exit", Kind: domain.EvidenceProcessExit, Passed: processErr == nil && result.ExitCode == 0, Detail: strconv.Itoa(result.ExitCode)}}
+	status := domain.ActionRunSucceeded
+	terminalErr := error(nil)
+	if processErr != nil {
+		switch {
+		case errors.Is(processErr, context.DeadlineExceeded) || strings.Contains(strings.ToLower(processErr.Error()), "timed out"):
+			status, terminalErr = domain.ActionRunTimedOut, ErrActionExecution
+		case ctx.Err() != nil:
+			status, terminalErr = domain.ActionRunCancelled, ErrActionExecution
+		case result.ExitCode != 0:
+			status, terminalErr = domain.ActionRunFailed, ErrActionExecution
+		default:
+			status, terminalErr = domain.ActionRunUnavailable, ErrActionExecution
+		}
+	}
+	if status == domain.ActionRunSucceeded {
+		if revalidate != nil {
+			if err := revalidate(ctx); err != nil {
+				postchecks[0].Passed = false
+				status, terminalErr = domain.ActionRunPostcheckFailed, ErrActionPostcheck
+			}
+		}
+		if err := b.validateExecutionContext(ctx, plan); err != nil {
+			postchecks[0].Passed = false
+			status, terminalErr = domain.ActionRunPostcheckFailed, ErrActionPostcheck
+		}
+	}
+	run := domain.ActionRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ActionRunKind}, Metadata: domain.ObjectMeta{ID: runID, Name: plan.Metadata.Name}, Spec: domain.ActionRunSpec{ActionPlanID: plan.Metadata.ID, ActionPlanDigest: digest, ProjectID: plan.Spec.ProjectID, RepositoryID: plan.Spec.RepositoryID, WorktreeID: plan.Spec.WorktreeID, Holder: admission.Lock.Holder, ExecutionContext: plan.Spec.ExecutionContext, StartedAt: started, CompletedAt: completed, Status: status, ExitCode: result.ExitCode, Stdout: b.maskOutput(result.Stdout, command.EnvironmentAllowlist), Stderr: b.maskOutput(result.Stderr, command.EnvironmentAllowlist), Prechecks: prechecks, Postchecks: postchecks}}
+	eventType := "completed"
+	if status != domain.ActionRunSucceeded {
+		eventType = string(status)
+	}
+	if err := b.store.SaveActionRunAndEvent(ctx, run, b.event(plan, eventType, domain.Actor{Kind: domain.ActorSystem, ID: admission.Lock.Holder}, completed, runID), completed); err != nil {
+		return domain.ActionRun{}, err
+	}
+	return run, terminalErr
+}
+
+func (b *Broker) saveRejectedRun(ctx context.Context, plan domain.ActionPlan, holder string, at time.Time, status string, _ error) (domain.ActionRun, error) {
+	digest, err := plan.Digest()
+	if err != nil {
+		return domain.ActionRun{}, err
+	}
+	runID := actionRunID(plan.Metadata.ID, holder, at)
+	runStatus := domain.ActionRunStatus(status)
+	run := domain.ActionRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ActionRunKind}, Metadata: domain.ObjectMeta{ID: runID, Name: plan.Metadata.Name}, Spec: domain.ActionRunSpec{ActionPlanID: plan.Metadata.ID, ActionPlanDigest: digest, ProjectID: plan.Spec.ProjectID, RepositoryID: plan.Spec.RepositoryID, WorktreeID: plan.Spec.WorktreeID, Holder: holder, ExecutionContext: plan.Spec.ExecutionContext, StartedAt: at, CompletedAt: at, Status: runStatus, Prechecks: []domain.ActionEvidence{{ID: "worktree-identity", Kind: domain.EvidenceWorktreeIdentity, Passed: false, Detail: "current Worktree evidence did not satisfy the execution contract"}, {ID: "worktree-head", Kind: domain.EvidenceWorktreeHead, Passed: false, Detail: "current HEAD evidence did not satisfy the execution contract"}}, Postchecks: []domain.ActionEvidence{{ID: "process-exit", Kind: domain.EvidenceProcessExit, Passed: false, Detail: "process was not started"}}}}
+	if err := b.store.SaveActionRunAndEvent(ctx, run, b.event(plan, status, domain.Actor{Kind: domain.ActorSystem, ID: holder}, at, runID), at); err != nil {
+		return domain.ActionRun{}, err
+	}
+	return run, ErrActionPrecheck
+}
+
+func (b *Broker) maskOutput(value string, names []string) string {
+	if b.masker != nil {
+		value = b.masker.Mask(value)
+	}
+	secrets := make([]string, 0, len(names))
+	for _, name := range names {
+		if secret, ok := os.LookupEnv(name); ok {
+			secrets = append(secrets, secret)
+		}
+	}
+	return masking.New(secrets, nil).Mask(value)
+}
+
+func actionRunID(planID, holder string, at time.Time) string {
+	sum := sha256.Sum256([]byte(planID + "\x00" + holder + "\x00" + at.UTC().Format(time.RFC3339Nano)))
+	return "action-run-" + hex.EncodeToString(sum[:])[:48]
 }
 
 func (b *Broker) audit(ctx context.Context, plan domain.ActionPlan, eventType string, actor domain.Actor, at time.Time, nonce string) error {

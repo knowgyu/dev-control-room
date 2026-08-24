@@ -96,6 +96,14 @@ type ProcessRunner struct {
 }
 
 func (r ProcessRunner) Run(parent context.Context, executable string, args []string, env []string, timeout time.Duration) (Result, error) {
+	return r.RunInDirectory(parent, executable, args, env, safeWorkingDirectory(env), timeout)
+}
+
+// RunInDirectory executes one typed argv command in an explicit directory.
+// It preserves the same process-tree, environment, timeout, and output bounds
+// as the diagnostic runner while allowing Action execution to bind to a
+// verified Worktree instead of a temporary directory.
+func (r ProcessRunner) RunInDirectory(parent context.Context, executable string, args []string, env []string, directory string, timeout time.Duration) (Result, error) {
 	if strings.TrimSpace(executable) == "" {
 		return Result{}, errors.New("executable is required")
 	}
@@ -123,7 +131,14 @@ func (r ProcessRunner) Run(parent context.Context, executable string, args []str
 	// implicit inheritance.
 	command.Env = make([]string, len(env))
 	copy(command.Env, env)
-	command.Dir = safeWorkingDirectory(env)
+	if strings.TrimSpace(directory) != "" {
+		if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+			return Result{}, errors.New("working directory is unavailable")
+		}
+		command.Dir = filepath.Clean(directory)
+	} else {
+		command.Dir = safeWorkingDirectory(env)
+	}
 	var stdout, stderr boundedBuffer
 	stdout.limit, stderr.limit = limit, limit
 	stdout.cancel, stderr.cancel = cancel, cancel
@@ -512,6 +527,10 @@ func safeEnvironment(allowlist []string) []string {
 	sort.Strings(values)
 	return values
 }
+
+// AllowlistedEnvironment returns the minimal inherited environment permitted
+// for a typed child process. Values never leave this package unmasked.
+func AllowlistedEnvironment(allowlist []string) []string { return safeEnvironment(allowlist) }
 
 func safeWorkingDirectory(environment []string) string {
 	for _, preferred := range []string{"TEMP", "TMP"} {

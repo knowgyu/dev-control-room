@@ -13,12 +13,24 @@ import (
 
 const folderPickerScript = `<script>(function(){const box=document.getElementById('repository-candidates'),path=document.getElementById('path'),headers={'Content-Type':'application/json','X-Control-Room-Token':document.querySelector('meta[name="control-room-token"]').content};const request=async(url,options)=>{const response=await fetch(url,options),body=await response.json();if(!response.ok||!body.ok)throw Error(body.error?.message||response.statusText);return body.data};const discover=async()=>{if(!path.value.trim()){box.dataset.discovered='false';box.textContent='Choose a folder first.';return}box.textContent='Finding Git repositories…';try{const items=await request('/api/projects/discover',{method:'POST',headers,body:JSON.stringify({path:path.value})});box.dataset.discovered='true';box.innerHTML=items.length?'<strong>'+items.length+' repositories found</strong>'+items.map(item=>'<label style="display:block;margin-top:7px"><input type="checkbox" data-repository-path value="'+esc(item.path)+'" checked> '+esc(item.name)+' <code>'+esc(item.path)+'</code></label>').join(''):'No Git repositories found below this folder.'}catch(error){box.dataset.discovered='false';box.textContent=error.message}};document.getElementById('pick-folder').onclick=async()=>{try{const result=await request('/api/folder-picker',{method:'POST',headers});if(result.path){path.value=result.path;await discover()}}catch(error){alert(error.message)}};document.getElementById('find-repositories').onclick=discover;document.getElementById('add-form').onsubmit=async event=>{event.preventDefault();const selected=[...box.querySelectorAll('input[data-repository-path]:checked')].map(input=>input.value);if(box.dataset.discovered==='true'&&!selected.length){alert('Select at least one repository.');return}try{const body={name:document.getElementById('name').value,path:path.value};if(selected.length)body.paths=selected;await request('/api/projects',{method:'POST',headers,body:JSON.stringify(body)});event.target.reset();box.dataset.discovered='false';box.textContent='Choose a folder to discover Git repositories below it.';setTimeout(()=>location.reload(),300)}catch(error){alert(error.message)}};function esc(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}})();</script>`
 
+const environmentSourceScript = `<script>(function(){const esc=value=>String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));const source=type=>type?.startsWith('tool.')?'Tool':type?.startsWith('agent_profile.')?'Agent profile':'Configuration';const refreshEnvironment=async()=>{const response=await fetch('/api/environment'),body=await response.json();if(!response.ok||!body.ok)return;const health=body.data,box=document.getElementById('environment');if(!box)return;box.innerHTML='<div class="'+(health.available?'ok':'warn')+'">'+(health.available?'All configured capabilities available':'Some capabilities are unavailable; see next actions below')+'</div>'+(health.findings||[]).map(item=>'<div class="finding"><strong>'+esc(item.severity)+' · '+esc(source(item.type))+' · '+esc(item.target||item.type)+'</strong><div>'+esc(item.summary)+'</div><div class="muted">Next: '+esc(item.recommendedNextAction)+'</div></div>').join('')||'<div class="ok">No environment findings</div>'};refreshEnvironment().catch(()=>{});setInterval(()=>refreshEnvironment().catch(()=>{}),15000)})();</script>`
+
+const actionUIScript = `<script>(function(){const esc=value=>String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));const headers={'Content-Type':'application/json','X-Control-Room-Token':document.querySelector('meta[name="control-room-token"]').content};const request=async(url,options={})=>{const response=await fetch(url,options),body=await response.json();if(!response.ok||!body.ok)throw Error(body.error?.message||response.statusText);return body.data};const box=document.createElement('section');box.innerHTML='<h2>Actions</h2><div id="action-ui" class="muted">Loading…</div>';document.querySelector('main').insertBefore(box,document.getElementById('findings').parentElement);const render=async()=>{const[state,plans]=await Promise.all([request('/api/state'),request('/api/actions/plans')]),targets=[];(state.projects||[]).forEach(project=>(project.repos||[]).forEach(repo=>(repo.worktrees||[]).forEach(worktree=>targets.push({value:project.id+'|'+repo.id+'|'+worktree.metadata.id,label:project.name+' / '+repo.id+' / '+worktree.metadata.id}))));const details=await Promise.all(plans.map(async plan=>({plan,status:await request('/api/actions/plans/'+encodeURIComponent(plan.metadata.id)),runs:await request('/api/actions/plans/'+encodeURIComponent(plan.metadata.id)+'/runs')})));document.getElementById('action-ui').innerHTML='<div class="picker-row"><select id="action-target">'+(targets.length?targets.map(target=>'<option value="'+esc(target.value)+'">'+esc(target.label)+'</option>').join(''):'<option>No observed worktrees</option>')+'</select><button id="action-plan" class="primary" type="button" '+(targets.length?'':'disabled')+'>Plan repository refresh</button></div>'+(details.length?details.map(item=>{const status=item.status.admission,run=item.runs[0],button=status==='approval_required'?'<button data-action="approve" data-id="'+esc(item.plan.metadata.id)+'">Ask for approval</button>':status==='eligible'?'<button data-action="execute" data-id="'+esc(item.plan.metadata.id)+'">Execute</button>':'';return '<div class="finding"><strong>'+esc(item.plan.metadata.name)+' · '+esc(item.plan.metadata.id)+'</strong><div class="muted">'+esc(status)+' · '+esc(item.plan.spec.worktreeId)+(run?' · '+esc(run.spec.status):'')+'</div>'+button+' <button data-action="runs" data-id="'+esc(item.plan.metadata.id)+'">Review result</button><div id="action-result-'+esc(item.plan.metadata.id)+'" class="muted"></div></div>'}).join(''):'<div class="muted" style="margin-top:10px">No reviewed action plans yet.</div>')};box.addEventListener('click',async event=>{const button=event.target;if(button.id==='action-plan'){const value=document.getElementById('action-target').value.split('|');try{await request('/api/actions/plans',{method:'POST',headers,body:JSON.stringify({id:'plan-'+Date.now(),name:'Repository refresh',projectId:value[0],repositoryId:value[1],worktreeId:value[2],actionType:'repository.refresh'})});await render()}catch(error){alert(error.message)}return}const kind=button.dataset.action,id=button.dataset.id;if(!kind)return;try{if(kind==='approve')await request('/ui/actions/plans/'+encodeURIComponent(id)+'/approval',{method:'POST',headers,body:''});else if(kind==='execute')await request('/api/actions/plans/'+encodeURIComponent(id)+'/execute',{method:'POST',headers,body:JSON.stringify({holder:'ui',idempotencyKey:'ui-'+Date.now()})});else{const runs=await request('/api/actions/plans/'+encodeURIComponent(id)+'/runs');document.getElementById('action-result-'+id).textContent=runs.length?runs.map(run=>run.spec.status+' · '+(run.spec.stderr||run.spec.stdout||'no output')).join(' | '):'No result yet';return}await render()}catch(error){alert(error.message)}});render().catch(error=>{document.getElementById('action-ui').textContent=error.message})})();</script>`
+
+const actionTrustScript = `<script>(function(){const headers={'Content-Type':'application/json','X-Control-Room-Token':document.querySelector('meta[name="control-room-token"]').content};const addTrustButtons=()=>document.querySelectorAll('#action-ui button[data-action]').forEach(button=>{const parent=button.parentElement;if(parent.querySelector('button[data-trust]'))return;const trust=document.createElement('button');trust.type='button';trust.dataset.trust=button.dataset.id;trust.textContent='Mark worktree execution-ready';parent.insertBefore(trust,button)});const observer=new MutationObserver(addTrustButtons);observer.observe(document.getElementById('action-ui'),{childList:true,subtree:true});document.getElementById('action-ui').addEventListener('click',async event=>{const button=event.target;if(!button.dataset.trust)return;button.disabled=true;try{await fetch('/ui/actions/plans/'+encodeURIComponent(button.dataset.trust)+'/worktree-trust',{method:'POST',headers,body:''});button.textContent='Worktree execution-ready'}catch(error){button.disabled=false;alert(error.message)}});addTrustButtons()})();</script>`
+
+const cleanupQueueScript = `<script>(function(){const esc=value=>String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));const box=document.createElement('section');box.innerHTML='<h2>Cleanup queue</h2><div class="muted">Read-only assessment. Every candidate stays blocked until configured merge evidence and a fresh policy review exist.</div><div id="cleanup-queue" class="muted" style="margin-top:10px">Loading…</div>';document.querySelector('main').insertBefore(box,document.getElementById('findings').parentElement);fetch('/api/cleanup/candidates').then(response=>response.json()).then(body=>{if(!body.ok)throw Error(body.error?.message||'cleanup queue unavailable');const items=body.data||[];document.getElementById('cleanup-queue').innerHTML=items.length?'<table><thead><tr><th>Target</th><th>Branch / HEAD</th><th>State</th><th>Why blocked</th></tr></thead><tbody>'+items.map(item=>'<tr><td><code>'+esc(item.spec.worktreeId)+'</code><br><span class="muted">'+esc(item.spec.canonicalPath)+'</span></td><td>'+esc(item.spec.branch||'detached')+'<br><code>'+esc(item.spec.head||'unavailable')+'</code></td><td class="warn">'+esc(item.spec.decision)+'</td><td>'+item.spec.reasons.map(esc).join('<br>')+'</td></tr>').join('')+'</tbody></table>':'No observed worktrees';}).catch(error=>{document.getElementById('cleanup-queue').textContent=error.message})})();</script>`
+
+const guidanceHandoffScript = `<script>(function(){const esc=value=>String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));const headers={'Content-Type':'application/json','X-Control-Room-Token':document.querySelector('meta[name="control-room-token"]').content};const request=async(url,options={})=>{const response=await fetch(url,options),body=await response.json();if(!response.ok||!body.ok)throw Error(body.error?.message||response.statusText);return body.data};const box=document.createElement('section');box.innerHTML='<h2>Guidance Doctor</h2><div class="muted">Handoff preview keeps transcriptIncluded=false.</div><div id="guidance-ui" class="muted">Loading…</div>';document.querySelector('main').insertBefore(box,document.getElementById('findings').parentElement);const render=async()=>{const[state,profiles]=await Promise.all([request('/api/state'),request('/api/agent-profiles')]),targets=[];(state.projects||[]).forEach(project=>(project.repos||[]).forEach(repo=>(repo.worktrees||[]).forEach(worktree=>targets.push({value:project.id+'|'+repo.id+'|'+worktree.metadata.id,label:project.name+' / '+repo.id+' / '+worktree.metadata.id}))));const targetOptions=targets.length?targets.map(target=>'<option value="'+esc(target.value)+'">'+esc(target.label)+'</option>').join(''):'<option value="">No observed worktrees</option>';const profileOptions=profiles.length?profiles.map(profile=>'<option value="'+esc(profile.metadata.id)+'">'+esc(profile.metadata.name)+'</option>').join(''):'<option value="">No agent profiles</option>';document.getElementById('guidance-ui').innerHTML='<div class="picker-row"><select id="guidance-target">'+targetOptions+'</select><select id="handoff-profile">'+profileOptions+'</select><button id="guidance-check" type="button" '+(targets.length?'':'disabled')+'>Run Guidance Doctor</button><button id="handoff-preview" type="button" '+(targets.length&&profiles.length?'':'disabled')+'>Preview handoff</button></div><pre id="guidance-result" class="muted"></pre>'};box.addEventListener('click',async event=>{const button=event.target;if(button.id!=='guidance-check'&&button.id!=='handoff-preview')return;const target=document.getElementById('guidance-target').value.split('|');try{let result;if(button.id==='guidance-check')result=await request('/api/projects/'+encodeURIComponent(target[0])+'/repositories/'+encodeURIComponent(target[1])+'/worktrees/'+encodeURIComponent(target[2])+'/guidance');else result=await request('/api/handoffs/preview',{method:'POST',headers,body:JSON.stringify({profileId:document.getElementById('handoff-profile').value,projectId:target[0],repositoryId:target[1],worktreeId:target[2]})});document.getElementById('guidance-result').textContent=JSON.stringify(result,null,2)}catch(error){document.getElementById('guidance-result').textContent=error.message}});render().catch(error=>{document.getElementById('guidance-ui').textContent=error.message})})();</script>`
+
+const safeguardScript = `<script>(function(){const esc=value=>String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));const box=document.createElement('section');box.innerHTML='<h2>Repeated failures</h2><div class="muted">Proposals stay in shadow mode until a human reviews masked evidence.</div><div id="safeguards" class="muted">Loading…</div>';document.querySelector('main').insertBefore(box,document.getElementById('findings').parentElement);fetch('/api/safeguards/proposals').then(response=>response.json()).then(body=>{if(!body.ok)throw Error(body.error?.message||'safeguards unavailable');const items=body.data||[];document.getElementById('safeguards').innerHTML=items.length?items.map(item=>'<div class="finding"><strong>'+esc(item.category)+' · '+esc(item.mode)+'</strong><div>'+esc(item.summary)+'</div><div class="muted">'+esc(item.occurrenceCount)+' occurrences · '+esc(item.recommendedNextAction)+'</div></div>').join(''):'No repeated-failure safeguard proposals';}).catch(error=>{document.getElementById('safeguards').textContent=error.message})})();</script>`
+
 func newHTTPHandler(service ApplicationService, listen, mutationToken string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", func(response http.ResponseWriter, _ *http.Request) {
 		response.Header().Set("Content-Type", "text/html; charset=utf-8")
 		page := strings.ReplaceAll(indexHTML, "__MUTATION_TOKEN__", mutationToken)
-		page = strings.Replace(page, "</body>", folderPickerScript+"</body>", 1)
+		page = strings.Replace(page, "</body>", folderPickerScript+environmentSourceScript+actionUIScript+actionTrustScript+cleanupQueueScript+guidanceHandoffScript+safeguardScript+"</body>", 1)
 		_, _ = strings.NewReader(page).WriteTo(response)
 	})
 	mux.HandleFunc("GET /api/health", func(response http.ResponseWriter, request *http.Request) {
@@ -156,6 +168,35 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(events))
 	})
+	mux.HandleFunc("GET /api/cleanup/candidates", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.CleanupCandidates(request.Context(), request.URL.Query().Get("project_id"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/projects/{projectID}/repositories/{repositoryID}/worktrees/{worktreeID}/guidance", func(response http.ResponseWriter, request *http.Request) {
+		report, err := service.Guidance(request.Context(), request.PathValue("projectID"), request.PathValue("repositoryID"), request.PathValue("worktreeID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(report))
+	})
+	mux.HandleFunc("POST /api/handoffs/preview", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input HandoffInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		preview, err := service.PrepareHandoff(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(preview))
+	}))
 	mux.HandleFunc("GET /api/environment", func(response http.ResponseWriter, request *http.Request) {
 		health, err := service.EnvironmentHealth(request.Context(), false)
 		if err != nil {
@@ -195,6 +236,46 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 			return
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(status))
+	})
+	mux.HandleFunc("GET /api/actions/plans", func(response http.ResponseWriter, request *http.Request) {
+		plans, err := service.ActionPlans(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(plans))
+	})
+	mux.HandleFunc("GET /api/actions/plans/{planID}/runs", func(response http.ResponseWriter, request *http.Request) {
+		runs, err := service.ActionRuns(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(runs))
+	})
+	mux.HandleFunc("GET /api/failures/fingerprints", func(response http.ResponseWriter, request *http.Request) {
+		limit := 100
+		if value, err := strconv.Atoi(request.URL.Query().Get("limit")); err == nil && value >= 0 && value <= 1000 {
+			limit = value
+		}
+		items, err := service.FailureFingerprints(request.Context(), limit)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/safeguards/proposals", func(response http.ResponseWriter, request *http.Request) {
+		limit := 100
+		if value, err := strconv.Atoi(request.URL.Query().Get("limit")); err == nil && value >= 0 && value <= 1000 {
+			limit = value
+		}
+		items, err := service.SafeguardProposals(request.Context(), limit)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
 	// This is intentionally a UI ceremony route, not an automation API. The
 	// native prompt derives all decision data from the persisted plan.
@@ -268,6 +349,34 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 			return
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(admission))
+	}))
+	mux.HandleFunc("POST /api/actions/plans/{planID}/execute", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Holder         string `json:"holder"`
+			IdempotencyKey string `json:"idempotencyKey"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		run, err := service.ExecuteAction(request.Context(), request.PathValue("planID"), input.Holder, input.IdempotencyKey)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(run))
+	}))
+	mux.HandleFunc("POST /ui/actions/plans/{planID}/worktree-trust", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("Worktree execution trust accepts an empty body only"))
+			return
+		}
+		trust, err := service.TrustActionWorktree(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(trust))
 	}))
 	mux.HandleFunc("POST /api/projects/{projectID}/repositories/{repositoryID}/worktrees/{worktreeID}/discover", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		item, err := service.Discover(request.Context(), request.PathValue("projectID"), request.PathValue("repositoryID"), request.PathValue("worktreeID"))
@@ -347,18 +456,19 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 	}))
 	mux.HandleFunc("POST /api/agent-profiles", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input struct {
-			ID, Name, Command    string
-			VersionProbe         []string                 `json:"versionProbe"`
-			TimeoutSeconds       int                      `json:"timeoutSeconds"`
-			EnvironmentAllowlist []string                 `json:"environmentAllowlist"`
-			LaunchMode           domain.AgentLaunchMode   `json:"launchMode"`
-			DataBoundary         domain.AgentDataBoundary `json:"dataBoundary"`
+			ID, Name, Command     string
+			VersionProbe          []string                 `json:"versionProbe"`
+			TimeoutSeconds        int                      `json:"timeoutSeconds"`
+			ModelArgumentTemplate string                   `json:"modelArgumentTemplate"`
+			EnvironmentAllowlist  []string                 `json:"environmentAllowlist"`
+			LaunchMode            domain.AgentLaunchMode   `json:"launchMode"`
+			DataBoundary          domain.AgentDataBoundary `json:"dataBoundary"`
 		}
 		if err := decodeBody(response, request, &input); err != nil {
 			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
 			return
 		}
-		profile, err := service.AddAgentProfile(request.Context(), AddAgentProfileInput{ID: input.ID, Name: input.Name, Command: input.Command, VersionProbe: input.VersionProbe, TimeoutSeconds: input.TimeoutSeconds, EnvironmentAllowlist: input.EnvironmentAllowlist, LaunchMode: input.LaunchMode, DataBoundary: input.DataBoundary})
+		profile, err := service.AddAgentProfile(request.Context(), AddAgentProfileInput{ID: input.ID, Name: input.Name, Command: input.Command, VersionProbe: input.VersionProbe, TimeoutSeconds: input.TimeoutSeconds, ModelArgumentTemplate: input.ModelArgumentTemplate, EnvironmentAllowlist: input.EnvironmentAllowlist, LaunchMode: input.LaunchMode, DataBoundary: input.DataBoundary})
 		if err != nil {
 			writeServiceError(response, err)
 			return
@@ -367,18 +477,19 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 	}))
 	mux.HandleFunc("PUT /api/agent-profiles/{profileID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input struct {
-			Name, Command        string
-			VersionProbe         []string                 `json:"versionProbe"`
-			TimeoutSeconds       int                      `json:"timeoutSeconds"`
-			EnvironmentAllowlist []string                 `json:"environmentAllowlist"`
-			LaunchMode           domain.AgentLaunchMode   `json:"launchMode"`
-			DataBoundary         domain.AgentDataBoundary `json:"dataBoundary"`
+			Name, Command         string
+			VersionProbe          []string                 `json:"versionProbe"`
+			TimeoutSeconds        int                      `json:"timeoutSeconds"`
+			ModelArgumentTemplate string                   `json:"modelArgumentTemplate"`
+			EnvironmentAllowlist  []string                 `json:"environmentAllowlist"`
+			LaunchMode            domain.AgentLaunchMode   `json:"launchMode"`
+			DataBoundary          domain.AgentDataBoundary `json:"dataBoundary"`
 		}
 		if err := decodeBody(response, request, &input); err != nil {
 			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
 			return
 		}
-		profile, err := service.UpdateAgentProfile(request.Context(), request.PathValue("profileID"), UpdateAgentProfileInput{Name: input.Name, Command: input.Command, VersionProbe: input.VersionProbe, TimeoutSeconds: input.TimeoutSeconds, EnvironmentAllowlist: input.EnvironmentAllowlist, LaunchMode: input.LaunchMode, DataBoundary: input.DataBoundary})
+		profile, err := service.UpdateAgentProfile(request.Context(), request.PathValue("profileID"), UpdateAgentProfileInput{Name: input.Name, Command: input.Command, VersionProbe: input.VersionProbe, TimeoutSeconds: input.TimeoutSeconds, ModelArgumentTemplate: input.ModelArgumentTemplate, EnvironmentAllowlist: input.EnvironmentAllowlist, LaunchMode: input.LaunchMode, DataBoundary: input.DataBoundary})
 		if err != nil {
 			writeServiceError(response, err)
 			return

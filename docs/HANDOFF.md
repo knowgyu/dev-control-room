@@ -1,6 +1,6 @@
 # Current state and implementation handoff
 
-Updated: 2026-08-23
+Updated: 2026-08-24
 
 This is the canonical current-state handoff for continuing Dev Control Room.
 It exists so the next long-running goal or implementation agent can start from
@@ -31,7 +31,7 @@ files distinguish implemented behavior from planned behavior.
 
 Dev Control Room is a Windows-native, local-first engineering automation
 control plane for one developer. The background service is the product; the UI
-is its control room. CLI, HTTP UI, and later MCP are thin surfaces over one
+is its control room. CLI, HTTP UI, and MCP are thin surfaces over one
 application service and the same policy and masking boundaries.
 
 The product should:
@@ -65,11 +65,11 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.3.1`;
+- binary version: `0.4.0-rc.1`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
-- SQLite schema: version 7;
+- SQLite schema: version 12;
 - Go module target: Go 1.23.
 
 ## Repository state at this handoff
@@ -240,13 +240,14 @@ separate improvements, not falsely labelled discoveries.
 
 ## What has not started
 
-- Action process execution, target mutation, and postchecks. The Action Broker,
-  locks, idempotency, and trusted-human approval ceremony are implemented, but
-  a granted approval never starts a process in the current product.
+- Target-specific release mutation and post-deploy procedures. The Action
+  Broker now owns typed Action execution, bounded runs, pre/post evidence,
+  and UI/CLI/HTTP result review; company-specific release commands remain
+  intentionally unconfigured.
 - Configured release procedures, Jenkins triggers, or cleanup execution.
 - GitHub/Jenkins connectors beyond local remote capability detection.
-- Agent Handoff terminal launch and stdio MCP.
-- Repeated-failure safeguard proposals and effectiveness metrics.
+- Agent Handoff terminal launch and provider-specific MCP client acceptance.
+- Safeguard activation, rollback, retirement, and effectiveness metrics.
 - Kubernetes, Harbor, or operational visibility connectors.
 - Specifier, Cleaner, Hardener, QA, CRAP, managed agent runs, or role
   orchestration.
@@ -332,6 +333,40 @@ See `docs/SLICE_C_VERIFICATION.md`.
 
 Only after these slices should actual company-specific pre-PR, release,
 Jenkins, and cleanup procedures be onboarded in Milestone 4.
+
+The generic Milestone 4 cleanup safety base is now implemented. `CleanupCandidate`
+is a read-only, Worktree-bound assessment exposed through the application
+service, CLI (`cleanup list`), loopback HTTP, and the embedded UI. Every
+candidate is currently blocked, with explicit reasons for missing merge
+evidence and unsafe Worktree state. See `docs/MILESTONE_4_VERIFICATION.md`.
+GitHub/Jenkins correlation, company release procedures, and cleanup mutation
+remain intentionally unimplemented until reviewed provider and policy inputs
+are supplied.
+
+Milestone 5 now has bounded Guidance Doctor checks, masked Agent Handoff
+preview, optional model metadata, and a typed stdio MCP adapter. Milestone 6
+now exposes repeated fingerprints as shadow-only safeguard proposals. Native
+Windows launch/provider checks and safeguard activation/feedback remain
+explicit verification gaps; see `docs/MILESTONE_5_VERIFICATION.md` and
+`docs/MILESTONE_6_VERIFICATION.md`.
+
+### Slice F: typed Action execution (implemented; native acceptance pending)
+
+- `ActionRun` persists exact target, digest, status, bounded masked output, and
+  precheck/postcheck evidence. The Broker is the only process execution owner.
+- Execution consumes only server-owned typed definitions with argv, an
+  allowlisted child environment, explicit Worktree directory, timeout, process
+  tree containment, and output limits.
+- The application service refreshes read-only Worktree evidence before and
+  after execution. UI, CLI, and HTTP expose plan listing, explicit Worktree
+  execution trust, execution, and result review without exposing a generic
+  command surface.
+- WSL tests, race tests, vet, module verification, Linux build, and Windows
+  amd64/arm64 cross-builds passed. Native Windows runtime acceptance remains
+  the next operator gate; company release, cleanup, and Scheduler mutation are
+  not part of this slice.
+
+See `docs/SLICE_F_VERIFICATION.md`.
 
 ## Decisions intentionally left for the next implementation
 

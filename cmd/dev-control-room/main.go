@@ -19,10 +19,11 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/app"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/mcp"
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
-const version = "0.3.1"
+const version = "0.4.0-rc.1"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -45,6 +46,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runAction(args[1:], stdout, stderr)
 	case "finding":
 		return runFinding(args[1:], stdout, stderr)
+	case "cleanup":
+		return runCleanup(args[1:], stdout, stderr)
+	case "guidance":
+		return runGuidance(args[1:], stdout, stderr)
+	case "failure":
+		return runFailure(args[1:], stdout, stderr)
+	case "safeguard":
+		return runSafeguard(args[1:], stdout, stderr)
+	case "mcp":
+		return runMCP(args[1:], stdout, stderr)
 	case "event":
 		return runEvent(args[1:], stdout, stderr)
 	case "env":
@@ -371,7 +382,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 
 func runAction(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("action requires plan, status, or admit"))
+		return writeCLIErrorTo(stderr, contract.InvalidInput("action requires plan, status, admit, or execute"))
 	}
 	command := args[0]
 	jsonOutput, args, err := parseJSONFlag(args[1:])
@@ -421,6 +432,15 @@ func runAction(args []string, stdout, stderr io.Writer) int {
 			return writeCLIErrorTo(stderr, err)
 		}
 		return emitObject(stdout, status, jsonOutput)
+	case "runs":
+		if len(args) != 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("action runs requires a plan id"))
+		}
+		runs, err := service.ActionRuns(ctx, args[0])
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, runs, jsonOutput)
 	case "admit":
 		if len(args) < 1 {
 			return writeCLIErrorTo(stderr, contract.InvalidInput("action admit requires a plan id"))
@@ -437,6 +457,22 @@ func runAction(args []string, stdout, stderr io.Writer) int {
 			return writeCLIErrorTo(stderr, err)
 		}
 		return emitObject(stdout, admission, jsonOutput)
+	case "execute":
+		if len(args) < 1 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("action execute requires a plan id"))
+		}
+		flags := flag.NewFlagSet("action execute", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		holder := flags.String("holder", "", "execution holder id")
+		idempotencyKey := flags.String("idempotency-key", "", "unique execution request id")
+		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("action execute accepts only flags after the plan id"))
+		}
+		run, err := service.ExecuteAction(ctx, args[0], *holder, *idempotencyKey)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, run, jsonOutput)
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown action command: "+command))
 	}
@@ -696,6 +732,160 @@ func runFinding(args []string, stdout, stderr io.Writer) int {
 	return writeCLIErrorTo(stderr, contract.InvalidInput("unknown finding command: "+subcommand))
 }
 
+func runCleanup(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "list" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("cleanup requires list"))
+	}
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	flags := flag.NewFlagSet("cleanup list", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	projectID := flags.String("project", "", "project id filter")
+	if err := flags.Parse(args); err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	items, err := service.CleanupCandidates(context.Background(), *projectID)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if jsonOutput {
+		return encodeSuccess(stdout, items)
+	}
+	for _, item := range items {
+		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\n", item.Metadata.ID, item.Spec.Decision, item.Spec.Branch, strings.Join(item.Spec.Reasons, "; "))
+	}
+	return int(contract.ExitSuccess)
+}
+
+func runGuidance(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "check" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("guidance requires check"))
+	}
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil || len(args) != 3 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("guidance check requires project, repository, and worktree ids"))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	report, err := service.Guidance(context.Background(), args[0], args[1], args[2])
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if jsonOutput {
+		return encodeSuccess(stdout, report)
+	}
+	for _, finding := range report.Findings {
+		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", finding.Severity, finding.Code, finding.Summary)
+	}
+	if len(report.Findings) == 0 {
+		_, _ = fmt.Fprintln(stdout, "guidance healthy")
+	}
+	return int(contract.ExitSuccess)
+}
+
+func runFailure(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "list" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("failure requires list"))
+	}
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	flags := flag.NewFlagSet("failure list", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	limit := flags.Int("limit", 100, "maximum fingerprints")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("failure list accepts only --limit"))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	items, err := service.FailureFingerprints(context.Background(), *limit)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if jsonOutput {
+		return encodeSuccess(stdout, items)
+	}
+	for _, item := range items {
+		_, _ = fmt.Fprintf(stdout, "%s\t%s\t%d\n", item.Spec.Fingerprint, item.Spec.Category, item.Spec.OccurrenceCount)
+	}
+	return int(contract.ExitSuccess)
+}
+
+func runSafeguard(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "list" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("safeguard requires list"))
+	}
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	flags := flag.NewFlagSet("safeguard list", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	limit := flags.Int("limit", 100, "maximum fingerprints to inspect")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("safeguard list accepts only --limit"))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	items, err := service.SafeguardProposals(context.Background(), *limit)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, items, jsonOutput)
+}
+
+func runMCP(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "serve" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("mcp requires serve"))
+	}
+	args, home, err := parseHome(args[1:])
+	if err != nil || len(args) != 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("mcp serve accepts only --home"))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	if err := mcp.Serve(context.Background(), os.Stdin, stdout, service); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return int(contract.ExitSuccess)
+}
+
 func runEvent(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "list" {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("event requires list"))
@@ -774,8 +964,14 @@ func runEnvironment(args []string, stdout, stderr io.Writer) int {
 }
 
 func runAgent(args []string, stdout, stderr io.Writer) int {
-	if len(args) < 2 || args[0] != "profile" {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("agent requires profile list, show, add, update, or remove"))
+	if len(args) < 2 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("agent requires profile or handoff"))
+	}
+	if args[0] == "handoff" {
+		return runAgentHandoff(args[1:], stdout, stderr)
+	}
+	if args[0] != "profile" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("agent requires profile or handoff"))
 	}
 	command := args[1]
 	jsonOutput, args, err := parseJSONFlag(args[2:])
@@ -832,6 +1028,40 @@ func runAgent(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+func runAgentHandoff(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "preview" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("agent handoff requires preview"))
+	}
+	jsonOutput, args, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	args, home, err := parseHome(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	flags := flag.NewFlagSet("agent handoff preview", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	profile := flags.String("profile", "", "agent profile id")
+	model := flags.String("model", "", "optional selected model metadata")
+	project := flags.String("project", "", "project id")
+	repository := flags.String("repository", "", "repository id")
+	worktree := flags.String("worktree", "", "worktree id")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("agent handoff preview accepts only flags"))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	preview, err := service.PrepareHandoff(context.Background(), app.HandoffInput{ProfileID: *profile, ProjectID: *project, RepositoryID: *repository, WorktreeID: *worktree, Model: *model})
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, preview, jsonOutput)
+}
+
 func runAgentProfileMutation(service *app.App, command string, args []string, stdout, stderr io.Writer, jsonOutput bool) int {
 	positionalID := ""
 	if command == "update" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -846,6 +1076,7 @@ func runAgentProfileMutation(service *app.App, command string, args []string, st
 	boundary := flags.String("data-boundary", "", "local or enterprise")
 	probe := flags.String("version-probe", "", "comma-separated version probe arguments")
 	timeout := flags.Int("timeout", 0, "probe timeout in seconds")
+	modelArguments := flags.String("model-args", "", "optional model argument template")
 	allowlist := flags.String("env", "", "comma-separated allowed environment variable names")
 	if err := flags.Parse(args); err != nil {
 		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
@@ -856,7 +1087,7 @@ func runAgentProfileMutation(service *app.App, command string, args []string, st
 	dataBoundary := domain.AgentDataBoundary(*boundary)
 	ctx := context.Background()
 	if command == "add" {
-		profile, err := service.AddAgentProfile(ctx, app.AddAgentProfileInput{ID: *id, Name: *name, Command: *profileCommand, VersionProbe: probes, TimeoutSeconds: *timeout, EnvironmentAllowlist: allowed, LaunchMode: mode, DataBoundary: dataBoundary})
+		profile, err := service.AddAgentProfile(ctx, app.AddAgentProfileInput{ID: *id, Name: *name, Command: *profileCommand, VersionProbe: probes, TimeoutSeconds: *timeout, ModelArgumentTemplate: *modelArguments, EnvironmentAllowlist: allowed, LaunchMode: mode, DataBoundary: dataBoundary})
 		if err != nil {
 			return writeCLIErrorTo(stderr, err)
 		}
@@ -868,7 +1099,7 @@ func runAgentProfileMutation(service *app.App, command string, args []string, st
 	if *id == "" {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("agent profile update requires --id"))
 	}
-	profile, err := service.UpdateAgentProfile(ctx, *id, app.UpdateAgentProfileInput{Name: *name, Command: *profileCommand, VersionProbe: probes, TimeoutSeconds: *timeout, EnvironmentAllowlist: allowed, LaunchMode: mode, DataBoundary: dataBoundary})
+	profile, err := service.UpdateAgentProfile(ctx, *id, app.UpdateAgentProfileInput{Name: *name, Command: *profileCommand, VersionProbe: probes, TimeoutSeconds: *timeout, ModelArgumentTemplate: *modelArguments, EnvironmentAllowlist: allowed, LaunchMode: mode, DataBoundary: dataBoundary})
 	if err != nil {
 		return writeCLIErrorTo(stderr, err)
 	}

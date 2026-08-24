@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/action"
 	"github.com/knowgyu/dev-control-room/internal/contract"
@@ -24,6 +25,8 @@ type QueryService interface {
 	Repository(context.Context, string, string) (domain.Repository, error)
 	Worktrees(context.Context, string, string) ([]domain.Worktree, error)
 	Worktree(context.Context, string, string, string) (domain.Worktree, error)
+	CleanupCandidates(context.Context, string) ([]domain.CleanupCandidate, error)
+	Guidance(context.Context, string, string, string) (GuidanceReport, error)
 	Proposals(context.Context, string, string, string) ([]domain.Proposal, error)
 	Proposal(context.Context, string) (domain.Proposal, error)
 	Checksets(context.Context, string, string) ([]domain.Checkset, error)
@@ -36,6 +39,10 @@ type QueryService interface {
 	AgentProfiles(context.Context) ([]domain.AgentProfile, error)
 	AgentProfile(context.Context, string) (domain.AgentProfile, error)
 	ActionStatus(context.Context, string) (ActionApprovalStatus, error)
+	ActionPlans(context.Context) ([]domain.ActionPlan, error)
+	ActionRuns(context.Context, string) ([]domain.ActionRun, error)
+	FailureFingerprints(context.Context, int) ([]domain.FailureFingerprint, error)
+	SafeguardProposals(context.Context, int) ([]SafeguardProposal, error)
 }
 
 type CommandService interface {
@@ -66,6 +73,9 @@ type CommandService interface {
 	PlanAction(context.Context, ActionPlanInput) (domain.ActionPlan, error)
 	StartHumanApprovalCeremony(context.Context, string) (action.HumanDecisionResult, error)
 	AdmitAction(context.Context, string, string, string) (action.Admission, error)
+	ExecuteAction(context.Context, string, string, string) (domain.ActionRun, error)
+	TrustActionWorktree(context.Context, string) (domain.WorktreeExecutionTrust, error)
+	PrepareHandoff(context.Context, HandoffInput) (HandoffPreview, error)
 	RenewAction(context.Context, action.Admission) (action.Admission, error)
 	ReleaseAction(context.Context, action.Admission) error
 }
@@ -150,6 +160,22 @@ func (a *App) ActionStatus(ctx context.Context, planID string) (ActionApprovalSt
 	return ActionApprovalStatus{Plan: status.Plan, Approvals: status.Approvals, Events: status.Events, Admission: status.Admission}, nil
 }
 
+func (a *App) ActionPlans(ctx context.Context) ([]domain.ActionPlan, error) {
+	items, err := a.store.ListActionPlans(ctx)
+	if err != nil {
+		return nil, classifyActionError(err)
+	}
+	return items, nil
+}
+
+func (a *App) ActionRuns(ctx context.Context, planID string) ([]domain.ActionRun, error) {
+	items, err := a.store.ListActionRuns(ctx, planID)
+	if err != nil {
+		return nil, classifyActionError(err)
+	}
+	return items, nil
+}
+
 func (a *App) StartHumanApprovalCeremony(ctx context.Context, planID string) (action.HumanDecisionResult, error) {
 	result, err := a.broker.StartHumanApprovalCeremony(ctx, planID)
 	return result, classifyActionError(err)
@@ -158,6 +184,37 @@ func (a *App) StartHumanApprovalCeremony(ctx context.Context, planID string) (ac
 func (a *App) AdmitAction(ctx context.Context, planID, holder, idempotencyKey string) (action.Admission, error) {
 	admission, err := a.broker.Admit(ctx, planID, holder, idempotencyKey)
 	return admission, classifyActionError(err)
+}
+
+func (a *App) ExecuteAction(ctx context.Context, planID, holder, idempotencyKey string) (domain.ActionRun, error) {
+	admission, err := a.broker.Admit(ctx, planID, holder, idempotencyKey)
+	if err != nil {
+		return domain.ActionRun{}, classifyActionError(err)
+	}
+	revalidate := func(ctx context.Context) error {
+		_, changed, err := a.discoveryWorktree(ctx, admission.Plan.Spec.ProjectID, admission.Plan.Spec.RepositoryID, admission.Plan.Spec.WorktreeID)
+		if err != nil {
+			return err
+		}
+		if changed {
+			return errors.New("action Worktree evidence changed")
+		}
+		return nil
+	}
+	run, err := a.broker.ExecuteWithRevalidation(ctx, admission, revalidate)
+	return run, classifyActionError(err)
+}
+
+func (a *App) TrustActionWorktree(ctx context.Context, planID string) (domain.WorktreeExecutionTrust, error) {
+	plan, err := a.store.GetActionPlan(ctx, planID)
+	if err != nil {
+		return domain.WorktreeExecutionTrust{}, classifyActionError(err)
+	}
+	trust, err := a.broker.TrustWorktreeForExecution(ctx, plan.Spec.ProjectID, plan.Spec.RepositoryID, plan.Spec.WorktreeID, time.Now().UTC())
+	if err != nil {
+		return domain.WorktreeExecutionTrust{}, classifyActionError(err)
+	}
+	return trust, nil
 }
 
 func (a *App) RenewAction(ctx context.Context, admission action.Admission) (action.Admission, error) {
@@ -183,6 +240,10 @@ func classifyActionError(err error) error {
 		return contract.Conflict("a human approval ceremony is already active")
 	case errors.Is(err, action.ErrHumanDecisionUnavailable):
 		return contract.CodedError{Code: contract.ErrorUnavailable, Message: "native human approval is unavailable"}
+	case errors.Is(err, action.ErrActionPrecheck), errors.Is(err, action.ErrActionPostcheck), errors.Is(err, action.ErrActionExecution):
+		return contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "action execution did not succeed"}
+	case errors.Is(err, action.ErrExecutionContextStale), errors.Is(err, action.ErrWorktreeUntrusted):
+		return contract.CodedError{Code: contract.ErrorUnavailable, Message: "action Worktree evidence is no longer current"}
 	case errors.Is(err, sql.ErrNoRows):
 		return contract.NotFound("action plan not found")
 	default:
@@ -191,22 +252,86 @@ func classifyActionError(err error) error {
 }
 
 type AddAgentProfileInput struct {
-	ID                   string
-	Name                 string
-	Command              string
-	VersionProbe         []string
-	TimeoutSeconds       int
-	EnvironmentAllowlist []string
-	LaunchMode           domain.AgentLaunchMode
-	DataBoundary         domain.AgentDataBoundary
+	ID                    string
+	Name                  string
+	Command               string
+	VersionProbe          []string
+	TimeoutSeconds        int
+	ModelArgumentTemplate string
+	EnvironmentAllowlist  []string
+	LaunchMode            domain.AgentLaunchMode
+	DataBoundary          domain.AgentDataBoundary
 }
 
 type UpdateAgentProfileInput struct {
-	Name                 string
-	Command              string
-	VersionProbe         []string
-	TimeoutSeconds       int
-	EnvironmentAllowlist []string
-	LaunchMode           domain.AgentLaunchMode
-	DataBoundary         domain.AgentDataBoundary
+	Name                  string
+	Command               string
+	VersionProbe          []string
+	TimeoutSeconds        int
+	ModelArgumentTemplate string
+	EnvironmentAllowlist  []string
+	LaunchMode            domain.AgentLaunchMode
+	DataBoundary          domain.AgentDataBoundary
+}
+
+type GuidanceFinding struct {
+	Severity              string `json:"severity"`
+	Code                  string `json:"code"`
+	File                  string `json:"file,omitempty"`
+	Summary               string `json:"summary"`
+	RecommendedNextAction string `json:"recommendedNextAction"`
+}
+
+type GuidanceReport struct {
+	ProjectID    string            `json:"projectId"`
+	RepositoryID string            `json:"repositoryId"`
+	WorktreeID   string            `json:"worktreeId"`
+	CheckedAt    time.Time         `json:"checkedAt"`
+	Files        []string          `json:"files"`
+	Findings     []GuidanceFinding `json:"findings"`
+}
+
+type HandoffInput struct {
+	ProfileID    string `json:"profileId"`
+	ProjectID    string `json:"projectId"`
+	RepositoryID string `json:"repositoryId"`
+	WorktreeID   string `json:"worktreeId"`
+	Model        string `json:"model,omitempty"`
+}
+
+type HandoffFinding struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity"`
+	Summary  string `json:"summary"`
+	Next     string `json:"recommendedNextAction"`
+}
+
+type HandoffPreview struct {
+	ProfileID             string           `json:"profileId"`
+	ProfileName           string           `json:"profileName"`
+	ProfileCommand        string           `json:"profileCommand"`
+	Model                 string           `json:"model,omitempty"`
+	ModelArgumentTemplate string           `json:"modelArgumentTemplate,omitempty"`
+	LaunchMode            string           `json:"launchMode"`
+	DataBoundary          string           `json:"dataBoundary"`
+	ProjectID             string           `json:"projectId"`
+	RepositoryID          string           `json:"repositoryId"`
+	WorktreeID            string           `json:"worktreeId"`
+	WorkingDirectory      string           `json:"workingDirectory"`
+	Scope                 []string         `json:"scope"`
+	Findings              []HandoffFinding `json:"findings"`
+	VerificationCommands  []string         `json:"verificationCommands"`
+	TranscriptIncluded    bool             `json:"transcriptIncluded"`
+}
+
+type SafeguardProposal struct {
+	Fingerprint     string    `json:"fingerprint"`
+	Category        string    `json:"category"`
+	OccurrenceCount int       `json:"occurrenceCount"`
+	FirstSeen       time.Time `json:"firstSeen"`
+	LastSeen        time.Time `json:"lastSeen"`
+	Mode            string    `json:"mode"`
+	State           string    `json:"state"`
+	Summary         string    `json:"summary"`
+	Next            string    `json:"recommendedNextAction"`
 }

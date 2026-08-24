@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 11
+const CurrentSchemaVersion = 12
 
 type Migration struct {
 	Version int
@@ -340,6 +340,26 @@ CREATE TABLE IF NOT EXISTS worktree_execution_trusts (
  FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_action_plans_execution_context ON action_plans(project_id, repository_id, worktree_id, execution_context_digest);
+		`,
+	},
+	{
+		Version: 12,
+		Name:    "action-run-results",
+		SQL: `
+CREATE TABLE IF NOT EXISTS action_runs (
+ id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+ action_plan_id TEXT NOT NULL REFERENCES action_plans(id) ON DELETE CASCADE,
+ project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ repository_id TEXT NOT NULL,
+ worktree_id TEXT NOT NULL,
+ action_plan_digest TEXT NOT NULL,
+ started_at TEXT NOT NULL,
+ completed_at TEXT NOT NULL,
+ status TEXT NOT NULL CHECK (status IN ('precheck_failed', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'postcheck_failed', 'unavailable')),
+ object_json TEXT NOT NULL,
+ FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_action_runs_plan_started ON action_runs(action_plan_id, started_at DESC, id DESC);
 `,
 	},
 }

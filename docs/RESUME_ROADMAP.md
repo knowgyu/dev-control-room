@@ -24,10 +24,10 @@ do not follow stale goal/stop-hook prompts.
 | 3A — worktree identity | accepted | `docs/SLICE_B_VERIFICATION.md`; explicit primary/linked Worktree discovery and read-only visibility. |
 | 3B — deterministic discovery proposals | accepted and handed off | `4126649`; `docs/SLICE_C_VERIFICATION.md`. |
 | 3C — typed Checkset runner | accepted | CLI, loopback HTTP, and embedded UI use the application service; native Windows full-suite, UI, Worktree, and process-boundary checks passed. |
-| 3D — Action Broker | accepted (planning/approval only) | Typed executable/evidence and exact Worktree trust snapshots fail closed. The empty-body-only UI ceremony opens Windows `MessageBoxW`; CLI/API/MCP agents cannot grant. No Action process executes. |
-| 4 — configured release and cleanup | not started | No project-specific onboarding, release mutation, or cleanup execution. |
-| 5 — Guidance, Agent Handoff, MCP | not started | Future thin adapters over the application service. |
-| 6 — repeated-failure safeguards | not started | No safeguard activation or learning implementation. |
+| 3D — Action Broker and execution | implemented; native acceptance pending | Typed executable/evidence, exact Worktree trust snapshots, bounded `ActionRun` persistence, pre/post checks, and Broker-owned process execution are in place. WSL/cross-build evidence passed; new native Windows execution gate remains. |
+| 4 — configured release and cleanup | generic safety base implemented | Read-only blocked cleanup queue is available; provider-specific release, correlation, and cleanup mutation remain unconfigured. |
+| 5 — Guidance, Agent Handoff, MCP | generic adapter implemented | Guidance, masked handoff preview, typed stdio MCP, and model metadata are present; native launch/provider acceptance remains. |
+| 6 — repeated-failure safeguards | proposal base implemented | Repeated fingerprints yield shadow proposals; activation, feedback metrics, and retirement remain. |
 
 ## Slice C / G003 handoff
 
@@ -47,7 +47,8 @@ in that baseline; proposal text remains non-executable.
 The current Windows amd64 package is released as `v0.3.1` from tagged commit
 `4bcd8c6`; the asset is `dev-control-room_0.3.1_windows_amd64.exe` with its
 SHA-256 in `SHA256SUMS`. Environment Health duplicate display is tracked as
-GitHub issue #1 and is intentionally not changed in this release.
+GitHub issue #1; the current branch now includes the source-label UI fix, but
+the issue remains open until its owner verifies the native screen.
 
 ## Next implementation order
 
@@ -57,23 +58,24 @@ process-tree containment, masking, bounded evidence, and normalized Checkset
 results. CLI, HTTP, and embedded UI now call the same application-service
 methods; native Windows acceptance is complete at `3dbc90d`.
 
-Slice 3D now separates Action planning and execution; implements risk policy,
-digest-bound approval, locks, idempotency, immutable events, revalidation, and
-approval-bypass regressions; and provides the native-human ceremony. The next
-implementation boundary is a separate Action execution owner. It must retain
-the exact Worktree revalidation and never turn a granted approval into process
-execution without its own contract and verification. Do not begin Milestones
-4–6 early.
+Slice 3D now includes Action planning, approval, and the separate typed
+execution owner. It retains exact Worktree revalidation, argv/environment
+boundaries, bounded output, postchecks, and immutable run evidence. Complete
+the native Windows acceptance gate for this slice before using it on a native
+machine. The generic cleanup queue is intentionally read-only; do not onboard
+company-specific release or cleanup procedures without reviewed inputs.
 
 ## Verification boundary
 
-The current slices, including W5's approval ceremony and the portability
-repairs, have WSL evidence plus native Windows 11 / PowerShell 7.6 acceptance.
+The current slices through the approval ceremony have WSL evidence plus native
+Windows 11 / PowerShell 7.6 acceptance. The new Action execution code has WSL
+and cross-build evidence; its native runtime gate is still pending.
 At `3dbc90d`, native `go test ./...`, `go test -race ./...` with `gcc`, `go vet`,
 `go build`, `go mod verify`, ProcessRunner, loopback UI, Checkset, Worktree
-fail-closed, MessageBoxW No/Cancel/Yes, Action non-execution, and Scheduler
-dry-run/status all passed. Scheduler install/uninstall and real Action process
-execution were not performed and remain future work. Full evidence is in
+fail-closed, MessageBoxW No/Cancel/Yes, and Scheduler dry-run/status all passed
+at the prior baseline. The new typed Action process execution is covered in
+`docs/SLICE_F_VERIFICATION.md`; Scheduler install/uninstall remains
+unperformed. Full evidence is in
 `docs/NATIVE_WINDOWS_SMOKE.md`.
 
 Never expose secret values, add telemetry or an unreviewed dependency, or

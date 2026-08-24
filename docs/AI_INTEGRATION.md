@@ -61,16 +61,18 @@ separately as improvements, never disguised as discovered checks.
 
 ## MCP adapter
 
-MCP is a later adapter, not the domain architecture. It runs over stdio and
-offers narrow tools backed by the same application service. Planned tool groups:
+MCP is an adapter, not the domain architecture. It runs over stdio and offers
+narrow tools backed by the same application service. The current typed tools
+cover:
 
-- project and repository status;
+- project status;
 - findings and evidence;
-- environment-health summaries;
-- Worktree-aware Checkset discovery and execution;
-- Action planning and approval-status inspection;
 - cleanup candidate inspection;
-- Agent Handoff preparation.
+- bounded Guidance Doctor checks;
+- masked Agent Handoff preparation.
+
+Checkset and Action tools remain CLI/HTTP surfaces until their MCP contracts
+need to be exposed; no MCP tool can approve or execute an Action.
 
 There is no generic command execution or unrestricted file-read MCP tool. An MCP
 client cannot approve its own high-risk action.
