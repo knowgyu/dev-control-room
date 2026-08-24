@@ -24,6 +24,18 @@ type IntegrationConfig struct {
 	Values        map[string]string `json:"values,omitempty"`
 }
 
+type IntegrationHealth struct {
+	ID                  string          `json:"id"`
+	Kind                IntegrationKind `json:"kind"`
+	Endpoint            string          `json:"endpoint"`
+	CredentialReference string          `json:"credentialReference,omitempty"`
+	CredentialPresent   bool            `json:"credentialPresent"`
+	Status              string          `json:"status"`
+	HTTPStatus          int             `json:"httpStatus,omitempty"`
+	Message             string          `json:"message"`
+	CheckedAt           time.Time       `json:"checkedAt"`
+}
+
 var integrationValueKey = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,63}$`)
 
 type Config struct {

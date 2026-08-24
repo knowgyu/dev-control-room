@@ -20,6 +20,7 @@
     safeguards: [],
     profiles: [],
     integrations: [],
+    integrationHealth: {},
     activeProjectID: "",
     checkRuns: new Map(),
     expandedChecks: new Set(),
@@ -393,7 +394,7 @@
     document.getElementById("profile-list").innerHTML = state.profiles.length ? `<div class="item-list">${state.profiles.map(profile => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(profile.metadata.name)}</h3><p class="meta">${escapeHTML(profile.metadata.id)}</p></div><span class="chip">${escapeHTML(label(profile.spec.dataBoundary))}</span></div><dl class="detail-grid"><div><dt>실행 명령</dt><dd><code>${escapeHTML(profile.spec.command)}</code></dd></div><div><dt>실행 방식</dt><dd>${escapeHTML(label(profile.spec.launchMode))}</dd></div><div><dt>제한 시간</dt><dd>${escapeHTML(profile.spec.timeoutSeconds)}초</dd></div><div><dt>모델 인자</dt><dd>${escapeHTML(profile.spec.modelArgumentTemplate || "없음")}</dd></div><div class="wide"><dt>허용 환경 변수</dt><dd>${escapeHTML((profile.spec.environmentAllowlist || []).join(", ") || "없음")}</dd></div></dl><div class="item-actions"><button class="button small" type="button" data-profile="edit" data-id="${escapeHTML(profile.metadata.id)}">정보 변경</button><button class="button small" type="button" data-unregister="profile" data-profile-id="${escapeHTML(profile.metadata.id)}" data-name="${escapeHTML(profile.metadata.name)}">제거</button></div></article>`).join("")}</div>` : '<div class="empty-state"><strong>Agent Profile이 없습니다.</strong><span>Handoff 미리 보기를 사용하려면 Profile을 추가하세요.</span></div>';
 
     const integrationContent = state.integrations.length
-      ? `<div class="item-list">${state.integrations.map(item => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · ${escapeHTML(item.kind)}</p></div><span class="chip ok">credential reference</span></div><dl class="detail-grid"><div class="wide"><dt>Endpoint</dt><dd><code>${escapeHTML(item.endpoint)}</code></dd></div><div><dt>Credential</dt><dd><code>${escapeHTML(item.credentialRef || "없음")}</code></dd></div><div class="wide"><dt>대상 값</dt><dd>${Object.entries(item.values || {}).map(([key, value]) => `<code>${escapeHTML(key)}=${escapeHTML(value)}</code>`).join("<br>") || "없음"}</dd></div></dl><div class="item-actions"><button class="button small" type="button" data-integration="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="integration" data-integration-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`).join("")}</div>`
+      ? `<div class="item-list">${state.integrations.map(item => { const health = state.integrationHealth[item.id]; const healthStatus = health?.status || "not_checked"; return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · ${escapeHTML(item.kind)}</p></div><span class="chip ${healthStatus === "passed" ? "ok" : healthStatus === "failed" ? "bad" : "warn"}">${escapeHTML(health ? label(healthStatus) : "미확인")}</span></div><dl class="detail-grid"><div class="wide"><dt>Endpoint</dt><dd><code>${escapeHTML(item.endpoint)}</code></dd></div><div><dt>Credential</dt><dd><code>${escapeHTML(item.credentialRef || "없음")}</code></dd></div><div class="wide"><dt>대상 값</dt><dd>${Object.entries(item.values || {}).map(([key, value]) => `<code>${escapeHTML(key)}=${escapeHTML(value)}</code>`).join("<br>") || "없음"}</dd></div>${health ? `<div class="wide"><dt>마지막 확인</dt><dd>${escapeHTML(health.message)}${health.httpStatus ? ` · HTTP ${escapeHTML(health.httpStatus)}` : ""}</dd></div>` : ""}</dl><div class="item-actions"><button class="button small" type="button" data-integration="check" data-id="${escapeHTML(item.id)}">연결 확인</button><button class="button small" type="button" data-integration="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="integration" data-integration-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`; }).join("")}</div>`
       : '<div class="empty-state"><strong>등록된 연동이 없습니다.</strong><span>먼저 주소와 credential reference만 등록하세요.</span></div>';
     document.getElementById("integration-list").innerHTML = (state.surfaceErrors.integrations ? surfaceError(state.surfaceErrors.integrations, "diagnostics") : "") + integrationContent;
 
@@ -792,6 +793,18 @@
     }
     if (button.id === "add-integration") {
       openEditor("integration", {});
+      return;
+    }
+    if (button.dataset.integration === "check") {
+      button.disabled = true;
+      try {
+        state.integrationHealth[button.dataset.id] = await request(`/api/integrations/${encode(button.dataset.id)}/check`, { method: "POST", headers: mutationHeaders(), body: "" });
+        renderDiagnostics();
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
       return;
     }
     if (button.dataset.integration === "edit") {

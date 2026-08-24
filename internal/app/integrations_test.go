@@ -72,3 +72,33 @@ func TestIntegrationHTTPMutationsAreProtectedAndRejectSecretValueFields(t *testi
 		t.Fatalf("invalid integration response = %#v, err = %v", failure, err)
 	}
 }
+
+func TestCheckIntegrationResolvesEnvironmentReferenceWithoutExposingResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusOK)
+		_, _ = response.Write([]byte("secret-response-body"))
+	}))
+	defer server.Close()
+	t.Setenv("DEVROOM_FIXTURE_TOKEN", "secret-token-value")
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	if _, err := service.AddIntegration(context.Background(), AddIntegrationInput{ID: "health", Name: "Health", Kind: IntegrationGitHub, Endpoint: server.URL, CredentialRef: "env:DEVROOM_FIXTURE_TOKEN"}); err != nil {
+		t.Fatal(err)
+	}
+	health, err := service.CheckIntegration(context.Background(), "health")
+	if err != nil || health.Status != "passed" || !health.CredentialPresent || health.HTTPStatus != http.StatusOK {
+		t.Fatalf("health = %#v, err = %v", health, err)
+	}
+	data, _ := json.Marshal(health)
+	if bytes.Contains(data, []byte("secret-response-body")) || bytes.Contains(data, []byte("secret-token-value")) {
+		t.Fatalf("health exposed secret material: %s", data)
+	}
+	os.Unsetenv("DEVROOM_FIXTURE_TOKEN")
+	health, err = service.CheckIntegration(context.Background(), "health")
+	if err != nil || health.Status != "unavailable" || health.CredentialPresent {
+		t.Fatalf("missing credential health = %#v, err = %v", health, err)
+	}
+}

@@ -95,11 +95,16 @@ GET    /api/integrations
 POST   /api/integrations
 PUT    /api/integrations/{id}
 DELETE /api/integrations/{id}
+POST   /api/integrations/{id}/check
 ```
 
 Each definition stores an endpoint, kind, non-secret target values, and an
 optional credential reference. Token-like value keys are rejected; put those
 names in `credentialRef` instead. The UI keeps the same distinction visible.
+The check endpoint resolves only `env:` references for now, performs a bounded
+GET, and returns status metadata without response body or credential material.
+`credential_manager:` remains an explicit unavailable result until its native
+adapter is implemented.
 
 ## Initial operations
 
