@@ -83,7 +83,7 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer, service app.A
 func dispatch(ctx context.Context, service app.ApplicationService, method string, params json.RawMessage) (any, *rpcError) {
 	switch method {
 	case "initialize":
-		return map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "dev-control-room", "version": "0.4.0-rc.1"}}, nil
+		return map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "dev-control-room", "version": "0.4.0-rc.2"}}, nil
 	case "tools/list":
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":

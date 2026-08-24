@@ -23,7 +23,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
-const version = "0.4.0-rc.1"
+const version = "0.4.0-rc.2"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 

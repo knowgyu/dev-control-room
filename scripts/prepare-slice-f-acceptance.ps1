@@ -43,8 +43,8 @@ if (-not (Test-Path -LiteralPath $BinaryPath)) {
 $BinaryPath = (Resolve-Path -LiteralPath $BinaryPath).ProviderPath
 
 $version = (& $BinaryPath version).Trim()
-if ($LASTEXITCODE -ne 0 -or $version -ne "0.4.0-rc.1") {
-    throw "expected dev-control-room 0.4.0-rc.1, got '$version'"
+if ($LASTEXITCODE -ne 0 -or $version -ne "0.4.0-rc.2") {
+	throw "expected dev-control-room 0.4.0-rc.2, got '$version'"
 }
 $sourceCommit = (& git -c "safe.directory=$repositoryRoot" -C $repositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) {
