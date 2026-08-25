@@ -52,7 +52,23 @@ func (a *App) AgentInvocations(ctx context.Context) ([]domain.AgentInvocation, e
 }
 
 func (a *App) PRCIBaselines(ctx context.Context) ([]domain.PRCIBaseline, error) {
-	return a.store.ListBaselines(ctx)
+	items, err := a.store.ListBaselines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	for index := range items {
+		item := &items[index]
+		if now.After(item.Spec.FreshUntil) {
+			item.Spec.State, item.Spec.StaleReason = "stale", "baseline freshness expired"
+			continue
+		}
+		worktree, worktreeErr := a.Worktree(ctx, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID)
+		if worktreeErr != nil || worktree.Spec.Head != item.Spec.Head {
+			item.Spec.State, item.Spec.StaleReason = "stale", "target Worktree HEAD changed"
+		}
+	}
+	return items, nil
 }
 
 func (a *App) AssuranceArtifacts(ctx context.Context) ([]domain.Artifact, error) {
@@ -416,7 +432,7 @@ func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, er
 		if err != nil || entry.IsDir() {
 			return nil
 		}
-		if strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".yaml") {
+		if strings.EqualFold(filepath.Ext(path), ".yml") || strings.EqualFold(filepath.Ext(path), ".yaml") {
 			files = append(files, path)
 		}
 		return nil
@@ -424,6 +440,16 @@ func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, er
 	sort.Strings(files)
 	hash := sha256.New()
 	entries := []domain.BaselineEntry{}
+	requiredPath := filepath.Join(root, ".github", "required-checks.txt")
+	if data, err := os.ReadFile(requiredPath); err == nil {
+		_, _ = hash.Write(data)
+		for _, line := range strings.Split(string(data), "\n") {
+			name := strings.TrimSpace(line)
+			if name != "" {
+				entries = append(entries, domain.BaselineEntry{ID: "required-" + normalizeAppID(name), Name: name, Classification: domain.BaselineRequired, SourcePath: filepath.ToSlash(filepath.Join(".github", "required-checks.txt")), Required: true})
+			}
+		}
+	}
 	for _, path := range files {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -445,6 +471,7 @@ func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, er
 		}
 		for index, line := range strings.Split(text, "\n") {
 			trimmed := strings.TrimSpace(line)
+			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
 			if strings.HasPrefix(trimmed, "run:") {
 				command := strings.TrimSpace(strings.TrimPrefix(trimmed, "run:"))
 				entries = append(entries, domain.BaselineEntry{ID: fmt.Sprintf("workflow-%d", index), Name: "GitHub Actions run", Classification: domain.BaselineObserved, SourcePath: rel, Command: command, Observed: true})
@@ -453,6 +480,11 @@ func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, er
 	}
 	if len(entries) == 0 {
 		entries = append(entries, domain.BaselineEntry{ID: "unknown", Name: "PR check baseline", Classification: domain.BaselineUnknown})
+	} else {
+		// Provider-enforced rules and current check history are not inferred from
+		// local files. Keep that unresolved part explicit instead of presenting a
+		// local equivalent as the required PR contract.
+		entries = append(entries, domain.BaselineEntry{ID: "provider-rules-unknown", Name: "provider-enforced PR rules", Classification: domain.BaselineUnknown})
 	}
 	sum := hash.Sum(nil)
 	return entries, "sha256:" + hex.EncodeToString(sum), files, nil
