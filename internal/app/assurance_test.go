@@ -207,3 +207,59 @@ func TestAssuranceAuthoringPersistsQuestionsSpecAndAdvisoryPatchWithoutAdoptionS
 		t.Fatalf("reviewed proposal = %#v", reviewed)
 	}
 }
+
+func TestAllV1TechniqueAdaptersCreateArtifactsAndArchiveDeleteWithWarning(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Techniques", Path: tempGitRepository(t, "techniques")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	campaign, err := service.CreateQualityCampaign(context.Background(), QualityCampaignInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Name: "all techniques"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	techniques := []string{domain.QualityTechniqueStaticSecurity, domain.QualityTechniqueMutation, domain.QualityTechniqueProperty, domain.QualityTechniqueFuzz, domain.QualityTechniqueTargetedE2E}
+	ids := make([]string, 0, len(techniques))
+	for _, technique := range techniques {
+		run, runErr := service.RunQuality(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: technique, Provider: "fake"})
+		if runErr != nil {
+			t.Fatal(technique, runErr)
+		}
+		if len(run.Spec.ArtifactIDs) != 1 {
+			t.Fatalf("%s artifacts = %#v", technique, run.Spec.ArtifactIDs)
+		}
+		ids = append(ids, run.Spec.ArtifactIDs[0])
+	}
+	if _, err := service.DeleteAssuranceArtifact(context.Background(), ids[0], "wrong"); err == nil {
+		t.Fatal("artifact deletion without warning accepted")
+	}
+	exportRoot := filepath.Join(t.TempDir(), "archive")
+	exported, err := service.ExportAssuranceArtifacts(context.Background(), ids[:2], exportRoot)
+	if err != nil || !exported.Verified {
+		t.Fatalf("export = %#v, %v", exported, err)
+	}
+	items, err := service.AssuranceArtifacts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived := 0
+	for _, item := range items {
+		if item.Spec.Retention == domain.ArtifactRetentionArchived {
+			archived++
+		}
+	}
+	if archived != 2 {
+		t.Fatalf("archived = %d, %#v", archived, items)
+	}
+	deleted, err := service.DeleteAssuranceArtifact(context.Background(), ids[2], "DELETE")
+	if err != nil || deleted.Spec.Retention != domain.ArtifactRetentionDeleted {
+		t.Fatalf("deleted = %#v, %v", deleted, err)
+	}
+}

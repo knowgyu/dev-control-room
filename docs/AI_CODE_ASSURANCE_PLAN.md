@@ -325,8 +325,8 @@ or reruns an uncertain external/high-impact Action.
 | B — providers/continuity | Doctor, Codex adapter, structured schema, profiles/model picker, fake Claude/Gemini, Resume Brief | fake matrix; masking; cancellation; non-TTY, closed-stdin, auth/prompt/output/usage failure cases; no raw transcript default; separate native real-CLI acceptance | accepted automated scope; see MILESTONE_B_VERIFICATION.md |
 | C — CI/runner | gh/Jenkins baseline discovery and typed Quality Runs | fixture proves required/observed/local equivalent/unknown and stale detection | accepted local fixture scope; see MILESTONE_C_VERIFICATION.md |
 | D — assurance authoring | Q&A, Assurance Spec, test/property/mutation/fuzz proposals, isolated patch, critic | tests prove AI cannot adopt/commit/push and stale specs/runs surface | accepted; see MILESTONE_D_VERIFICATION.md |
-| E — techniques/artifacts | v1 static/security, mutation, property, fuzz, and targeted-E2E adapters; reports; archive/export/cleanup | three-repo fixture creates/verifies/exports/restores artifacts and deletion warning | in progress |
-| F — effects/usage | dashboard, filters, usage ledger, pricing snapshots, exports | fixture produces correctly labelled measured/estimated/unknown effects and stable historical pricing |
+| E — techniques/artifacts | v1 static/security, mutation, property, fuzz, and targeted-E2E adapters; reports; archive/export/cleanup | three-repo fixture creates/verifies/exports/restores artifacts and deletion warning | accepted fixture scope; see MILESTONE_E_VERIFICATION.md |
+| F — effects/usage | dashboard, filters, usage ledger, pricing snapshots, exports | fixture produces correctly labelled measured/estimated/unknown effects and stable historical pricing | in progress |
 | G — dogfood/release | campaign on Dev Control Room and existing three-repo fixture | full automated suite, fake-provider E2E, targeted real CLI acceptance, reviewed effect report |
 
 Implement one milestone per branch. Mark it completed here and in the Roadmap;

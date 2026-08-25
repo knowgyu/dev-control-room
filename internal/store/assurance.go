@@ -127,6 +127,24 @@ func (s *Store) SaveArtifact(ctx context.Context, item domain.Artifact) error {
 	return s.saveAssurance(ctx, domain.ArtifactKind, item.Metadata.ID, "", "", "", item.Spec.Retention, 1, item.Spec.CreatedAt, timeOr(item.Spec.ArchivedAt, item.Spec.CreatedAt), item, item.Validate())
 }
 
+func (s *Store) UpdateAssuranceArtifact(ctx context.Context, item domain.Artifact) error {
+	if err := item.Validate(); err != nil {
+		return err
+	}
+	object, err := s.maskedJSON(item)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE assurance_objects SET state = ?, updated_at = ?, object_json = ? WHERE kind = ? AND id = ?`, item.Spec.Retention, timeOr(item.Spec.DeletedAt, timeOr(item.Spec.ArchivedAt, item.Spec.CreatedAt)).UTC().Format(timeFormat), object, domain.ArtifactKind, item.Metadata.ID)
+	if err != nil {
+		return err
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return errors.New("assurance artifact is missing")
+	}
+	return nil
+}
+
 func (s *Store) SaveEffect(ctx context.Context, item domain.Effect) error {
 	return s.saveAssurance(ctx, domain.EffectKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.Label, 1, item.Spec.CreatedAt, item.Spec.UpdatedAt, item, item.Validate())
 }

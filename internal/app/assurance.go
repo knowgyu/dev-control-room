@@ -350,18 +350,29 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	if err := a.store.UpdateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, 2, run.Spec.State, now, run); err != nil {
 		return domain.QualityRun{}, err
 	}
+	techniqueReport, techniqueErr := assurance.RunFixtureTechnique(ctx, input.Technique, worktree.Spec.CanonicalPath)
+	if techniqueErr != nil {
+		run.Spec.State = domain.AssuranceStateFailed
+		run.Spec.Summary = "quality technique adapter가 실행되지 않았습니다."
+		run.Spec.StaleReason = "technique adapter failed"
+	}
 	result, processErr := (environment.ProcessRunner{OutputLimit: 128 << 10}).RunInDirectory(ctx, "git", []string{"diff", "--check"}, environment.AllowlistedEnvironment(nil), worktree.Spec.CanonicalPath, time.Minute)
 	completed := time.Now().UTC()
 	run.Spec.CompletedAt = &completed
 	run.Spec.ExitCode = result.ExitCode
 	run.Spec.State = domain.AssuranceStateSucceeded
 	run.Spec.Summary = "정적 diff 점검이 완료되었습니다."
+	run.Spec.Evidence["techniqueReport"] = techniqueReport
+	if techniqueErr != nil {
+		run.Spec.State = domain.AssuranceStateFailed
+		run.Spec.Summary = "quality technique adapter가 실행되지 않았습니다."
+	}
 	if processErr != nil {
 		run.Spec.State = domain.AssuranceStateFailed
 		run.Spec.Summary = "정적 diff 점검이 실패했습니다."
 		run.Spec.StaleReason = "typed runner failed"
 	}
-	report, _ := json.Marshal(map[string]any{"runId": run.Metadata.ID, "technique": input.Technique, "state": run.Spec.State, "exitCode": run.Spec.ExitCode, "stderr": a.masker.Mask(result.Stderr)})
+	report, _ := json.Marshal(map[string]any{"runId": run.Metadata.ID, "technique": input.Technique, "state": run.Spec.State, "exitCode": run.Spec.ExitCode, "stderr": a.masker.Mask(result.Stderr), "techniqueReport": techniqueReport})
 	artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".json", MIME: "application/json", Content: report})
 	if artifactErr == nil {
 		run.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
@@ -523,6 +534,11 @@ func (a *App) ExportAssuranceArtifacts(ctx context.Context, ids []string, destin
 		return ArtifactExportResult{}, contract.InvalidInput("artifact export requires at least one artifact")
 	}
 	staging := destination + ".staging"
+	if _, err := os.Stat(destination); err == nil {
+		return ArtifactExportResult{}, contract.Conflict("artifact export destination already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return ArtifactExportResult{}, err
+	}
 	if err := os.MkdirAll(staging, 0o700); err != nil {
 		return ArtifactExportResult{}, err
 	}
@@ -547,14 +563,52 @@ func (a *App) ExportAssuranceArtifacts(ctx context.Context, ids []string, destin
 	if len(result.ArtifactIDs) != len(wanted) {
 		return ArtifactExportResult{}, contract.NotFound("one or more artifacts were not found")
 	}
-	if err := os.RemoveAll(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return ArtifactExportResult{}, err
-	}
 	if err := os.Rename(staging, destination); err != nil {
 		return ArtifactExportResult{}, err
 	}
+	for _, item := range artifacts {
+		if !wanted[item.Metadata.ID] {
+			continue
+		}
+		now := time.Now().UTC()
+		item.Spec.Retention = domain.ArtifactRetentionArchived
+		item.Spec.ArchivedAt = &now
+		item.Spec.ArchivePath = destination
+		if err := a.store.UpdateAssuranceArtifact(ctx, item); err != nil {
+			return ArtifactExportResult{}, err
+		}
+	}
 	result.Verified = true
 	return result, nil
+}
+
+func (a *App) DeleteAssuranceArtifact(ctx context.Context, id, confirmation string) (domain.Artifact, error) {
+	if confirmation != "DELETE" {
+		return domain.Artifact{}, contract.InvalidInput("artifact deletion requires confirmation DELETE")
+	}
+	items, err := a.AssuranceArtifacts(ctx)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	for _, item := range items {
+		if item.Metadata.ID != id {
+			continue
+		}
+		if item.Spec.Retention == domain.ArtifactRetentionDeleted {
+			return item, nil
+		}
+		if err := os.Remove(item.Spec.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return domain.Artifact{}, err
+		}
+		now := time.Now().UTC()
+		item.Spec.Retention = domain.ArtifactRetentionDeleted
+		item.Spec.DeletedAt = &now
+		if err := a.store.UpdateAssuranceArtifact(ctx, item); err != nil {
+			return domain.Artifact{}, err
+		}
+		return item, nil
+	}
+	return domain.Artifact{}, contract.NotFound("assurance artifact not found")
 }
 
 func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, error) {

@@ -1279,6 +1279,21 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(item))
 	}))
+	mux.HandleFunc("POST /api/assurance/artifacts/{artifactID}/delete", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Confirmation string `json:"confirmation"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.DeleteAssuranceArtifact(request.Context(), request.PathValue("artifactID"), input.Confirmation)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
 	mux.HandleFunc("GET /api/assurance/effects", func(response http.ResponseWriter, request *http.Request) {
 		items, err := service.AssuranceEffects(request.Context())
 		if err != nil {

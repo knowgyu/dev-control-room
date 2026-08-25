@@ -144,6 +144,7 @@ type CommandService interface {
 	CreateEffect(context.Context, EffectInput) (domain.Effect, error)
 	SavePricingSnapshot(context.Context, domain.ProviderPricingSnapshot) (domain.ProviderPricingSnapshot, error)
 	ExportAssuranceArtifacts(context.Context, []string, string) (ArtifactExportResult, error)
+	DeleteAssuranceArtifact(context.Context, string, string) (domain.Artifact, error)
 }
 
 type ApplicationService interface {
