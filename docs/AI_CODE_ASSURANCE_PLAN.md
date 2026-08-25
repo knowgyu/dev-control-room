@@ -1,10 +1,14 @@
-# AI-assisted Code Assurance plan
+# Phase 1 — AI-assisted Code Assurance plan
 
 Status: active
 Updated: 2026-08-26
 Owner: local operator
 
-This is the canonical active feature plan. It supersedes the deferred
+This is the canonical active feature plan. It is Phase 1 of the current product
+sequence. Phase 2 usability work is planned separately in
+[PHASE_2_PRODUCT_USABILITY_PLAN.md](PHASE_2_PRODUCT_USABILITY_PLAN.md); it must
+not displace Phase 1 acceptance work or turn an unfinished safety contract into
+a UI-only release. It supersedes the deferred
 Hardener/QA/CRAP wording in older planning documents, but does not invalidate
 accepted milestone evidence or weaken the Action Broker, masking, local-first,
 and Worktree-trust boundaries.
@@ -52,6 +56,11 @@ choices live in docs/decisions/, so old plans are not silently rewritten.
    Interactive terminal Handoff stays available for human-led work.
 3. Codex first. Codex CLI is the first real adapter. Claude and Gemini get
    automatic detection, profile registration, and fake-adapter coverage first.
+   A detected npm `codex.cmd` launcher is supported without invoking `cmd.exe`:
+   the adapter verifies a local `node.exe`, the adjacent `@openai/codex`
+   package metadata and declared `bin/codex.js`, then invokes Node and that
+   script as a typed argv command. It never executes an arbitrary `.cmd`/`.bat`
+   file or interpolated shell command.
 4. Existing authority remains. The application service, Action Broker,
    Worktree model, masking, and approval system remain the only authority for
    mutation and external Actions. AI output is evidence/proposal, not approval.
@@ -346,3 +355,28 @@ Begin Milestone A with status/decision convention and additive domain migrations
 without changing Checkset or Action semantics. Build the fake-provider contract
 before the first real Codex CLI invocation so that integration remains narrow,
 observable, and reversible.
+
+## Next-session assignment prompt
+
+Use the following as a new ChatGPT/Codex task for the active Phase 1 work:
+
+> Work only on Phase 1 in `C:\\Users\\knowgyu\\workspace_window\\dev-control-room`.
+> First read `AGENTS.md`, `README.md`, `docs/HANDOFF.md`,
+> `docs/AI_CODE_ASSURANCE_PLAN.md`, the relevant ADRs, and the current
+> `git status`. Treat the Phase 1 plan as the scope contract. Begin at
+> Milestone A unless its exit evidence is already present; inspect and report
+> the existing implementation before changing anything. Preserve Checksets,
+> Action Broker approvals, Worktree trust, masking, local-first storage, and
+> the rule that AI patches require human adoption. Implement exactly one
+> milestone or coherent vertical slice at a time. For an explicit unattended
+> “continue Phase 1 to completion” request, do not stop after a successful
+> milestone: commit each verified coherent milestone, update its evidence and
+> status, then begin the next planned milestone. Add migrations and tests before
+> real-provider calls; use fake providers for automated E2E. Run focused tests
+> and the relevant Windows/native acceptance checks, inspect the diff, and
+> update the plan/Roadmap status only with evidence. When a human answer is
+> required, persist the question and Resume Brief, continue unrelated safe work,
+> and stop only when no approved independent work remains. Do not start Phase 2
+> UI work, do not push, and do not change Windows power settings. Ask before a
+> security-boundary or external-state change that is not already approved by
+> the plan.

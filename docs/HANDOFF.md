@@ -11,13 +11,17 @@ accepted so far.
 
 ## 2026-08-26 active planning status
 
-The current pushed source checkpoint is c14faa0 (v0.5.0). The active feature
-plan is docs/AI_CODE_ASSURANCE_PLAN.md, with durable decisions in
-docs/decisions/ADR-001-ai-assisted-code-assurance.md. It supersedes the old
-deferred managed-Hardener/QA wording, but not accepted milestone evidence,
-existing Checkset semantics, Agent Handoff, Action Broker, or pending native
-Windows acceptance items. Read it after this handoff and before selecting new
-implementation work.
+The remote source checkpoint is c14faa0 (v0.5.0). Local `main` is ahead with
+unpushed documentation commits for the Phase 1 and Phase 2 plans; verify the
+current commit before resuming. The active feature
+plan is Phase 1, docs/AI_CODE_ASSURANCE_PLAN.md, with durable decisions in
+docs/decisions/ADR-001-ai-assisted-code-assurance.md. Phase 2 product-usability
+work is separately planned in docs/PHASE_2_PRODUCT_USABILITY_PLAN.md and must
+begin only after Phase 1 acceptance. Phase 1 supersedes the old deferred
+managed-Hardener/QA wording, but not accepted milestone evidence, existing
+Checkset semantics, Agent Handoff, Action Broker, or pending native Windows
+acceptance items. Read the applicable plan after this handoff and before
+selecting implementation work.
 
 ## Read before changing code
 
@@ -33,9 +37,11 @@ Read in this order:
 8. `docs/AI_INTEGRATION.md`;
 9. `docs/AI_CODE_ASSURANCE_PLAN.md`;
 10. `docs/decisions/ADR-001-ai-assisted-code-assurance.md`;
-11. `docs/IMPLEMENTATION_PLAN.md` (historical foundation only);
-12. `THIRD_PARTY_POLICY.md`;
-13. the verification document for the most recently completed milestone.
+11. `docs/PHASE_2_PRODUCT_USABILITY_PLAN.md` (planned follow-on; read before
+    any Phase 2 work, not as a reason to skip Phase 1);
+12. `docs/IMPLEMENTATION_PLAN.md` (historical foundation only);
+13. `THIRD_PARTY_POLICY.md`;
+14. the verification document for the most recently completed milestone.
 
 Do not infer current behavior from the roadmap alone. `PRODUCT.md` and
 `ARCHITECTURE.md` describe the target product, while the milestone verification

@@ -3,10 +3,12 @@
 Status: active status index
 Updated: 2026-08-26
 
-The active detailed feature plan is
-[AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md). Historical plans and
-verification documents remain evidence; they are not instructions to rerun
-completed work.
+The active detailed feature plan is Phase 1,
+[AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md). Its follow-on Phase 2
+product-usability work is separately planned in
+[PHASE_2_PRODUCT_USABILITY_PLAN.md](PHASE_2_PRODUCT_USABILITY_PLAN.md).
+Historical plans and verification documents remain evidence; they are not
+instructions to rerun completed work.
 
 | Area | Current status | Source of truth |
 | --- | --- | --- |
@@ -14,6 +16,7 @@ completed work.
 | P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
 | P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |
 | AI-assisted Code Assurance | active implementation plan | docs/AI_CODE_ASSURANCE_PLAN.md |
+| Product usability and interface | planned after AI-assisted Code Assurance acceptance | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md |
 
 ## P0: dependable local control plane
 
