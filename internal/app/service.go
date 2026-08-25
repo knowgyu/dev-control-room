@@ -26,6 +26,8 @@ type QueryService interface {
 	Worktrees(context.Context, string, string) ([]domain.Worktree, error)
 	Worktree(context.Context, string, string, string) (domain.Worktree, error)
 	CleanupCandidates(context.Context, string) ([]domain.CleanupCandidate, error)
+	CleanupPlan(context.Context, string) (CleanupPlan, error)
+	CleanupResult(context.Context, string) (CleanupResult, error)
 	Guidance(context.Context, string, string, string) (GuidanceReport, error)
 	Proposals(context.Context, string, string, string) ([]domain.Proposal, error)
 	Proposal(context.Context, string) (domain.Proposal, error)
@@ -41,6 +43,11 @@ type QueryService interface {
 	Integrations(context.Context) ([]IntegrationConfig, error)
 	CheckIntegration(context.Context, string) (IntegrationHealth, error)
 	Runbooks(context.Context) ([]PowerShellRunbookConfig, error)
+	ExternalWorkGroups(context.Context) ([]ExternalWorkGroupConfig, error)
+	ExternalWorkPlan(context.Context, string) (ExternalWorkGroupPlan, error)
+	ExternalWorkResult(context.Context, string) (ExternalWorkGroupResult, error)
+	ReleasePlan(context.Context, string) (ReleasePlan, error)
+	ReleaseResult(context.Context, string) (ReleaseResult, error)
 	GitHubLatestRun(context.Context, string) (GitHubLatestRun, error)
 	JenkinsLatestBuild(context.Context, string) (JenkinsLatestBuild, error)
 	KubernetesStatus(context.Context, string) (KubernetesStatus, error)
@@ -84,6 +91,15 @@ type CommandService interface {
 	AddPowerShellRunbook(context.Context, AddPowerShellRunbookInput) (PowerShellRunbookConfig, error)
 	UpdatePowerShellRunbook(context.Context, string, UpdatePowerShellRunbookInput) (PowerShellRunbookConfig, error)
 	RemovePowerShellRunbook(context.Context, string) error
+	AddExternalWorkGroup(context.Context, ExternalWorkGroupConfig) (ExternalWorkGroupConfig, error)
+	UpdateExternalWorkGroup(context.Context, string, ExternalWorkGroupConfig) (ExternalWorkGroupConfig, error)
+	RemoveExternalWorkGroup(context.Context, string) error
+	PlanExternalWork(context.Context, ExternalWorkPlanInput) (ExternalWorkGroupPlan, error)
+	ExecuteExternalWork(context.Context, string, string, string) (ExternalWorkGroupResult, error)
+	PlanCleanup(context.Context, CleanupPlanInput) (CleanupPlan, error)
+	ExecuteCleanup(context.Context, string, string, string) (CleanupResult, error)
+	PlanRelease(context.Context, ReleasePlanInput) (ReleasePlan, error)
+	ExecuteRelease(context.Context, string, string, string) (ReleaseResult, error)
 	Schedule(context.Context, scheduler.Operation) (scheduler.Result, error)
 	PlanAction(context.Context, ActionPlanInput) (domain.ActionPlan, error)
 	PlanPowerShellRunbook(context.Context, PowerShellRunbookPlanInput) (domain.ActionPlan, error)
@@ -163,6 +179,20 @@ type ActionPlanInput struct {
 	Inputs                                                    map[string]string
 }
 
+type ExternalWorkPlanInput struct {
+	GroupID      string `json:"groupId"`
+	ProjectID    string `json:"projectId"`
+	RepositoryID string `json:"repositoryId"`
+	WorktreeID   string `json:"worktreeId"`
+}
+
+type CleanupPlanInput struct {
+	CandidateID  string `json:"candidateId"`
+	ProjectID    string `json:"projectId"`
+	RepositoryID string `json:"repositoryId"`
+	WorktreeID   string `json:"worktreeId"`
+}
+
 func (a *App) PlanAction(ctx context.Context, input ActionPlanInput) (domain.ActionPlan, error) {
 	plan, err := a.broker.Plan(ctx, action.PlanRequest{ID: input.ID, Name: input.Name, ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, ActionType: input.ActionType, Inputs: input.Inputs, RequestedBy: domain.Actor{Kind: domain.ActorSystem, ID: "adapter"}})
 	return plan, classifyActionError(err)
@@ -210,6 +240,19 @@ func (a *App) AdmitAction(ctx context.Context, planID, holder, idempotencyKey st
 }
 
 func (a *App) ExecuteAction(ctx context.Context, planID, holder, idempotencyKey string) (domain.ActionRun, error) {
+	plan, planErr := a.store.GetActionPlan(ctx, planID)
+	if planErr != nil {
+		return domain.ActionRun{}, classifyActionError(planErr)
+	}
+	if plan.Spec.ActionType == "external.jenkins.group" {
+		return domain.ActionRun{}, contract.InvalidInput("external Jenkins plans require the external-work execute route")
+	}
+	if plan.Spec.ActionType == "cleanup.destructive" {
+		return domain.ActionRun{}, contract.InvalidInput("cleanup plans require the cleanup execute route")
+	}
+	if plan.Spec.ActionType == "release.jenkins.stage" || plan.Spec.ActionType == "release.jenkins.production" || plan.Spec.ActionType == "release.jenkins.group" {
+		return domain.ActionRun{}, contract.InvalidInput("release plans require the release execute route")
+	}
 	admission, err := a.broker.Admit(ctx, planID, holder, idempotencyKey)
 	if err != nil {
 		return domain.ActionRun{}, classifyActionError(err)

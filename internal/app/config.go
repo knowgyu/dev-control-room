@@ -169,6 +169,9 @@ func validateConfig(config Config) error {
 			if secretKey || !integrationValueKey.MatchString(key) || strings.TrimSpace(value) == "" || len(value) > 2048 || strings.ContainsRune(value, '\x00') {
 				return errors.New("integration values require bounded non-empty keys and values")
 			}
+			if key == "username_ref" && !validSecretReference(value) {
+				return errors.New("integration username_ref must be a secret reference")
+			}
 		}
 		if _, exists := seenIntegrations[integration.ID]; exists {
 			return fmt.Errorf("duplicate integration id %q", integration.ID)
@@ -210,6 +213,19 @@ func validateConfig(config Config) error {
 			return fmt.Errorf("duplicate PowerShell runbook id %q", runbook.ID)
 		}
 		seenRunbooks[runbook.ID] = struct{}{}
+	}
+	if len(config.ExternalWorkGroups) > 64 {
+		return errors.New("too many external work groups")
+	}
+	seenGroups := make(map[string]struct{}, len(config.ExternalWorkGroups))
+	for _, group := range config.ExternalWorkGroups {
+		if err := validateExternalWorkGroup(group); err != nil {
+			return fmt.Errorf("external work group %q: %w", group.ID, err)
+		}
+		if _, exists := seenGroups[group.ID]; exists {
+			return fmt.Errorf("duplicate external work group id %q", group.ID)
+		}
+		seenGroups[group.ID] = struct{}{}
 	}
 	return nil
 }

@@ -48,6 +48,139 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
+	mux.HandleFunc("GET /api/external-work-groups", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.ExternalWorkGroups(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("POST /api/external-work-groups", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input ExternalWorkGroupConfig
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.AddExternalWorkGroup(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("PUT /api/external-work-groups/{groupID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input ExternalWorkGroupConfig
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.UpdateExternalWorkGroup(request.Context(), request.PathValue("groupID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("DELETE /api/external-work-groups/{groupID}", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := service.RemoveExternalWorkGroup(request.Context(), request.PathValue("groupID")); err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(map[string]bool{"removed": true}))
+	}))
+	mux.HandleFunc("POST /api/external-work-groups/{groupID}/plan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input ExternalWorkPlanInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		input.GroupID = request.PathValue("groupID")
+		plan, err := service.PlanExternalWork(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(plan))
+	}))
+	mux.HandleFunc("GET /api/external-work-plans/{planID}", func(response http.ResponseWriter, request *http.Request) {
+		plan, err := service.ExternalWorkPlan(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(plan))
+	})
+	mux.HandleFunc("GET /api/external-work-plans/{planID}/result", func(response http.ResponseWriter, request *http.Request) {
+		result, err := service.ExternalWorkResult(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	})
+	mux.HandleFunc("POST /api/external-work-plans/{planID}/execute", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Holder         string `json:"holder"`
+			IdempotencyKey string `json:"idempotencyKey"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		result, err := service.ExecuteExternalWork(request.Context(), request.PathValue("planID"), input.Holder, input.IdempotencyKey)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	}))
+	mux.HandleFunc("POST /api/releases/{groupID}/plan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input ReleasePlanInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		input.GroupID = request.PathValue("groupID")
+		plan, err := service.PlanRelease(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(plan))
+	}))
+	mux.HandleFunc("GET /api/release-plans/{planID}", func(response http.ResponseWriter, request *http.Request) {
+		plan, err := service.ReleasePlan(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(plan))
+	})
+	mux.HandleFunc("GET /api/release-plans/{planID}/result", func(response http.ResponseWriter, request *http.Request) {
+		result, err := service.ReleaseResult(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	})
+	mux.HandleFunc("POST /api/release-plans/{planID}/execute", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Holder         string `json:"holder"`
+			IdempotencyKey string `json:"idempotencyKey"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		result, err := service.ExecuteRelease(request.Context(), request.PathValue("planID"), input.Holder, input.IdempotencyKey)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	}))
 	mux.HandleFunc("POST /api/runbooks", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input AddPowerShellRunbookInput
 		if err := decodeBody(response, request, &input); err != nil {
@@ -320,6 +453,52 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
+	mux.HandleFunc("POST /api/cleanup/{candidateID}/plan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input CleanupPlanInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		input.CandidateID = request.PathValue("candidateID")
+		plan, err := service.PlanCleanup(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(plan))
+	}))
+	mux.HandleFunc("GET /api/cleanup/plans/{planID}", func(response http.ResponseWriter, request *http.Request) {
+		plan, err := service.CleanupPlan(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(plan))
+	})
+	mux.HandleFunc("GET /api/cleanup/plans/{planID}/result", func(response http.ResponseWriter, request *http.Request) {
+		result, err := service.CleanupResult(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	})
+	mux.HandleFunc("POST /api/cleanup/plans/{planID}/execute", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Holder         string `json:"holder"`
+			IdempotencyKey string `json:"idempotencyKey"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		result, err := service.ExecuteCleanup(request.Context(), request.PathValue("planID"), input.Holder, input.IdempotencyKey)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	}))
 	mux.HandleFunc("GET /api/projects/{projectID}/repositories/{repositoryID}/worktrees/{worktreeID}/guidance", func(response http.ResponseWriter, request *http.Request) {
 		report, err := service.Guidance(request.Context(), request.PathValue("projectID"), request.PathValue("repositoryID"), request.PathValue("worktreeID"))
 		if err != nil {
