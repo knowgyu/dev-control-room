@@ -35,16 +35,22 @@ The current source checkpoint is the pushed `main` tip. The earlier
 Agent-Handoff continuation note below is historical and is retained only as
 evidence; it does not describe the current working tree.
 
-- `HEAD` and `origin/main` are both `a870bb03ffc4b1991145f045f970d3081de312c3`
-  (`docs: add post-MVP execution plan`).
+- `HEAD` and `origin/main` are both `643c9721475ba5a6a9ce4811d8bb075813bb88b1`
+  (`fix: record grouped target audit outcomes`). The implementation commits
+  are `60f599e` for grouped execution workflows and `643c972` for target
+  outcome audit events; `d1753dc` records the accompanying docs and native
+  acceptance boundaries.
 - The only current untracked paths are user-created `.agents/` and
   `skills-lock.json`; neither may be staged or modified.
 - The source includes the Korean five-screen UI, typed Action execution,
   repository-sync grouping, read-only GitHub/Jenkins/Kubernetes integration
   checks, PowerShell runbook planning, and safeguard lifecycle foundations.
-- Jenkins triggers, generic external target groups, cleanup mutation, and
-  configured release/post-deploy workflows are not implemented at this
-  checkpoint. This post-MVP plan owns that remaining work.
+- Generic grouped Jenkins work, explicitly approved linked-Worktree cleanup,
+  and stage/production release plans with bounded successful-build evidence are
+  implemented through protected HTTP and application-service paths. Expected
+  revision evidence, provider-specific deployment contracts, and
+  organization-specific PowerShell fallback behavior remain gated by local
+  configuration and separate contracts.
 - No current native Windows acceptance is claimed for changes after the
   recorded `v0.4.0-rc.2` evidence. WSL and Windows toolchain checks remain
   separate from interactive Windows UI/provider acceptance.

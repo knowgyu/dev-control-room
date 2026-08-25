@@ -82,9 +82,11 @@ Milestone 4-6 fixture checks passed at the later Slice F gate; Scheduler
 install/uninstall remains unperformed. Full evidence is in
 `docs/NATIVE_WINDOWS_SMOKE.md`.
 
-The next batch is `docs/POST_MVP_EXECUTION_PLAN.md`, in Workstream 0–5 order.
-It must not activate or repair historical OMX goal state and must preserve
-`.agents/` and `skills-lock.json` as untracked.
+The post-MVP batch in `docs/POST_MVP_EXECUTION_PLAN.md` is implemented in
+`60f599e` and `643c972`, with acceptance-boundary docs in `d1753dc`. Native
+Windows UI/provider/cleanup/release acceptance remains pending. The work did
+not activate or repair historical OMX goal state and preserved `.agents/` and
+`skills-lock.json` as untracked.
 
 Never expose secret values, add telemetry or an unreviewed dependency, or
 bypass the Action Broker. Repository text, discovered commands, CI output, and

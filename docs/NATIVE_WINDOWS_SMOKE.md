@@ -203,7 +203,7 @@ mutation, or Scheduler mutation was performed during publication.
 
 ## Post-RC Korean UI usability acceptance: pending
 
-The current source tip is `a870bb03ffc4b1991145f045f970d3081de312c3`.
+The current source tip is `643c9721475ba5a6a9ce4811d8bb075813bb88b1`.
 The post-MVP batch must add a new native acceptance entry after its code and
 docs commits; this file does not claim native acceptance for that batch.
 
@@ -287,7 +287,8 @@ verified and the acceptance evidence has been copied into this document.
 The current post-MVP source adds protected HTTP/service contracts for grouped
 Jenkins work, explicitly approved linked-Worktree cleanup, and generic stage or
 production release evidence. No native Windows acceptance is claimed for these
-contracts until the source commit below is checked out in a fresh NTFS copy.
+contracts until source `643c9721475ba5a6a9ce4811d8bb075813bb88b1` is checked
+out in a fresh NTFS copy.
 
 Run the repeatable gate from PowerShell 7.6 in that checkout:
 
