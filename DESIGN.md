@@ -147,3 +147,24 @@
   product; impact: localization architecture only, not this Korean-first pass
 - [ ] Revisit richer icons or screenshots only after native Windows usability
   feedback identifies a concrete navigation problem
+# Phase 2 usability contract
+
+## Entry states
+
+The home view has two explicit states. A new local data directory shows one primary action, `프로젝트 등록`, followed by a short four-step path. An established directory shows project and repository counts, observation freshness, open findings, executable capabilities, and one next action. Empty state copy must not imply failure.
+
+## Provider state
+
+Provider status is a separate capability group in diagnostics and the home summary. Required tools affect environment health; optional Providers do not. Each Provider card exposes state, reason, resolved executable metadata when safe, and the next recovery action. The UI must not repeat the same missing optional tool as both a global failure and a provider failure.
+
+## Progressive disclosure
+
+Show the decision first. Put revision, digest, command argv, evidence references, pricing basis, and raw diagnostics behind `details` or a focused secondary view. Keep mutation buttons next to the object they affect and show approval or deletion consequences before the action.
+
+## Copy and accessibility
+
+Use the concise Korean copy rules in `docs/KOREAN_COPY_GUIDE.md`. Buttons and labels use noun phrases. Status uses text plus color. Every route has a stable heading, keyboard-visible focus, skip link, and a recoverable empty or error state. The home and diagnostics paths are validated by `docs/USER_JOURNEY_ACCEPTANCE.md`.
+
+## Reference boundary
+
+Notion is used only as a reference for calm hierarchy and progressive disclosure. No brand, logo, visual asset, or screen is copied.

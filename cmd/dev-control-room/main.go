@@ -31,6 +31,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		return runServe(nil, stdout, stderr)
 	}
+	if args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+		return runHelp(args[1:], stdout, stderr)
+	}
 	switch args[0] {
 	case "version":
 		return runVersionTo(args[1:], stdout, stderr)
@@ -60,6 +63,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runEvent(args[1:], stdout, stderr)
 	case "env":
 		return runEnvironment(args[1:], stdout, stderr)
+	case "assurance":
+		return runAssurance(args[1:], stdout, stderr)
 	case "agent":
 		return runAgent(args[1:], stdout, stderr)
 	case "schedule":
@@ -67,6 +72,35 @@ func run(args []string, stdout, stderr io.Writer) int {
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown command: "+args[0]))
 	}
+}
+
+func runHelp(args []string, stdout, stderr io.Writer) int {
+	jsonOutput, remaining, err := parseJSONFlag(args)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if len(remaining) > 1 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("help accepts one command name"))
+	}
+	command := ""
+	if len(remaining) == 1 {
+		command = remaining[0]
+	}
+	if jsonOutput {
+		return encodeSuccess(stdout, map[string]any{"command": command, "first_use": []string{"serve", "project add", "env doctor"}, "commands": []string{"serve", "project", "env", "assurance", "proposal", "check", "action", "finding", "guidance", "agent", "schedule", "mcp"}, "examples": []string{"dev-control-room serve --home <dir>", "dev-control-room project add --name sample --path C:\\work\\sample --home <dir>", "dev-control-room assurance provider --json --home <dir>"}})
+	}
+	if command != "" {
+		_, _ = fmt.Fprintf(stdout, "%s 도움말\n\n", command)
+		_, _ = fmt.Fprintln(stdout, "주요 명령: list, show, add, update, remove, create, run, dashboard, provider")
+		_, _ = fmt.Fprintln(stdout, "공통 옵션: --json, --home <로컬 데이터 디렉터리>")
+		return int(contract.ExitSuccess)
+	}
+	_, _ = fmt.Fprintln(stdout, "Dev Control Room — 로컬 개발 제어실")
+	_, _ = fmt.Fprintln(stdout, "첫 사용: serve → project add → env doctor")
+	_, _ = fmt.Fprintln(stdout, "주요 명령: serve, project, env, assurance, proposal, check, action, finding, guidance, agent, schedule, mcp")
+	_, _ = fmt.Fprintln(stdout, "공통 옵션: --json, --home <로컬 데이터 디렉터리>")
+	_, _ = fmt.Fprintln(stdout, "예시: dev-control-room assurance provider --json --home <dir>")
+	return int(contract.ExitSuccess)
 }
 
 func runVersion(args []string) int { return runVersionTo(args, os.Stdout, os.Stderr) }
@@ -117,7 +151,108 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	return int(contract.ExitSuccess)
 }
 
+func runAssurance(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+		return runHelp([]string{"assurance"}, stdout, stderr)
+	}
+	subcommand := args[0]
+	jsonOutput, remaining, err := parseJSONFlag(args[1:])
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	remaining, home, err := parseHome(remaining)
+	if err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	service, err := openCLIService(home)
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	defer service.Close()
+	ctx := context.Background()
+	switch subcommand {
+	case "provider":
+		if len(remaining) != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance provider takes no positional arguments"))
+		}
+		items, err := service.ProviderStatuses(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		if jsonOutput {
+			return encodeSuccess(stdout, items)
+		}
+		for _, item := range items {
+			_, _ = fmt.Fprintf(stdout, "%s\t%s\t%s\n", item.Provider, item.State, item.Detail)
+		}
+		return int(contract.ExitSuccess)
+	case "dashboard":
+		flags := flag.NewFlagSet("assurance dashboard", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		provider := flags.String("provider", "", "Provider filter")
+		model := flags.String("model", "", "model filter")
+		if err := flags.Parse(remaining); err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+		}
+		item, err := service.AssuranceDashboard(ctx, *provider, *model)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	case "sessions":
+		if len(remaining) != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance sessions takes no positional arguments"))
+		}
+		items, err := service.AssuranceSessions(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, items, jsonOutput)
+	case "baselines":
+		if len(remaining) != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance baselines takes no positional arguments"))
+		}
+		items, err := service.PRCIBaselines(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, items, jsonOutput)
+	case "campaigns":
+		if len(remaining) != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance campaigns takes no positional arguments"))
+		}
+		items, err := service.QualityCampaigns(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, items, jsonOutput)
+	case "runs":
+		if len(remaining) != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance runs takes no positional arguments"))
+		}
+		items, err := service.QualityRuns(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, items, jsonOutput)
+	case "invocations":
+		if len(remaining) != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance invocations takes no positional arguments"))
+		}
+		items, err := service.AgentInvocations(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, items, jsonOutput)
+	default:
+		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown assurance command: "+subcommand))
+	}
+}
+
 func runProject(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
+		return runHelp([]string{"project"}, stdout, stderr)
+	}
 	if len(args) == 0 {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("project requires list, show, add, update, remove, repository, worktree, discover, sync, export, import, or scan"))
 	}
@@ -970,6 +1105,9 @@ func runEvent(args []string, stdout, stderr io.Writer) int {
 }
 
 func runEnvironment(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
+		return runHelp([]string{"env"}, stdout, stderr)
+	}
 	if len(args) == 0 || (args[0] != "doctor" && args[0] != "status") {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("env requires doctor or status"))
 	}

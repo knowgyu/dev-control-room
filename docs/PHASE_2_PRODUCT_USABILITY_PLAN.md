@@ -1,6 +1,6 @@
 # Phase 2 — Product usability and interface plan
 
-Status: active implementation after Phase 1 automated acceptance; native provider gate remains recorded
+Status: P2.0–P2.3 implemented; P2.4 validation and native provider gate remain
 Updated: 2026-08-26
 Owner: local operator
 Prerequisite: [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md) Phase 1
@@ -192,19 +192,19 @@ Initial measurable targets, to refine during the journey draft:
 
 ## Work sequence
 
-1. **P2.0 Research and constraints** — inspect the current flows and recent
+1. **P2.0 Research and constraints** — [implemented] inspect the current flows and recent
    native screenshot; read selected Notion/Linear/design-system references;
    read the fluent-korean guidance; create `DESIGN.md`, copy guide, journey
    scripts, and an ADR if the Windows launcher policy changes.
-2. **P2.1 State-model correction** — split “found”, “trusted to launch”,
+2. **P2.1 State-model correction** — [implemented] split “found”, “trusted to launch”,
    “profile ready”, “optional”, and “task required” in the backend contract;
    add the concrete Windows launcher acceptance tests.
-3. **P2.2 First-use and provider surfaces** — implement the two home states
+3. **P2.2 First-use and provider surfaces** — [implemented] implement the two home states
    and grouped provider cards, with concise contextual recovery actions.
-4. **P2.3 CLI parity and copy pass** — improve help/doctor output, then run the
+4. **P2.3 CLI parity and copy pass** — [implemented] improve help/doctor output, then run the
    Korean UI-string review. Do not allow generic prose to re-enter as a result
    of implementation.
-5. **P2.4 Validation and release decision** — run the complete verification
+5. **P2.4 Validation and release decision** — [in progress] run the complete verification
    loop, compare against the prior screenshot issues, update status documents,
    and create follow-up issues only for clearly bounded deferred work.
 

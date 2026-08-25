@@ -125,6 +125,10 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 4vw, 44px)
 .chip.warn, .state-warn { color: #8c5a0c; background: var(--amber-soft); }
 .chip.bad, .state-bad { color: var(--red); background: var(--red-soft); }
 .finding-list, .item-list { display: grid; gap: 10px; }
+.provider-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.provider-card { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.provider-card h3 { margin: 0; font-size: 13px; text-transform: capitalize; }
+.provider-card .next { color: var(--muted); }
 .finding, .list-item { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .finding { border-left-width: 4px; }
 .finding.info { border-left-color: #7b8799; }
@@ -229,6 +233,7 @@ dialog .safety-copy { padding: 11px 12px; border-radius: 8px; color: #7c4e08; ba
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workflow-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-grid, .diagnostic-grid, .work-grid { grid-template-columns: 1fr; }
+  .provider-list { grid-template-columns: 1fr; }
   .span-two { grid-column: auto; }
   .page-heading, .project-detail-header, .repository-header, .form-footer { align-items: stretch; flex-direction: column; }
   .form-grid { grid-template-columns: 1fr; }

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,7 +28,7 @@ func (a *App) AssuranceSessions(ctx context.Context) ([]domain.AssuranceSession,
 func (a *App) AssuranceSession(ctx context.Context, id string) (domain.AssuranceSession, error) {
 	var item domain.AssuranceSession
 	if err := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, id, &item); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, os.ErrNotExist) {
 			return item, contract.NotFound("assurance session not found")
 		}
 		return item, err

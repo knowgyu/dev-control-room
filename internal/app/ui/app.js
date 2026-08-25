@@ -12,6 +12,8 @@
     findings: [],
     events: [],
     environment: { available: false, findings: [] },
+    providerStatuses: [],
+    assuranceDashboard: { invocations: [], effects: [], usageComplete: true, costState: "unknown" },
     workItems: [],
     actionDetails: [],
     repositorySyncPlan: null,
@@ -149,6 +151,15 @@
   })[character]);
   const encode = value => encodeURIComponent(value);
   const label = value => statusLabels[value] || value || "알 수 없음";
+  const providerStateLabels = {
+    ready: "사용 가능",
+    detected: "확인 필요",
+    unavailable: "확인 필요",
+    auth_required: "인증 필요",
+    not_configured: "미설정",
+  };
+  const providerStateClass = state => state === "ready" ? "ok" : state === "not_configured" ? "" : "bad";
+  const providerLabel = state => providerStateLabels[state] || "확인 필요";
   const localize = value => {
     const text = String(value ?? "");
     if (messageTranslations.has(text)) return messageTranslations.get(text);
@@ -230,11 +241,16 @@
     const projects = state.snapshot.projects || [];
     const repositories = projectRepositories();
     const findings = openFindings();
+    const established = projects.length > 0;
+    const readyProviders = state.providerStatuses.filter(item => item.state === "ready").length;
+    document.getElementById("home-title").textContent = established ? "오늘의 개발 상태를 확인합니다." : "첫 프로젝트를 등록합니다.";
+    document.getElementById("home-subtitle").textContent = established ? "변경된 근거와 다음 행동을 짧게 확인합니다." : "폴더를 선택하면 저장소를 읽기 전용으로 확인합니다.";
+    document.getElementById("home-onboarding").hidden = established;
     document.getElementById("m-projects").textContent = projects.length;
     document.getElementById("m-repos").textContent = repositories.length;
     document.getElementById("m-findings").textContent = findings.length;
     document.getElementById("m-scan").textContent = formatDate(state.snapshot.generated_at);
-    document.getElementById("m-environment").textContent = state.environment.available ? "정상" : "확인 필요";
+    document.getElementById("m-environment").textContent = state.environment.generatedAt ? (state.environment.available ? `${readyProviders}개 사용 가능` : "확인 필요") : "미점검";
 
     const ordered = findings.slice().sort((left, right) => {
       const rank = { critical: 4, high: 3, attention: 2, info: 1 };
@@ -256,6 +272,21 @@
     document.getElementById("home-runs").innerHTML = recentRuns.length
       ? `<div class="item-list">${recentRuns.slice(0, 5).map(item => `<article class="list-item"><div class="list-item-header"><h3>${escapeHTML(localize(item.spec.summary))}</h3><span class="chip">기록</span></div><p class="meta">${escapeHTML(formatDate(item.spec.occurredAt))}</p></article>`).join("")}</div>`
       : '<div class="empty-state"><strong>아직 실행 결과가 없습니다.</strong><span>작업 화면에서 검토된 점검이나 Action을 실행할 수 있습니다.</span></div>';
+    document.getElementById("home-next-action").innerHTML = !established
+      ? '<div class="list-item state-ok"><strong>프로젝트 등록</strong><p>첫 저장소를 등록하면 읽기 전용 점검을 시작합니다.</p><div class="item-actions"><a class="button primary small" href="#projects">프로젝트 등록</a></div></div>'
+      : ordered.length
+        ? `<div class="list-item state-warn"><strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong><p>다음 단계: ${escapeHTML(localize(ordered[0].spec.recommendedNextAction))}</p><div class="item-actions"><a class="button small" href="#projects">확인 항목 열기</a></div></div>`
+        : '<div class="list-item state-ok"><strong>다음 점검</strong><p>열린 확인 항목이 없습니다. 최신 상태를 확인합니다.</p><div class="item-actions"><button class="button small" type="button" data-home-scan>지금 점검</button></div></div>';
+    renderProviderStatuses("home-providers", true);
+  }
+
+  function renderProviderStatuses(containerID, compact = false) {
+    const container = document.getElementById(containerID);
+    if (!container) return;
+    const providers = state.providerStatuses || [];
+    container.innerHTML = providers.length
+      ? `<div class="provider-list">${providers.map(item => `<article class="provider-card"><div class="list-item-header"><div><h3>${escapeHTML(item.provider)}</h3><p class="meta">${escapeHTML(item.detail || item.reasonCode || "상태를 확인했습니다.")}</p></div><span class="chip ${providerStateClass(item.state)}">${escapeHTML(providerLabel(item.state))}</span></div>${!compact && item.resolvedCommand?.length ? `<details><summary>검증된 실행 경로</summary><p class="meta"><code>${escapeHTML(item.resolvedCommand.join(" "))}</code></p></details>` : ""}${item.state !== "ready" ? `<p class="next">다음 단계: ${escapeHTML(item.state === "not_configured" ? "필요할 때 Provider를 설정합니다." : "설정과 실행 경로를 확인한 뒤 다시 점검합니다.")}</p>` : ""}</article>`).join("")}</div>`
+      : '<div class="empty-state"><strong>Provider 상태가 없습니다.</strong><span>진단을 실행하면 선택 가능한 Provider를 확인합니다.</span></div>';
   }
 
   function projectStatus(repository) {
@@ -459,7 +490,13 @@
 
   function renderDiagnostics() {
     const environment = state.environment;
-    document.getElementById("environment").innerHTML = `<div class="list-item ${environment.available ? "state-ok" : "state-warn"}"><strong>${environment.available ? "설정된 기능을 모두 사용할 수 있습니다." : "일부 기능을 사용할 수 없습니다."}</strong></div>${(environment.findings || []).length ? `<div class="finding-list" style="margin-top:10px">${environment.findings.map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><span class="chip ${item.severity === "high" ? "bad" : "warn"}">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>` : ""}`;
+    const visibleEnvironmentFindings = (environment.findings || []).filter(item => {
+      if (!item.type?.startsWith("tool.")) return true;
+      const tool = (environment.tools || []).find(candidate => candidate.name === item.target);
+      return !tool || tool.required;
+    }).filter((item, index, all) => all.findIndex(candidate => candidate.type === item.type && candidate.target === item.target) === index);
+    document.getElementById("environment").innerHTML = `<div class="list-item ${environment.generatedAt && environment.available ? "state-ok" : "state-warn"}"><strong>${!environment.generatedAt ? "아직 환경을 점검하지 않았습니다." : environment.available ? "필수 기능을 사용할 수 있습니다." : "필수 기능을 확인하세요."}</strong><p class="meta">선택 Provider는 아래 상태에서 따로 확인합니다.</p></div>${visibleEnvironmentFindings.length ? `<div class="finding-list" style="margin-top:10px">${visibleEnvironmentFindings.map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><span class="chip ${item.severity === "high" ? "bad" : "warn"}">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>` : ""}`;
+    renderProviderStatuses("provider-statuses");
 
     const targets = targetOptions();
     document.getElementById("guidance-ui").innerHTML = `${state.surfaceErrors.profiles ? surfaceError(state.surfaceErrors.profiles, "diagnostics") : ""}<div class="toolbar"><select id="guidance-target" aria-label="지침 점검 대상">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><select id="handoff-profile" aria-label="Agent Profile">${state.profiles.length ? state.profiles.map(profile => `<option value="${escapeHTML(profile.metadata.id)}">${escapeHTML(profile.metadata.name)}</option>`).join("") : '<option value="">Agent Profile 없음</option>'}</select><input id="handoff-model" aria-label="선택 모델" placeholder="모델 선택 사항"><button id="guidance-check" class="button" type="button" ${targets.length ? "" : "disabled"}>지침 점검 실행</button><button id="handoff-preview" class="button" type="button" ${targets.length && state.profiles.length ? "" : "disabled"}>Handoff 미리 보기</button></div>${renderGuidanceResult()}`;
@@ -615,18 +652,22 @@
     if (refreshing) return;
     refreshing = true;
     try {
-      const [snapshot, registryProjects, findings, events, environment] = await Promise.all([
+      const [snapshot, registryProjects, findings, events, environment, providerStatuses, assuranceDashboard] = await Promise.all([
         request("/api/state"),
         request("/api/projects"),
         request("/api/findings"),
         request("/api/events"),
         request("/api/environment"),
+        request("/api/assurance/providers"),
+        request("/api/assurance/dashboard"),
       ]);
       state.snapshot = snapshot;
       state.registryProjects = registryProjects || [];
       state.findings = findings || [];
       state.events = events || [];
       state.environment = environment;
+      state.providerStatuses = providerStatuses || [];
+      state.assuranceDashboard = assuranceDashboard || state.assuranceDashboard;
       initialized = true;
       await loadRouteData(currentRoute(), true);
       renderAll();
@@ -786,6 +827,10 @@
     if (button.dataset.retry) {
       button.disabled = true;
       await loadRouteData(button.dataset.retry, true);
+      return;
+    }
+    if (button.dataset.homeScan !== undefined) {
+      document.getElementById("scan").click();
       return;
     }
     if (button.id === "show-register") {
@@ -1294,6 +1339,20 @@
     try {
       await request("/api/environment/doctor", { method: "POST", headers: mutationHeaders() });
       showNotice("개발 환경을 다시 점검했습니다.");
+      await refreshAll();
+    } catch (error) {
+      showNotice(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById("provider-refresh").addEventListener("click", async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await request("/api/environment/doctor", { method: "POST", headers: mutationHeaders() });
+      showNotice("Provider 상태를 다시 점검했습니다.");
       await refreshAll();
     } catch (error) {
       showNotice(error.message, true);

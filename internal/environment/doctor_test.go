@@ -119,6 +119,34 @@ func TestDoctorReportsMissingAndFailedProbes(t *testing.T) {
 	if byName["gemini"].Reason != "command not found" || byName["git"].Reason != "version probe failed" {
 		t.Fatalf("missing/failed probes were not deterministic: %#v", byName)
 	}
+	if byName["gemini"].Required || byName["gemini"].State != "optional" {
+		t.Fatalf("optional Provider was not classified as optional: %#v", byName["gemini"])
+	}
+	if byName["git"].State != "unavailable" || health.Available {
+		t.Fatalf("required tool failure did not affect health: %#v", health)
+	}
+}
+
+func TestDoctorKeepsMissingOptionalToolsFromGlobalHealthFailure(t *testing.T) {
+	doctor := NewDoctor(fakeRunner{results: map[string]Result{
+		"C:\\tools\\pwsh.exe": {Stdout: "7.6.5", ExitCode: 0},
+		"C:\\tools\\git.exe":  {Stdout: "git version 2.45.0", ExitCode: 0},
+	}}, masking.New(nil, nil))
+	doctor.LookPath = func(name string) (string, error) {
+		if name == "pwsh" || name == "git" {
+			return "C:\\tools\\" + name + ".exe", nil
+		}
+		return "", errors.New("missing")
+	}
+	health := doctor.Run(context.Background(), nil, nil, nil)
+	if !health.Available {
+		t.Fatalf("optional Provider absence made environment unhealthy: %#v", health)
+	}
+	for _, tool := range health.Tools {
+		if tool.Name == "codex" && (tool.State != "optional" || tool.Required) {
+			t.Fatalf("codex status = %#v", tool)
+		}
+	}
 }
 
 func TestDirectProbeRejectsNonNativeWindowsShimBeforeExecution(t *testing.T) {

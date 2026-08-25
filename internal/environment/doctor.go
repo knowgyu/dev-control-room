@@ -31,6 +31,8 @@ const (
 type ToolStatus struct {
 	Name         string `json:"name"`
 	Available    bool   `json:"available"`
+	Required     bool   `json:"required"`
+	State        string `json:"state"` // available, unavailable, optional
 	CommandType  string `json:"commandType,omitempty"`
 	ResolvedPath string `json:"resolvedPath,omitempty"`
 	Version      string `json:"version,omitempty"`
@@ -40,6 +42,8 @@ type ToolStatus struct {
 type ProfileStatus struct {
 	ID           string   `json:"id"`
 	Available    bool     `json:"available"`
+	Required     bool     `json:"required"`
+	State        string   `json:"state"` // available, unavailable
 	LaunchMode   string   `json:"launchMode"`
 	CommandType  string   `json:"commandType,omitempty"`
 	ResolvedPath string   `json:"resolvedPath,omitempty"`
@@ -282,14 +286,34 @@ func (d Doctor) Run(ctx context.Context, profiles []domain.AgentProfile, declara
 	health := Health{GeneratedAt: now, Available: true, Tools: []ToolStatus{}, Profiles: []ProfileStatus{}, Environment: []EnvironmentVariableStatus{}, Connectors: []ConnectorStatus{}, Findings: []Finding{}}
 	for _, name := range []string{"pwsh", "git", "gh", "codex", "claude", "gemini"} {
 		status := d.resolveDirect(ctx, name, []string{"--version"}, 0)
+		status.Required = requiredTool(name)
+		if status.Available {
+			status.State = "available"
+		} else if status.Required {
+			status.State = "unavailable"
+		} else {
+			status.State = "optional"
+		}
 		health.Tools = append(health.Tools, status)
 		if !status.Available {
-			health.Available = false
-			health.Findings = append(health.Findings, unavailableFinding("tool."+name, name, status.Reason))
+			finding := unavailableFinding("tool."+name, name, status.Reason)
+			if !status.Required {
+				finding.Severity = "info"
+				finding.RecommendedNextAction = "필요한 경우 Provider를 설정한 뒤 다시 점검합니다."
+			} else {
+				health.Available = false
+			}
+			health.Findings = append(health.Findings, finding)
 		}
 	}
 	for _, profile := range profiles {
 		status := d.resolveProfile(ctx, profile)
+		status.Required = true
+		if status.Available {
+			status.State = "available"
+		} else {
+			status.State = "unavailable"
+		}
 		health.Profiles = append(health.Profiles, status)
 		if !status.Available {
 			health.Available = false
@@ -318,6 +342,10 @@ func (d Doctor) Run(ctx context.Context, profiles []domain.AgentProfile, declara
 	}
 	sort.Slice(health.Findings, func(i, j int) bool { return health.Findings[i].Type < health.Findings[j].Type })
 	return health
+}
+
+func requiredTool(name string) bool {
+	return name == "pwsh" || name == "git"
 }
 
 func (d Doctor) resolveDirect(ctx context.Context, name string, probe []string, timeoutSeconds int) ToolStatus {
@@ -361,7 +389,7 @@ func (d Doctor) resolveDirect(ctx context.Context, name string, probe []string, 
 }
 
 func (d Doctor) resolveProfile(ctx context.Context, profile domain.AgentProfile) ProfileStatus {
-	status := ProfileStatus{ID: profile.Metadata.ID, LaunchMode: string(profile.Spec.LaunchMode)}
+	status := ProfileStatus{ID: profile.Metadata.ID, Required: true, LaunchMode: string(profile.Spec.LaunchMode)}
 	if err := profile.Validate(); err != nil {
 		status.Findings = []string{"invalid profile configuration"}
 		status.Reason = "invalid profile configuration"

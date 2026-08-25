@@ -62,6 +62,45 @@ func TestVersionJSONReportsCurrentMilestone(t *testing.T) {
 	}
 }
 
+func TestCLIHelpDescribesFirstUseAndJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--help"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("help exit code = %d, stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"첫 사용", "project add", "env doctor", "--json"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("help omitted %q: %s", want, stdout.String())
+		}
+	}
+	stdout.Reset()
+	if code := run([]string{"help", "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("JSON help exit code = %d, stderr=%s", code, stderr.String())
+	}
+	var envelope contract.Envelope[map[string]any]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil {
+		t.Fatalf("invalid JSON help envelope: %s (%v)", stdout.String(), err)
+	}
+}
+
+func TestAssuranceProviderCLIUsesStableEnvelope(t *testing.T) {
+	home := t.TempDir()
+	service, err := app.New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"assurance", "provider", "--json", "--home", home}, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("provider exit code = %d, stderr=%s", code, stderr.String())
+	}
+	var envelope contract.Envelope[[]app.ProviderStatus]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil || len(*envelope.Data) < 3 {
+		t.Fatalf("invalid provider envelope: %s (%v)", stdout.String(), err)
+	}
+}
+
 func TestProjectListJSONUsesStableEnvelope(t *testing.T) {
 	home := t.TempDir()
 	service, err := app.New(home, "127.0.0.1:38471")
