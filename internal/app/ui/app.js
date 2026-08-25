@@ -14,6 +14,7 @@
     environment: { available: false, findings: [] },
     providerStatuses: [],
     assuranceDashboard: { invocations: [], effects: [], usageComplete: true, costState: "unknown" },
+    assuranceRuns: [],
     workItems: [],
     actionDetails: [],
     repositorySyncPlan: null,
@@ -278,6 +279,11 @@
         ? `<div class="list-item state-warn"><strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong><p>다음 단계: ${escapeHTML(localize(ordered[0].spec.recommendedNextAction))}</p><div class="item-actions"><a class="button small" href="#projects">확인 항목 열기</a></div></div>`
         : '<div class="list-item state-ok"><strong>다음 점검</strong><p>열린 확인 항목이 없습니다. 최신 상태를 확인합니다.</p><div class="item-actions"><button class="button small" type="button" data-home-scan>지금 점검</button></div></div>';
     renderProviderStatuses("home-providers", true);
+    const assurance = state.assuranceDashboard || {};
+    const runs = state.assuranceRuns || [];
+    document.getElementById("home-assurance").innerHTML = runs.length || assurance.invocations?.length || assurance.effects?.length
+      ? `<div class="assurance-summary"><article><span>Quality Run</span><strong>${escapeHTML(runs.length)}</strong></article><article><span>Agent 실행</span><strong>${escapeHTML(assurance.invocations?.length || 0)}</strong></article><article><span>효과 기록</span><strong>${escapeHTML(assurance.effects?.length || 0)}</strong></article><article><span>비용 상태</span><strong>${escapeHTML(assurance.costState === "estimated" ? "추정" : "미확인")}</strong></article></div><p class="meta">비용은 사용량과 저장된 가격 snapshot이 모두 있을 때만 추정합니다.</p>`
+      : '<div class="empty-state"><strong>아직 검증 결과가 없습니다.</strong><span>Quality Run을 실행하면 근거와 효과 기록이 여기에 나타납니다.</span></div>';
   }
 
   function renderProviderStatuses(containerID, compact = false) {
@@ -656,7 +662,7 @@
     if (refreshing) return;
     refreshing = true;
     try {
-      const [snapshot, registryProjects, findings, events, environment, providerStatuses, assuranceDashboard] = await Promise.all([
+      const [snapshot, registryProjects, findings, events, environment, providerStatuses, assuranceDashboard, assuranceRuns] = await Promise.all([
         request("/api/state"),
         request("/api/projects"),
         request("/api/findings"),
@@ -664,6 +670,7 @@
         request("/api/environment"),
         request("/api/assurance/providers"),
         request("/api/assurance/dashboard"),
+        request("/api/assurance/runs"),
       ]);
       state.snapshot = snapshot;
       state.registryProjects = registryProjects || [];
@@ -672,6 +679,7 @@
       state.environment = environment;
       state.providerStatuses = providerStatuses || [];
       state.assuranceDashboard = assuranceDashboard || state.assuranceDashboard;
+      state.assuranceRuns = assuranceRuns || [];
       initialized = true;
       await loadRouteData(currentRoute(), true);
       renderAll();
