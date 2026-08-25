@@ -1073,6 +1073,22 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
+	mux.HandleFunc("GET /api/assurance/sessions/{sessionID}/specs", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.AssuranceSpecs(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/assurance/sessions/{sessionID}/proposals", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.AssuranceProposals(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
 	mux.HandleFunc("POST /api/assurance/sessions", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input AssuranceSessionInput
 		if err := decodeBody(response, request, &input); err != nil {
@@ -1095,6 +1111,60 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 			return
 		}
 		item, err := service.AnswerAssuranceQuestion(request.Context(), request.PathValue("sessionID"), request.PathValue("questionID"), input.Answer)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/assurance/questions", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input AssuranceQuestionInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.CreateAssuranceQuestion(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/assurance/specs", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input AssuranceSpecInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.CreateAssuranceSpec(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/assurance/proposals", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input AssuranceProposalInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.CreateAssuranceProposal(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/assurance/proposals/{proposalID}/review", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Decision string `json:"decision"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.ReviewAssuranceProposal(request.Context(), request.PathValue("proposalID"), input.Decision)
 		if err != nil {
 			writeServiceError(response, err)
 			return

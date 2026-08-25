@@ -24,6 +24,56 @@ func (s *Store) SaveAssuranceQuestion(ctx context.Context, item domain.Assurance
 	return s.saveAssurance(ctx, domain.AssuranceQuestionKind, item.Metadata.ID, "", "", "", "answered", 1, item.Spec.AskedAt, timeOr(item.Spec.AnsweredAt, item.Spec.AskedAt), item, item.Validate())
 }
 
+func (s *Store) SaveAssuranceSpec(ctx context.Context, item domain.AssuranceSpec) error {
+	canonical := item
+	canonical.Spec.Digest = ""
+	digest, err := canonical.Digest()
+	if err != nil {
+		return err
+	}
+	if item.Spec.Digest == "" {
+		item.Spec.Digest = digest
+	}
+	if item.Spec.Digest != digest {
+		return errors.New("assurance spec digest mismatch")
+	}
+	return s.saveAssurance(ctx, domain.AssuranceSpecKind, item.Metadata.ID, "", "", "", item.Spec.State, item.Spec.Revision, item.Spec.CreatedAt, item.Spec.CreatedAt, item, item.Validate())
+}
+
+func (s *Store) ListAssuranceSpecs(ctx context.Context, sessionID string) ([]domain.AssuranceSpec, error) {
+	items := []domain.AssuranceSpec{}
+	err := s.ListAssurance(ctx, domain.AssuranceSpecKind, func(data []byte) error {
+		var item domain.AssuranceSpec
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		if sessionID == "" || item.Spec.SessionID == sessionID {
+			items = append(items, item)
+		}
+		return nil
+	})
+	return items, err
+}
+
+func (s *Store) SaveAssuranceProposal(ctx context.Context, item domain.AssuranceProposal) error {
+	return s.saveAssurance(ctx, domain.AssuranceProposalKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, 1, item.Spec.CreatedAt, timeOr(item.Spec.ReviewedAt, item.Spec.CreatedAt), item, item.Validate())
+}
+
+func (s *Store) ListAssuranceProposals(ctx context.Context, sessionID string) ([]domain.AssuranceProposal, error) {
+	items := []domain.AssuranceProposal{}
+	err := s.ListAssurance(ctx, domain.AssuranceProposalKind, func(data []byte) error {
+		var item domain.AssuranceProposal
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		if sessionID == "" || item.Spec.SessionID == sessionID {
+			items = append(items, item)
+		}
+		return nil
+	})
+	return items, err
+}
+
 func (s *Store) ListAssuranceQuestions(ctx context.Context, sessionID string) ([]domain.AssuranceQuestion, error) {
 	items := []domain.AssuranceQuestion{}
 	err := s.ListAssurance(ctx, domain.AssuranceQuestionKind, func(data []byte) error {
@@ -39,18 +89,22 @@ func (s *Store) ListAssuranceQuestions(ctx context.Context, sessionID string) ([
 	return items, err
 }
 
-func (s *Store) SaveAssuranceSpec(ctx context.Context, item domain.AssuranceSpec) error {
-	digest, err := item.Digest()
+func (s *Store) UpdateAssuranceQuestion(ctx context.Context, item domain.AssuranceQuestion) error {
+	if err := item.Validate(); err != nil {
+		return err
+	}
+	object, err := s.maskedJSON(item)
 	if err != nil {
 		return err
 	}
-	if item.Spec.Digest == "" {
-		item.Spec.Digest = digest
+	result, err := s.db.ExecContext(ctx, `UPDATE assurance_objects SET state = ?, updated_at = ?, object_json = ? WHERE kind = ? AND id = ?`, "answered", timeOr(item.Spec.AnsweredAt, item.Spec.AskedAt).UTC().Format(timeFormat), object, domain.AssuranceQuestionKind, item.Metadata.ID)
+	if err != nil {
+		return err
 	}
-	if item.Spec.Digest != digest {
-		return errors.New("assurance spec digest mismatch")
+	if count, _ := result.RowsAffected(); count == 0 {
+		return errors.New("assurance question is missing")
 	}
-	return s.saveAssurance(ctx, domain.AssuranceSpecKind, item.Metadata.ID, "", "", "", item.Spec.State, item.Spec.Revision, item.Spec.CreatedAt, item.Spec.CreatedAt, item, item.Validate())
+	return nil
 }
 
 func (s *Store) SaveAgentInvocation(ctx context.Context, item domain.AgentInvocation) error {
@@ -144,6 +198,14 @@ func (s *Store) UpdateAssuranceRevision(ctx context.Context, kind, id string, re
 		return errors.New("assurance revision is stale or object is missing")
 	}
 	return nil
+}
+
+func (s *Store) AssuranceRevision(ctx context.Context, kind, id string) (int, error) {
+	var revision int
+	if err := s.db.QueryRowContext(ctx, `SELECT revision FROM assurance_objects WHERE kind = ? AND id = ?`, kind, id).Scan(&revision); err != nil {
+		return 0, err
+	}
+	return revision, nil
 }
 
 func (s *Store) GetAssurance(ctx context.Context, kind, id string, target any) error {

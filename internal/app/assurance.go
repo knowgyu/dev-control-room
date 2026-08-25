@@ -39,6 +39,14 @@ func (a *App) AssuranceQuestions(ctx context.Context, sessionID string) ([]domai
 	return a.store.ListAssuranceQuestions(ctx, sessionID)
 }
 
+func (a *App) AssuranceSpecs(ctx context.Context, sessionID string) ([]domain.AssuranceSpec, error) {
+	return a.store.ListAssuranceSpecs(ctx, sessionID)
+}
+
+func (a *App) AssuranceProposals(ctx context.Context, sessionID string) ([]domain.AssuranceProposal, error) {
+	return a.store.ListAssuranceProposals(ctx, sessionID)
+}
+
 func (a *App) QualityCampaigns(ctx context.Context) ([]domain.QualityCampaign, error) {
 	return a.store.ListQualityCampaigns(ctx)
 }
@@ -125,25 +133,155 @@ func (a *App) AnswerAssuranceQuestion(ctx context.Context, sessionID, questionID
 	if err != nil {
 		return domain.AssuranceSession{}, err
 	}
-	found := false
-	for _, question := range questions {
-		if question.Metadata.ID == questionID {
-			found = true
+	var answered *domain.AssuranceQuestion
+	for index := range questions {
+		if questions[index].Metadata.ID == questionID {
+			answered = &questions[index]
 			break
 		}
 	}
-	if !found || strings.TrimSpace(answer) == "" {
+	if answered == nil || strings.TrimSpace(answer) == "" {
 		return domain.AssuranceSession{}, contract.InvalidInput("answer requires a known question and non-empty answer")
 	}
 	now := time.Now().UTC()
+	answered.Spec.Answer = strings.TrimSpace(answer)
+	answered.Spec.AnsweredAt = &now
+	if err := a.store.UpdateAssuranceQuestion(ctx, *answered); err != nil {
+		return domain.AssuranceSession{}, err
+	}
 	session.Spec.State = domain.AssuranceStateReady
 	session.Spec.UpdatedAt = now
 	session.Spec.ResumeBrief.WaitingQuestion = ""
 	session.Spec.ResumeBrief.NextSafeAction = "답변을 반영해 Assurance Spec을 검토합니다."
-	if err := a.store.UpdateAssuranceRevision(ctx, domain.AssuranceSessionKind, session.Metadata.ID, 2, session.Spec.State, now, session); err != nil {
+	if err := a.updateAssuranceSession(ctx, session); err != nil {
 		return domain.AssuranceSession{}, err
 	}
 	return session, nil
+}
+
+func (a *App) CreateAssuranceQuestion(ctx context.Context, input AssuranceQuestionInput) (domain.AssuranceQuestion, error) {
+	session, err := a.AssuranceSession(ctx, input.SessionID)
+	if err != nil {
+		return domain.AssuranceQuestion{}, err
+	}
+	if strings.TrimSpace(input.Prompt) == "" {
+		return domain.AssuranceQuestion{}, contract.InvalidInput("assurance question prompt is required")
+	}
+	now := time.Now().UTC()
+	item := domain.AssuranceQuestion{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AssuranceQuestionKind}, Metadata: domain.ObjectMeta{ID: assuranceID("question", session.Metadata.ID, input.Prompt), Name: "Assurance question"}, Spec: domain.AssuranceQuestionSpec{SessionID: session.Metadata.ID, Prompt: strings.TrimSpace(input.Prompt), Required: input.Required, AskedAt: now}}
+	if err := a.store.SaveAssuranceQuestion(ctx, item); err != nil {
+		return domain.AssuranceQuestion{}, err
+	}
+	session.Spec.State = domain.AssuranceStateAwaitingAnswer
+	session.Spec.UpdatedAt = now
+	session.Spec.QuestionIDs = append(session.Spec.QuestionIDs, item.Metadata.ID)
+	session.Spec.ResumeBrief.WaitingQuestion = item.Metadata.ID
+	session.Spec.ResumeBrief.NextSafeAction = "질문에 답한 뒤 Assurance Spec을 검토합니다."
+	_ = a.updateAssuranceSession(ctx, session)
+	return item, nil
+}
+
+func (a *App) CreateAssuranceSpec(ctx context.Context, input AssuranceSpecInput) (domain.AssuranceSpec, error) {
+	session, err := a.AssuranceSession(ctx, input.SessionID)
+	if err != nil {
+		return domain.AssuranceSpec{}, err
+	}
+	if strings.TrimSpace(input.Intent) == "" {
+		return domain.AssuranceSpec{}, contract.InvalidInput("assurance intent is required")
+	}
+	specs, err := a.AssuranceSpecs(ctx, session.Metadata.ID)
+	if err != nil {
+		return domain.AssuranceSpec{}, err
+	}
+	now := time.Now().UTC()
+	revision := len(specs) + 1
+	item := domain.AssuranceSpec{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AssuranceSpecKind}, Metadata: domain.ObjectMeta{ID: assuranceID("spec", session.Metadata.ID, revision), Name: "Assurance Spec"}, Spec: domain.AssuranceSpecSpec{SessionID: session.Metadata.ID, Revision: revision, Intent: strings.TrimSpace(input.Intent), Questions: append([]string(nil), input.Questions...), Properties: append([]string(nil), input.Properties...), Targets: append([]string(nil), input.Targets...), ToolSetup: append([]string(nil), input.ToolSetup...), CreatedAt: now, Source: strings.TrimSpace(input.Source), State: "draft"}}
+	if item.Spec.Source == "" {
+		item.Spec.Source = "human_review"
+	}
+	canonical := item
+	canonical.Spec.Digest = ""
+	digest, _ := canonical.Digest()
+	item.Spec.Digest = digest
+	if err := a.store.SaveAssuranceSpec(ctx, item); err != nil {
+		return domain.AssuranceSpec{}, err
+	}
+	session.Spec.CurrentSpecID = item.Metadata.ID
+	session.Spec.UpdatedAt = now
+	session.Spec.State = domain.AssuranceStateReady
+	session.Spec.ResumeBrief.NextSafeAction = "Spec와 Quality Run 목적을 검토합니다."
+	_ = a.updateAssuranceSession(ctx, session)
+	return item, nil
+}
+
+func (a *App) CreateAssuranceProposal(ctx context.Context, input AssuranceProposalInput) (domain.AssuranceProposal, error) {
+	session, err := a.AssuranceSession(ctx, input.SessionID)
+	if err != nil {
+		return domain.AssuranceProposal{}, err
+	}
+	worktree, err := a.Worktree(ctx, session.Spec.ProjectID, session.Spec.RepositoryID, session.Spec.WorktreeID)
+	if err != nil {
+		return domain.AssuranceProposal{}, err
+	}
+	if strings.TrimSpace(input.Patch) == "" || strings.TrimSpace(input.Purpose) == "" {
+		return domain.AssuranceProposal{}, contract.InvalidInput("proposal purpose and patch are required")
+	}
+	now := time.Now().UTC()
+	id := assuranceID("proposal", session.Metadata.ID, now)
+	isolation := filepath.Join(a.home, "assurance", "proposals", id)
+	if err := os.MkdirAll(isolation, 0o700); err != nil {
+		return domain.AssuranceProposal{}, err
+	}
+	patchData := []byte(a.masker.Mask(input.Patch))
+	patchSum := sha256.Sum256(patchData)
+	artifact, err := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "assurance_proposal", SourceID: id, Name: id + ".patch", MIME: "text/x-diff", Content: patchData})
+	if err != nil {
+		return domain.AssuranceProposal{}, err
+	}
+	criticSummary, confidence, state := "검토가 필요합니다.", "unknown", "critic_advisory"
+	if strings.Contains(strings.ToLower(input.Patch), "git push") || strings.Contains(strings.ToLower(input.Patch), "git commit") {
+		criticSummary, confidence = "commit/push 동작이 포함되어 있어 자동 채택할 수 없습니다.", "high"
+	}
+	item := domain.AssuranceProposal{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AssuranceProposalKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Assurance proposal"}, Spec: domain.AssuranceProposalSpec{SessionID: session.Metadata.ID, ProjectID: session.Spec.ProjectID, RepositoryID: session.Spec.RepositoryID, WorktreeID: session.Spec.WorktreeID, BaseHead: worktree.Spec.Head, IsolationPath: isolation, PatchArtifactID: artifact.Metadata.ID, PatchDigest: hex.EncodeToString(patchSum[:]), Purpose: strings.TrimSpace(input.Purpose), State: state, CriticSummary: criticSummary, CriticConfidence: confidence, CreatedAt: now}}
+	if err := a.store.SaveAssuranceProposal(ctx, item); err != nil {
+		return domain.AssuranceProposal{}, err
+	}
+	session.Spec.ResumeBrief.ProposedPatch = id
+	session.Spec.UpdatedAt = now
+	session.Spec.ResumeBrief.NextSafeAction = "patch를 검토하고 명시적으로 채택하거나 거절합니다."
+	_ = a.updateAssuranceSession(ctx, session)
+	return item, nil
+}
+
+func (a *App) ReviewAssuranceProposal(ctx context.Context, proposalID, decision string) (domain.AssuranceProposal, error) {
+	proposals, err := a.AssuranceProposals(ctx, "")
+	if err != nil {
+		return domain.AssuranceProposal{}, err
+	}
+	var item domain.AssuranceProposal
+	for _, candidate := range proposals {
+		if candidate.Metadata.ID == proposalID {
+			item = candidate
+			break
+		}
+	}
+	if item.Metadata.ID == "" {
+		return item, contract.NotFound("assurance proposal not found")
+	}
+	if decision != "adopt" && decision != "reject" {
+		return item, contract.InvalidInput("proposal decision must be adopt or reject")
+	}
+	now := time.Now().UTC()
+	if decision == "adopt" {
+		item.Spec.State = "adopted"
+	} else {
+		item.Spec.State = "rejected"
+	}
+	item.Spec.ReviewedAt = &now
+	if err := a.store.UpdateAssuranceRevision(ctx, domain.AssuranceProposalKind, item.Metadata.ID, 2, item.Spec.State, now, item); err != nil {
+		return domain.AssuranceProposal{}, err
+	}
+	return item, nil
 }
 
 func (a *App) CreatePRCIBaseline(ctx context.Context, input BaselineInput) (domain.PRCIBaseline, error) {
@@ -312,7 +450,7 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 		session.Spec.ResumeBrief.FailedEvidence = append(session.Spec.ResumeBrief.FailedEvidence, result.FailureCode)
 		session.Spec.ResumeBrief.NextSafeAction = "실패 원인과 재시도 범위를 검토합니다."
 	}
-	_ = a.store.UpdateAssuranceRevision(ctx, domain.AssuranceSessionKind, session.Metadata.ID, 2, session.Spec.State, completed, session)
+	_ = a.updateAssuranceSession(ctx, session)
 	return invocation, nil
 }
 
@@ -513,4 +651,12 @@ func mustAssuranceSessions(items []domain.AssuranceSession, err error) []domain.
 		return nil
 	}
 	return items
+}
+
+func (a *App) updateAssuranceSession(ctx context.Context, session domain.AssuranceSession) error {
+	revision, err := a.store.AssuranceRevision(ctx, domain.AssuranceSessionKind, session.Metadata.ID)
+	if err != nil {
+		return err
+	}
+	return a.store.UpdateAssuranceRevision(ctx, domain.AssuranceSessionKind, session.Metadata.ID, revision+1, session.Spec.State, session.Spec.UpdatedAt, session)
 }

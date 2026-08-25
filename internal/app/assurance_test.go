@@ -160,3 +160,50 @@ func TestQualityRunUsesTypedRunnerAndPersistsBoundedReport(t *testing.T) {
 		t.Fatalf("artifacts = %#v, %v", artifacts, err)
 	}
 }
+
+func TestAssuranceAuthoringPersistsQuestionsSpecAndAdvisoryPatchWithoutAdoptionSideEffects(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Authoring", Path: tempGitRepository(t, "authoring")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	question, err := service.CreateAssuranceQuestion(context.Background(), AssuranceQuestionInput{SessionID: session.Metadata.ID, Prompt: "어떤 입력을 보호해야 합니까?", Required: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AnswerAssuranceQuestion(context.Background(), session.Metadata.ID, question.Metadata.ID, "빈 입력을 거부합니다."); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := service.CreateAssuranceSpec(context.Background(), AssuranceSpecInput{SessionID: session.Metadata.ID, Intent: "입력 검증을 보강합니다.", Properties: []string{"빈 입력은 거부"}, Source: "human_review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Spec.Digest == "" || spec.Spec.Revision != 1 {
+		t.Fatalf("spec = %#v", spec)
+	}
+	proposal, err := service.CreateAssuranceProposal(context.Background(), AssuranceProposalInput{SessionID: session.Metadata.ID, Purpose: "검증 테스트 제안", Patch: "diff --git a/test.go b/test.go\n+// git push must remain human-only\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Spec.State != "critic_advisory" || proposal.Spec.CriticSummary == "" || proposal.Spec.IsolationPath == "" || proposal.Spec.PatchArtifactID == "" {
+		t.Fatalf("proposal = %#v", proposal)
+	}
+	reviewed, err := service.ReviewAssuranceProposal(context.Background(), proposal.Metadata.ID, "adopt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewed.Spec.State != "adopted" || reviewed.Spec.ReviewedAt == nil {
+		t.Fatalf("reviewed proposal = %#v", reviewed)
+	}
+}

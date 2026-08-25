@@ -26,6 +26,7 @@ const (
 	ProviderPricingSnapshotKind    = "ProviderPricingSnapshot"
 	UnattendedApprovalScopeKind    = "UnattendedApprovalScope"
 	AssuranceQuestionKind          = "AssuranceQuestion"
+	AssuranceProposalKind          = "AssuranceProposal"
 	AssuranceStateDraft            = "draft"
 	AssuranceStateAwaitingAnswer   = "awaiting_answer"
 	AssuranceStateReady            = "ready"
@@ -111,6 +112,29 @@ type AssuranceSpec struct {
 	TypeMeta `json:",inline"`
 	Metadata ObjectMeta        `json:"metadata"`
 	Spec     AssuranceSpecSpec `json:"spec"`
+}
+
+type AssuranceProposal struct {
+	TypeMeta `json:",inline"`
+	Metadata ObjectMeta            `json:"metadata"`
+	Spec     AssuranceProposalSpec `json:"spec"`
+}
+
+type AssuranceProposalSpec struct {
+	SessionID        string     `json:"sessionId"`
+	ProjectID        string     `json:"projectId"`
+	RepositoryID     string     `json:"repositoryId"`
+	WorktreeID       string     `json:"worktreeId"`
+	BaseHead         string     `json:"baseHead"`
+	IsolationPath    string     `json:"isolationPath"`
+	PatchArtifactID  string     `json:"patchArtifactId,omitempty"`
+	PatchDigest      string     `json:"patchDigest"`
+	Purpose          string     `json:"purpose"`
+	State            string     `json:"state"`
+	CriticSummary    string     `json:"criticSummary,omitempty"`
+	CriticConfidence string     `json:"criticConfidence,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	ReviewedAt       *time.Time `json:"reviewedAt,omitempty"`
 }
 
 type AssuranceSpecSpec struct {
@@ -376,6 +400,27 @@ func (s AssuranceSpec) Validate() error {
 	}
 	if s.Spec.State == "" {
 		return errors.New("assurance spec state is required")
+	}
+	return nil
+}
+
+func (p AssuranceProposal) Validate() error {
+	if err := assuranceResource(p.TypeMeta, AssuranceProposalKind, p.Metadata); err != nil {
+		return err
+	}
+	if err := validateAssuranceScope(p.Spec.ProjectID, p.Spec.RepositoryID, p.Spec.WorktreeID, p.Spec.BaseHead); err != nil {
+		return err
+	}
+	if !validIdentifier(p.Spec.SessionID) || strings.TrimSpace(p.Spec.IsolationPath) == "" || strings.TrimSpace(p.Spec.PatchDigest) == "" || strings.TrimSpace(p.Spec.Purpose) == "" || p.Spec.CreatedAt.IsZero() {
+		return errors.New("assurance proposal requires isolated scope, patch, purpose, and time")
+	}
+	switch p.Spec.State {
+	case "proposed", "critic_advisory", "adopted", "rejected", "stale":
+	default:
+		return errors.New("assurance proposal state is invalid")
+	}
+	if (p.Spec.State == "adopted" || p.Spec.State == "rejected") != (p.Spec.ReviewedAt != nil) {
+		return errors.New("reviewed proposal requires a review time")
 	}
 	return nil
 }

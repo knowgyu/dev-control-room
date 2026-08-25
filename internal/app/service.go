@@ -62,6 +62,8 @@ type QueryService interface {
 	AssuranceSessions(context.Context) ([]domain.AssuranceSession, error)
 	AssuranceSession(context.Context, string) (domain.AssuranceSession, error)
 	AssuranceQuestions(context.Context, string) ([]domain.AssuranceQuestion, error)
+	AssuranceSpecs(context.Context, string) ([]domain.AssuranceSpec, error)
+	AssuranceProposals(context.Context, string) ([]domain.AssuranceProposal, error)
 	QualityCampaigns(context.Context) ([]domain.QualityCampaign, error)
 	QualityRuns(context.Context) ([]domain.QualityRun, error)
 	AgentInvocations(context.Context) ([]domain.AgentInvocation, error)
@@ -130,6 +132,10 @@ type CommandService interface {
 	ReleaseAction(context.Context, action.Admission) error
 	CreateAssuranceSession(context.Context, AssuranceSessionInput) (domain.AssuranceSession, error)
 	AnswerAssuranceQuestion(context.Context, string, string, string) (domain.AssuranceSession, error)
+	CreateAssuranceQuestion(context.Context, AssuranceQuestionInput) (domain.AssuranceQuestion, error)
+	CreateAssuranceSpec(context.Context, AssuranceSpecInput) (domain.AssuranceSpec, error)
+	CreateAssuranceProposal(context.Context, AssuranceProposalInput) (domain.AssuranceProposal, error)
+	ReviewAssuranceProposal(context.Context, string, string) (domain.AssuranceProposal, error)
 	CreatePRCIBaseline(context.Context, BaselineInput) (domain.PRCIBaseline, error)
 	CreateQualityCampaign(context.Context, QualityCampaignInput) (domain.QualityCampaign, error)
 	RunQuality(context.Context, QualityRunInput) (domain.QualityRun, error)
@@ -416,6 +422,28 @@ type AgentInvocationInput struct {
 	ProfileID      string `json:"profileId"`
 	RequestedModel string `json:"requestedModel"`
 	Scenario       string `json:"scenario,omitempty"`
+}
+
+type AssuranceQuestionInput struct {
+	SessionID string `json:"sessionId"`
+	Prompt    string `json:"prompt"`
+	Required  bool   `json:"required"`
+}
+
+type AssuranceSpecInput struct {
+	SessionID  string   `json:"sessionId"`
+	Intent     string   `json:"intent"`
+	Questions  []string `json:"questions"`
+	Properties []string `json:"properties"`
+	Targets    []string `json:"targets"`
+	ToolSetup  []string `json:"toolSetup"`
+	Source     string   `json:"source"`
+}
+
+type AssuranceProposalInput struct {
+	SessionID string `json:"sessionId"`
+	Purpose   string `json:"purpose"`
+	Patch     string `json:"patch"`
 }
 
 type ArtifactInput struct {
