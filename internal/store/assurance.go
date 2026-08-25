@@ -199,6 +199,18 @@ func (s *Store) ListQualityCampaigns(ctx context.Context) ([]domain.QualityCampa
 	})
 	return items, err
 }
+func (s *Store) ListAgentInvocations(ctx context.Context) ([]domain.AgentInvocation, error) {
+	items := []domain.AgentInvocation{}
+	err := s.ListAssurance(ctx, domain.AgentInvocationKind, func(data []byte) error {
+		var item domain.AgentInvocation
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
 func (s *Store) ListQualityRuns(ctx context.Context) ([]domain.QualityRun, error) {
 	items := []domain.QualityRun{}
 	err := s.ListAssurance(ctx, domain.QualityRunKind, func(data []byte) error {

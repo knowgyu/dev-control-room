@@ -64,6 +64,7 @@ type QueryService interface {
 	AssuranceQuestions(context.Context, string) ([]domain.AssuranceQuestion, error)
 	QualityCampaigns(context.Context) ([]domain.QualityCampaign, error)
 	QualityRuns(context.Context) ([]domain.QualityRun, error)
+	AgentInvocations(context.Context) ([]domain.AgentInvocation, error)
 	PRCIBaselines(context.Context) ([]domain.PRCIBaseline, error)
 	AssuranceArtifacts(context.Context) ([]domain.Artifact, error)
 	AssuranceEffects(context.Context) ([]domain.Effect, error)
@@ -132,6 +133,7 @@ type CommandService interface {
 	CreatePRCIBaseline(context.Context, BaselineInput) (domain.PRCIBaseline, error)
 	CreateQualityCampaign(context.Context, QualityCampaignInput) (domain.QualityCampaign, error)
 	RunQuality(context.Context, QualityRunInput) (domain.QualityRun, error)
+	RunAgentInvocation(context.Context, AgentInvocationInput) (domain.AgentInvocation, error)
 	SaveAssuranceArtifact(context.Context, ArtifactInput) (domain.Artifact, error)
 	CreateEffect(context.Context, EffectInput) (domain.Effect, error)
 	SavePricingSnapshot(context.Context, domain.ProviderPricingSnapshot) (domain.ProviderPricingSnapshot, error)
@@ -406,6 +408,14 @@ type QualityRunInput struct {
 	Technique  string `json:"technique"`
 	Provider   string `json:"provider"`
 	Model      string `json:"model"`
+}
+
+type AgentInvocationInput struct {
+	SessionID      string `json:"sessionId"`
+	Provider       string `json:"provider"`
+	ProfileID      string `json:"profileId"`
+	RequestedModel string `json:"requestedModel"`
+	Scenario       string `json:"scenario,omitempty"`
 }
 
 type ArtifactInput struct {

@@ -47,6 +47,10 @@ func (a *App) QualityRuns(ctx context.Context) ([]domain.QualityRun, error) {
 	return a.store.ListQualityRuns(ctx)
 }
 
+func (a *App) AgentInvocations(ctx context.Context) ([]domain.AgentInvocation, error) {
+	return a.store.ListAgentInvocations(ctx)
+}
+
 func (a *App) PRCIBaselines(ctx context.Context) ([]domain.PRCIBaseline, error) {
 	return a.store.ListBaselines(ctx)
 }
@@ -215,6 +219,85 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 		return run, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "quality run did not succeed"}
 	}
 	return run, nil
+}
+
+func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput) (domain.AgentInvocation, error) {
+	session, err := a.AssuranceSession(ctx, input.SessionID)
+	if err != nil {
+		return domain.AgentInvocation{}, err
+	}
+	worktree, err := a.Worktree(ctx, session.Spec.ProjectID, session.Spec.RepositoryID, session.Spec.WorktreeID)
+	if err != nil {
+		return domain.AgentInvocation{}, err
+	}
+	provider := strings.TrimSpace(input.Provider)
+	if provider == "" {
+		return domain.AgentInvocation{}, contract.InvalidInput("provider is required")
+	}
+	now := time.Now().UTC()
+	id := assuranceID("invocation", session.Metadata.ID, provider, now)
+	invocation := domain.AgentInvocation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Agent invocation"}, Spec: domain.AgentInvocationSpec{SessionID: session.Metadata.ID, WorktreeID: worktree.Metadata.ID, Head: worktree.Spec.Head, Provider: provider, ProfileID: strings.TrimSpace(input.ProfileID), RequestedModel: strings.TrimSpace(input.RequestedModel), SelectionSource: "user", State: domain.AssuranceStateQueued, IdempotencyKey: id, StartedAt: now, RawTranscript: false}}
+	if invocation.Spec.ProfileID == "" {
+		invocation.Spec.ProfileID = provider
+	}
+	if err := a.store.SaveAgentInvocation(ctx, invocation); err != nil {
+		return domain.AgentInvocation{}, err
+	}
+	invocation.Spec.State = domain.AssuranceStateRunning
+	if err := a.store.UpdateAssuranceRevision(ctx, domain.AgentInvocationKind, id, 2, invocation.Spec.State, now, invocation); err != nil {
+		return domain.AgentInvocation{}, err
+	}
+	scenario := assurance.FakeScenario(strings.TrimSpace(input.Scenario))
+	if scenario == "" {
+		scenario = assurance.FakeSuccess
+	}
+	var result assurance.RunResult
+	switch provider {
+	case "fake", "claude", "gemini":
+		result = (assurance.FakeAdapter{Provider: provider, Scenario: scenario}).Run(ctx, assurance.RunRequest{Provider: provider, Model: input.RequestedModel, Worktree: worktree.Spec.CanonicalPath})
+	case "codex":
+		result = assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.native_acceptance_required"}
+	default:
+		result = assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.unknown"}
+	}
+	completed := time.Now().UTC()
+	invocation.Spec.State = result.State
+	invocation.Spec.CompletedAt = &completed
+	invocation.Spec.Structured = result.Structured
+	invocation.Spec.FailureCode = result.FailureCode
+	invocation.Spec.ArtifactIDs = nil
+	if result.Usage != nil {
+		if value, ok := result.Usage["input"]; ok {
+			invocation.Spec.Usage.InputTokens = &value
+		}
+		if value, ok := result.Usage["output"]; ok {
+			invocation.Spec.Usage.OutputTokens = &value
+		}
+		if total := result.Usage["input"] + result.Usage["output"]; total > 0 {
+			invocation.Spec.Usage.TotalTokens = &total
+		}
+	}
+	if result.Summary != "" {
+		invocation.Spec.Structured = map[string]any{"summary": result.Summary, "result": result.Structured}
+	}
+	if report, marshalErr := json.Marshal(map[string]any{"provider": provider, "state": result.State, "failureCode": result.FailureCode, "structured": result.Structured, "rawTranscript": false}); marshalErr == nil {
+		if artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "agent_invocation", SourceID: id, Name: id + ".json", MIME: "application/json", Content: report}); artifactErr == nil {
+			invocation.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
+		}
+	}
+	if err := a.store.UpdateAssuranceRevision(ctx, domain.AgentInvocationKind, id, 3, invocation.Spec.State, completed, invocation); err != nil {
+		return domain.AgentInvocation{}, err
+	}
+	session.Spec.UpdatedAt = completed
+	session.Spec.State = domain.AssuranceStateReady
+	session.Spec.ResumeBrief.Completed = append(session.Spec.ResumeBrief.Completed, id)
+	session.Spec.ResumeBrief.NextSafeAction = "구조화된 결과와 제안을 검토합니다."
+	if result.State != domain.AssuranceStateSucceeded {
+		session.Spec.ResumeBrief.FailedEvidence = append(session.Spec.ResumeBrief.FailedEvidence, result.FailureCode)
+		session.Spec.ResumeBrief.NextSafeAction = "실패 원인과 재시도 범위를 검토합니다."
+	}
+	_ = a.store.UpdateAssuranceRevision(ctx, domain.AssuranceSessionKind, session.Metadata.ID, 2, session.Spec.State, completed, session)
+	return invocation, nil
 }
 
 func (a *App) SaveAssuranceArtifact(ctx context.Context, input ArtifactInput) (domain.Artifact, error) {

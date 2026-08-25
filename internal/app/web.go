@@ -1151,6 +1151,27 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
+	mux.HandleFunc("GET /api/assurance/invocations", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.AgentInvocations(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("POST /api/assurance/invocations", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input AgentInvocationInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.RunAgentInvocation(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
 	mux.HandleFunc("POST /api/assurance/runs", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input QualityRunInput
 		if err := decodeBody(response, request, &input); err != nil {
