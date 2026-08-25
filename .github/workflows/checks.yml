@@ -41,6 +41,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Normalize Windows checkout
+        shell: pwsh
+        run: |
+          git config core.autocrlf false
+          git restore --source=HEAD --worktree -- .
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
