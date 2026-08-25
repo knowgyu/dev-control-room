@@ -25,6 +25,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	for _, value := range []string{
 		`<html lang="ko">`, "본문으로 건너뛰기", "홈", "프로젝트", "작업", "진단", "기록",
 		"지금 확인할 항목", "프로젝트별 상태", "최근 실행 결과",
+		"등록 → 관찰 → 계획 → 실행", "처음 사용하는 순서", "외부 작업과 릴리스", "Jenkins 대상 그룹",
 		"폴더 선택", "저장소 찾기",
 		"발견 및 제안 검토", "Agent Profile 관리",
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
@@ -60,6 +61,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"Agent Profile 추가", "data-profile=\"edit\"", "/api/agent-profiles",
 		"근거 변경됨", "기존 점검 다시 찾기", "열림 및 확인함", `data-unregister="profile"`,
 		"surfaceErrors", `role="alert"`, "data-retry", "loadRouteData(currentRoute(), true)",
+		"/api/external-work-groups", "/api/releases/", "/api/cleanup/", "Worktree 신뢰", "전용 실행",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded UI JavaScript missing %q", value)

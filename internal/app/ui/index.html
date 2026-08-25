@@ -44,6 +44,15 @@
             </div>
             <div class="scan-time"><span>마지막 점검</span><strong id="m-scan">아직 없음</strong></div>
           </div>
+          <section class="workflow panel" aria-labelledby="workflow-title">
+            <div class="panel-heading"><div><p class="eyebrow">처음 사용하는 순서</p><h2 id="workflow-title">등록 → 관찰 → 계획 → 실행</h2></div><span class="chip ok">로컬 우선</span></div>
+            <div class="workflow-steps">
+              <a href="#projects"><span>01</span><strong>프로젝트 등록</strong><small>폴더와 Git 저장소를 선택합니다.</small></a>
+              <a href="#diagnostics"><span>02</span><strong>연동·도구 설정</strong><small>주소와 credential reference만 저장합니다.</small></a>
+              <a href="#work"><span>03</span><strong>계획 검토</strong><small>대상, 근거, 위험 등급을 확인합니다.</small></a>
+              <a href="#work"><span>04</span><strong>승인 후 실행</strong><small>Worktree 신뢰와 명시적 승인이 필요합니다.</small></a>
+            </div>
+          </section>
           <div class="metrics" aria-label="전체 상태 요약">
             <article class="metric-card"><span>프로젝트</span><strong id="m-projects">0</strong></article>
             <article class="metric-card"><span>저장소</span><strong id="m-repos">0</strong></article>
@@ -96,6 +105,11 @@
           <div class="page-heading"><div><p class="eyebrow">점검과 실행</p><h2>작업</h2><p>검토된 점검과 Action만 명시된 Worktree에서 실행합니다.</p></div></div>
           <div class="work-grid">
             <section class="panel span-two">
+              <div class="panel-heading"><div><p class="eyebrow">EXTERNAL WORK / RELEASE</p><h2>외부 작업과 릴리스</h2></div><span class="chip warn">승인 필요</span></div>
+              <p class="panel-copy">진단에서 Jenkins 대상 그룹을 등록한 뒤, 하나의 계획으로 묶어 미리 보고 실행합니다. stage와 production은 별도 계획이며 production은 항상 고위험입니다.</p>
+              <div id="operations-ui" class="loading">외부 작업 계획을 불러오는 중입니다.</div>
+            </section>
+            <section class="panel span-two">
               <div class="panel-heading"><div><p class="eyebrow">DISCOVERY</p><h2>발견 및 제안 검토</h2></div></div>
               <p class="panel-copy">정확한 Worktree에서 기존 점검 명령을 읽기 전용으로 찾고, 근거를 검토한 뒤 적용합니다.</p>
               <div id="proposal-ui" class="loading">발견 결과를 불러오는 중입니다.</div>
@@ -132,6 +146,11 @@
               <div class="panel-heading"><div><p class="eyebrow">CONNECTORS</p><h2>연동 설정</h2></div><button id="add-integration" class="button" type="button">연동 추가</button></div>
               <p class="panel-copy">GitHub, Jenkins, Kubernetes의 주소와 대상 정보만 저장합니다. 토큰은 환경 변수나 Windows 자격 증명 참조로만 연결하세요.</p>
               <div id="integration-list" class="loading">연동 설정을 불러오는 중입니다.</div>
+            </section>
+            <section class="panel span-two">
+              <div class="panel-heading"><div><p class="eyebrow">GROUPED EXTERNAL WORK</p><h2>Jenkins 대상 그룹</h2></div><button id="add-external-group" class="button" type="button">대상 그룹 추가</button></div>
+              <p class="panel-copy">완료된 Jenkins build URL을 기준으로 대상과 parameter를 묶습니다. 비밀 값은 저장하지 않으며 credential reference만 사용합니다.</p>
+              <div id="external-groups" class="loading">Jenkins 대상 그룹을 불러오는 중입니다.</div>
             </section>
             <section class="panel span-two">
               <div class="panel-heading"><div><p class="eyebrow">POWERSHELL</p><h2>PowerShell runbook</h2></div><button id="add-runbook" class="button" type="button">runbook 추가</button></div>

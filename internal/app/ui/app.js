@@ -20,12 +20,14 @@
     safeguards: [],
     profiles: [],
     integrations: [],
+    externalGroups: [],
     runbooks: [],
     integrationHealth: {},
     githubLatestRuns: {},
     jenkinsLatestBuilds: {},
     kubernetesStatuses: {},
     kubernetesLogs: {},
+    operationResults: {},
     activeProjectID: "",
     checkRuns: new Map(),
     expandedChecks: new Set(),
@@ -33,7 +35,7 @@
     guidanceResult: null,
     guidanceMode: "",
     findingFilters: { severity: "", state: "active" },
-    surfaceErrors: { checksets: "", actions: "", cleanup: "", safeguards: "", profiles: "", integrations: "", runbooks: "" },
+    surfaceErrors: { checksets: "", actions: "", cleanup: "", safeguards: "", profiles: "", integrations: "", externalGroups: "", runbooks: "" },
     loaded: { work: false, diagnostics: false },
     loading: { work: false, diagnostics: false },
   };
@@ -362,8 +364,45 @@
     return `<section class="review-box"><div class="list-item-header"><div><strong>프로젝트 저장소 전체 최신화 계획</strong><p class="meta">실행 가능한 저장소 ${escapeHTML((plan.plans || []).length)}개 · 제외 ${escapeHTML((plan.skipped || []).length)}개</p></div><span class="chip ${(plan.plans || []).length ? "warn" : ""}">${(plan.plans || []).length ? "검토 필요" : "실행 대상 없음"}</span></div><p>변경 없는 기본 Worktree만 <code>git pull --ff-only --prune</code>으로 처리합니다. 계획에 없는 저장소는 실행하지 않습니다.</p>${skipped ? `<details open><summary>제외된 저장소 보기</summary><ul>${skipped}</ul></details>` : ""}${(plan.plans || []).length ? `<div class="item-actions"><button class="button primary" type="button" data-repository-sync="execute">계획된 저장소 모두 최신화</button></div>` : ""}</section>`;
   }
 
+  const specialActionTypes = new Set(["external.jenkins.group", "release.jenkins.stage", "release.jenkins.production", "cleanup.destructive"]);
+  const isSpecialPlan = detail => specialActionTypes.has(detail.plan.spec.actionType);
+
+  function renderOperationResult(result, actionType) {
+    if (!result) return "";
+    if (actionType === "cleanup.destructive") {
+      return `<div class="result-box ${result.status === "succeeded" ? "state-ok" : "state-bad"}"><strong>정리 ${escapeHTML(label(result.status))}</strong><p><code>${escapeHTML(result.path)}</code>${result.branch ? ` · ${escapeHTML(result.branch)}` : ""}</p>${result.failure ? `<p>${escapeHTML(result.failure)}</p>` : ""}</div>`;
+    }
+    if (actionType.startsWith("release.")) {
+      return `<div class="result-box ${result.status === "succeeded" ? "state-ok" : "state-bad"}"><strong>${escapeHTML(result.environment === "production" ? "Production" : "Stage")} ${escapeHTML(label(result.status))}</strong>${(result.postchecks || []).map(item => `<p>${escapeHTML(item.id)} · ${escapeHTML(label(item.status))} · ${escapeHTML(item.detail || "")}</p>`).join("")}</div>`;
+    }
+    return `<div class="result-box ${result.status === "succeeded" ? "state-ok" : "state-bad"}"><strong>외부 작업 ${escapeHTML(label(result.status))}</strong>${(result.outcomes || []).map(item => `<p>${escapeHTML(item.targetId)} · ${escapeHTML(label(item.status))}${item.buildNumber ? ` · #${escapeHTML(item.buildNumber)}` : ""}${item.failure ? ` · ${escapeHTML(item.failure)}` : ""}</p>`).join("")}</div>`;
+  }
+
+  function renderExternalOperations() {
+    const targets = targetOptions();
+    const groups = state.externalGroups;
+    const plans = state.actionDetails.filter(isSpecialPlan);
+    const groupOptions = groups.length ? groups.map(group => `<option value="${escapeHTML(group.id)}">${escapeHTML(group.name)} · 대상 ${escapeHTML(group.targets.length)}개</option>`).join("") : '<option value="">진단에서 대상 그룹을 먼저 등록하세요</option>';
+    const targetOptionsHTML = targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>';
+    const planCards = plans.length ? `<div class="item-list">${plans.map(detail => {
+      const actionType = detail.plan.spec.actionType;
+      const admission = detail.status.admission;
+      const result = state.operationResults[detail.plan.metadata.id];
+      const operation = actionType === "cleanup.destructive" ? "cleanup" : actionType.startsWith("release.") ? "release" : "external";
+      const executeLabel = operation === "cleanup" ? "정리 실행" : operation === "release" ? "릴리스 실행" : "외부 작업 실행";
+      const button = admission === "approval_required"
+        ? `<button class="button small" type="button" data-action="approve" data-id="${escapeHTML(detail.plan.metadata.id)}">승인 요청</button>`
+        : admission === "eligible"
+          ? `<button class="button primary small" type="button" data-special-action="${operation}" data-id="${escapeHTML(detail.plan.metadata.id)}">${executeLabel}</button>`
+          : "";
+      return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(detail.plan.metadata.name)}</h3><p class="meta">${escapeHTML(detail.plan.spec.projectId)} / ${escapeHTML(detail.plan.spec.repositoryId)} / ${escapeHTML(detail.plan.spec.worktreeId)}</p></div><span class="chip ${admission === "eligible" ? "ok" : admission === "approval_required" ? "warn" : "bad"}">${escapeHTML(label(admission))}</span></div><dl class="detail-grid"><div><dt>Action</dt><dd><code>${escapeHTML(actionType)}</code></dd></div><div><dt>요청 시각</dt><dd>${escapeHTML(formatDate(detail.plan.spec.requestedAt))}</dd></div><div class="wide"><dt>승인 기록</dt><dd>${detail.status.approvals?.length ? detail.status.approvals.map(item => `${escapeHTML(label(item.spec.status))} · ${escapeHTML(formatDate(item.spec.decidedAt))}`).join("<br>") : "없음"}</dd></div><div class="wide"><dt>계획 digest</dt><dd><code>${escapeHTML(detail.plan.spec.inputs?.group_digest || detail.plan.spec.inputs?.candidate_digest || "서버가 보관")}</code></dd></div></dl><div class="item-actions"><button class="button small" type="button" data-action="trust" data-id="${escapeHTML(detail.plan.metadata.id)}">실행 대상으로 표시</button>${button}</div>${renderOperationResult(result, actionType)}</article>`;
+    }).join("")}</div>` : '<div class="empty-state"><strong>아직 외부 작업·릴리스·정리 계획이 없습니다.</strong><span>위 입력에서 계획을 만든 뒤 이곳에서 근거를 검토하고 승인하세요.</span></div>';
+    document.getElementById("operations-ui").innerHTML = `<div class="workflow-note"><strong>실행 순서</strong><span>대상 선택 → 계획 생성 → Worktree 신뢰 → 승인 요청 → 전용 실행</span></div><div class="toolbar"><select id="external-group" aria-label="외부 작업 대상 그룹">${groupOptions}</select><select id="external-target" aria-label="외부 작업 Worktree">${targetOptionsHTML}</select><input id="expected-revision" aria-label="예상 revision" placeholder="예상 revision (선택 사항)"><button id="external-plan" class="button" type="button" ${groups.length && targets.length ? "" : "disabled"}>외부 작업 계획</button><button id="release-stage-plan" class="button" type="button" ${groups.length && targets.length ? "" : "disabled"}>Stage 릴리스 계획</button><button id="release-production-plan" class="button danger" type="button" ${groups.length && targets.length ? "" : "disabled"}>Production 릴리스 계획</button></div>${groups.length ? "" : '<p class="safety-note">진단 → Jenkins 대상 그룹에서 integration, 완료된 build URL, parameter를 먼저 설정하세요.</p>'}${planCards}`;
+  }
+
   function renderWork() {
     const targets = targetOptions();
+    renderExternalOperations();
     const proposalHTML = state.workItems.flatMap(item => (item.proposals || []).map(proposal => proposalCard(proposal, item))).join("");
     document.getElementById("proposal-ui").innerHTML = `${state.surfaceErrors.checksets ? surfaceError(state.surfaceErrors.checksets, "work") : ""}<div class="toolbar"><select id="discovery-target" aria-label="발견 대상 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button id="discover-worktree" class="button primary" type="button" ${targets.length ? "" : "disabled"}>기존 점검 찾기</button></div>${proposalHTML ? `<div class="item-list">${proposalHTML}</div>` : '<div class="empty-state"><strong>검토할 제안이 없습니다.</strong><span>Worktree를 선택해 기존 점검 명령을 찾아보세요.</span></div>'}`;
 
@@ -373,7 +412,7 @@
       : '<div class="empty-state"><strong>실행할 Pre-PR 점검이 없습니다.</strong><span>제안을 적용한 뒤 Checkset으로 만드세요.</span></div>';
     document.getElementById("checksets").innerHTML = checksetContent;
 
-    const plans = state.actionDetails.map(detail => {
+    const plans = state.actionDetails.filter(detail => !isSpecialPlan(detail)).map(detail => {
       const admission = detail.status.admission;
       const latest = detail.runs?.[0];
       const resultVisible = state.expandedActions.has(detail.plan.metadata.id);
@@ -405,6 +444,19 @@
     return `<section class="review-box"><div class="list-item-header"><strong>Agent Handoff 검토</strong><span class="chip ok">마스킹됨</span></div><dl class="detail-grid"><div><dt>Agent Profile</dt><dd>${escapeHTML(result.profileName)} · <code>${escapeHTML(result.profileCommand)}</code></dd></div><div><dt>데이터 경계</dt><dd>${escapeHTML(result.dataBoundary)}</dd></div><div><dt>실행 방식</dt><dd>${escapeHTML(result.launchMode)}</dd></div><div><dt>모델</dt><dd>${escapeHTML(result.model || "Profile 기본값")}</dd></div><div><dt>Worktree 상태</dt><dd>${escapeHTML(result.branch || "detached")} · HEAD <code>${escapeHTML(result.head || "없음")}</code> · ${result.dirty || result.untracked ? "변경 있음" : "깨끗함"}</dd></div><div class="wide"><dt>작업 폴더</dt><dd><code>${escapeHTML(result.workingDirectory)}</code></dd></div><div class="wide"><dt>포함 범위</dt><dd>${(result.scope || []).map(item => escapeHTML(item)).join("<br>") || "없음"}</dd></div><div class="wide"><dt>검증 명령</dt><dd>${(result.verificationCommands || []).map(item => `<code>${escapeHTML(item)}</code>`).join("<br>") || "없음"}</dd></div><div class="wide"><dt>Preview digest</dt><dd><code>${escapeHTML(result.previewDigest)}</code></dd></div></dl><details><summary>실행 인자 확인</summary><pre class="command-output">${escapeHTML((result.arguments || []).join("\n"))}</pre></details><div class="finding-list">${(result.findings || []).map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(localize(item.summary))}</h3><span class="chip">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p class="next">${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("") || '<div class="empty-state"><span>Handoff에 포함할 확인 항목이 없습니다.</span></div>'}</div>${launch ? `<div class="result-box state-ok"><strong>Agent를 열었습니다.</strong><p>PID ${escapeHTML(launch.pid)} · ${escapeHTML(formatDate(launch.startedAt))}</p><p class="meta">대화 기록은 수집하지 않습니다.</p></div>` : '<div class="item-actions"><button class="button primary" type="button" data-handoff-launch>이 Agent로 열기</button></div>'}<p class="safety-note">전체 대화 기록: ${result.transcriptIncluded ? "포함됨" : "포함하지 않음"}</p></section>`;
   }
 
+  const externalTargetText = group => (group.targets || []).map(target => {
+    const parameters = Object.entries(target.parameters || {}).map(([key, value]) => `${key}=${value}`).join(",");
+    return [target.id, target.integrationId, target.completedBuildUrl, parameters, target.fallbackRunbookId || ""].join(" | ");
+  }).join("\n");
+
+  function renderExternalGroups() {
+    const container = document.getElementById("external-groups");
+    const content = state.externalGroups.length
+      ? `<div class="item-list">${state.externalGroups.map(group => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(group.name)}</h3><p class="meta">${escapeHTML(group.id)} · 대상 ${escapeHTML(group.targets.length)}개</p></div><span class="chip warn">Jenkins</span></div><div class="group-targets">${group.targets.map(target => `<div><strong>${escapeHTML(target.id)}</strong><span>${escapeHTML(target.integrationId)}</span><code>${escapeHTML(target.completedBuildUrl)}</code></div>`).join("")}</div><div class="item-actions"><button class="button small" type="button" data-external-group="edit" data-id="${escapeHTML(group.id)}">정보 변경</button><button class="button small" type="button" data-unregister="external-group" data-external-group-id="${escapeHTML(group.id)}" data-name="${escapeHTML(group.name)}">제거</button></div></article>`).join("")}</div>`
+      : '<div class="empty-state"><strong>Jenkins 대상 그룹이 없습니다.</strong><span>연동을 먼저 등록한 뒤 완료된 build URL을 하나 이상의 대상에 묶으세요.</span></div>';
+    container.innerHTML = (state.surfaceErrors.externalGroups ? surfaceError(state.surfaceErrors.externalGroups, "diagnostics") : "") + content;
+  }
+
   function renderDiagnostics() {
     const environment = state.environment;
     document.getElementById("environment").innerHTML = `<div class="list-item ${environment.available ? "state-ok" : "state-warn"}"><strong>${environment.available ? "설정된 기능을 모두 사용할 수 있습니다." : "일부 기능을 사용할 수 없습니다."}</strong></div>${(environment.findings || []).length ? `<div class="finding-list" style="margin-top:10px">${environment.findings.map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><span class="chip ${item.severity === "high" ? "bad" : "warn"}">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>` : ""}`;
@@ -432,6 +484,7 @@
       }).join("")}</div>`
       : '<div class="empty-state"><strong>등록된 연동이 없습니다.</strong><span>먼저 주소와 credential reference만 등록하세요.</span></div>';
     document.getElementById("integration-list").innerHTML = (state.surfaceErrors.integrations ? surfaceError(state.surfaceErrors.integrations, "diagnostics") : "") + integrationContent;
+    renderExternalGroups();
 
     const runbookContent = state.runbooks.length
       ? `<div class="item-list">${state.runbooks.map(item => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · 승인 필요</p></div><span class="chip warn">PowerShell</span></div><dl class="detail-grid"><div class="wide"><dt>스크립트</dt><dd><code>${escapeHTML(item.scriptPath)}</code></dd></div><div><dt>제한 시간</dt><dd>${escapeHTML(item.timeoutSeconds)}초</dd></div><div class="wide"><dt>허용 환경 변수</dt><dd>${escapeHTML((item.environmentAllowlist || []).join(", ") || "없음")}</dd></div></dl>${(item.parameters || []).length ? `<div class="runbook-parameters">${item.parameters.map(parameter => `<label><span>${escapeHTML(parameter)}</span><input data-runbook-param="${escapeHTML(parameter)}" data-runbook-id="${escapeHTML(item.id)}" placeholder="선택 값"></label>`).join("")}</div>` : '<p class="meta">입력할 parameter가 없습니다.</p>'}<div class="item-actions"><select data-runbook-target="${escapeHTML(item.id)}" aria-label="runbook 실행 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button class="button primary small" type="button" data-runbook="plan" data-id="${escapeHTML(item.id)}" ${targets.length ? "" : "disabled"}>실행 계획 만들기</button><button class="button small" type="button" data-runbook="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="runbook" data-runbook-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`).join("")}</div>`
@@ -439,7 +492,7 @@
     document.getElementById("runbook-list").innerHTML = (state.surfaceErrors.runbooks ? surfaceError(state.surfaceErrors.runbooks, "diagnostics") : "") + runbookContent;
 
     const cleanupContent = state.cleanup.length
-      ? `<div class="item-list">${state.cleanup.map(item => `<article class="list-item"><div class="list-item-header"><h3>${escapeHTML(item.spec.repositoryId)} / ${escapeHTML(item.spec.worktreeId)}</h3><span class="chip warn">${escapeHTML(label(item.spec.decision))}</span></div><p class="meta"><code>${escapeHTML(item.spec.canonicalPath)}</code></p><p>${(item.spec.reasons || []).map(reason => escapeHTML(localize(reason))).join("<br>")}</p></article>`).join("")}</div>`
+      ? `<div class="item-list">${state.cleanup.map(item => `<article class="list-item"><div class="list-item-header"><h3>${escapeHTML(item.spec.repositoryId)} / ${escapeHTML(item.spec.worktreeId)}</h3><span class="chip warn">${escapeHTML(label(item.spec.decision))}</span></div><p class="meta"><code>${escapeHTML(item.spec.canonicalPath)}</code></p><p>${(item.spec.reasons || []).map(reason => escapeHTML(localize(reason))).join("<br>")}</p>${item.spec.decision === "reviewable" ? `<div class="item-actions"><button class="button danger small" type="button" data-cleanup="plan" data-id="${escapeHTML(item.metadata.id)}" data-project="${escapeHTML(item.spec.projectId)}" data-repository="${escapeHTML(item.spec.repositoryId)}" data-worktree="${escapeHTML(item.spec.worktreeId)}">정리 계획 만들기</button></div>` : ""}</article>`).join("")}</div>`
       : '<div class="empty-state"><strong>관찰된 정리 후보가 없습니다.</strong><span>Worktree가 관찰되면 안전 여부를 읽기 전용으로 평가합니다.</span></div>';
     document.getElementById("cleanup-queue").innerHTML = (state.surfaceErrors.cleanup ? surfaceError(state.surfaceErrors.cleanup, "diagnostics") : "") + cleanupContent;
 
@@ -514,7 +567,22 @@
           return { plan, status, runs };
         }));
       }, details => { state.actionDetails = details; }),
+      loadSurface("externalGroups", () => request("/api/external-work-groups"), items => { state.externalGroups = items; }),
     ]);
+    await Promise.all(state.actionDetails.filter(isSpecialPlan).map(async detail => {
+      const id = encode(detail.plan.metadata.id);
+      const actionType = detail.plan.spec.actionType;
+      const path = actionType === "cleanup.destructive"
+        ? `/api/cleanup/plans/${id}/result`
+        : actionType.startsWith("release.")
+          ? `/api/release-plans/${id}/result`
+          : `/api/external-work-plans/${id}/result`;
+      try {
+        state.operationResults[detail.plan.metadata.id] = await request(path);
+      } catch (_) {
+        delete state.operationResults[detail.plan.metadata.id];
+      }
+    }));
     state.loading.work = false;
     state.loaded.work = true;
     renderWork();
@@ -528,6 +596,7 @@
       loadSurface("safeguards", () => request("/api/safeguards/rules"), items => { state.safeguards = items; }),
       loadSurface("profiles", () => request("/api/agent-profiles"), items => { state.profiles = items; }),
       loadSurface("integrations", () => request("/api/integrations"), items => { state.integrations = items; }),
+      loadSurface("externalGroups", () => request("/api/external-work-groups"), items => { state.externalGroups = items; }),
       loadSurface("runbooks", () => request("/api/runbooks"), items => { state.runbooks = items; }),
     ]);
     state.loading.diagnostics = false;
@@ -604,6 +673,11 @@
       title.textContent = integration ? "연동 설정 변경" : "연동 설정 추가";
       description.textContent = "토큰 값은 입력하지 말고 env:이름 또는 credential_manager:이름 형태의 참조만 저장하세요.";
       editorFields.innerHTML = `${integration ? "" : editorInput("edit-id", "연동 ID")}${editorInput("edit-name", "표시 이름", integration?.name || "")}<label><span>종류</span><select id="edit-integration-kind"><option value="github" ${integration?.kind === "github" ? "selected" : ""}>GitHub</option><option value="jenkins" ${integration?.kind === "jenkins" ? "selected" : ""}>Jenkins</option><option value="kubernetes" ${integration?.kind === "kubernetes" ? "selected" : ""}>Kubernetes</option></select></label>${editorInput("edit-endpoint", "API 주소", integration?.endpoint || "", { wide: true })}${editorInput("edit-credential", "Credential reference", integration?.credentialRef || "", { required: false })}${editorTextarea("edit-values", "대상 값 · key=value 한 줄에 하나", Object.entries(integration?.values || {}).map(([key, value]) => `${key}=${value}`).join("\n"))}`;
+    } else if (kind === "external-group") {
+      const group = context.group;
+      title.textContent = group ? "Jenkins 대상 그룹 변경" : "Jenkins 대상 그룹 추가";
+      description.textContent = "대상 한 줄을 ‘대상 ID | Jenkins 연동 ID | 완료된 build URL | key=value,... | fallback runbook ID’로 입력합니다. 비밀 값은 입력하지 않습니다.";
+      editorFields.innerHTML = `${group ? "" : editorInput("edit-id", "그룹 ID")}${editorInput("edit-name", "표시 이름", group?.name || "")}${editorTextarea("edit-targets", "Jenkins 대상 · 한 줄에 하나", group ? externalTargetText(group) : "", true)}`;
     } else {
       const profile = context.profile;
       title.textContent = profile ? "Agent Profile 변경" : "Agent Profile 추가";
@@ -644,6 +718,17 @@
       await request(integration ? `/api/integrations/${encode(integration.id)}` : "/api/integrations", { method: integration ? "PUT" : "POST", headers: mutationHeaders(), body: JSON.stringify(body) });
       return integration ? "연동 설정을 변경했습니다." : "연동 설정을 추가했습니다.";
     }
+    if (editorTarget.kind === "external-group") {
+      const group = editorTarget.group;
+      const targets = lineList(document.getElementById("edit-targets").value).map((line, index) => {
+        const [id, integrationId, completedBuildUrl, parameterText = "", fallbackRunbookId = ""] = line.split("|").map(item => item.trim());
+        return { id: id || `target-${index + 1}`, integrationId, completedBuildUrl, parameters: keyValues(parameterText.replace(/,/g, "\n")), fallbackRunbookId };
+      });
+      const body = { name: document.getElementById("edit-name").value, targets };
+      if (!group) body.id = document.getElementById("edit-id").value;
+      await request(group ? `/api/external-work-groups/${encode(group.id)}` : "/api/external-work-groups", { method: group ? "PUT" : "POST", headers: mutationHeaders(), body: JSON.stringify(body) });
+      return group ? "Jenkins 대상 그룹을 변경했습니다." : "Jenkins 대상 그룹을 추가했습니다.";
+    }
     const profile = editorTarget.profile;
     const body = {
       name: document.getElementById("edit-name").value,
@@ -667,22 +752,25 @@
       repositoryID: button.dataset.repository || "",
       profileID: button.dataset.profileId || "",
       integrationID: button.dataset.integrationId || "",
+      externalGroupID: button.dataset.externalGroupId || "",
       runbookID: button.dataset.runbookId || "",
       name: button.dataset.name,
     };
     const isProject = unregisterTarget.kind === "project";
     const isProfile = unregisterTarget.kind === "profile";
     const isIntegration = unregisterTarget.kind === "integration";
+    const isExternalGroup = unregisterTarget.kind === "external-group";
     const isRunbook = unregisterTarget.kind === "runbook";
-    document.getElementById("unregister-title").textContent = isProfile ? "Agent Profile 제거" : isIntegration ? "연동 설정 제거" : isRunbook ? "PowerShell runbook 제거" : isProject ? "프로젝트 등록 해제" : "저장소 등록 해제";
+    document.getElementById("unregister-title").textContent = isProfile ? "Agent Profile 제거" : isIntegration ? "연동 설정 제거" : isExternalGroup ? "Jenkins 대상 그룹 제거" : isRunbook ? "PowerShell runbook 제거" : isProject ? "프로젝트 등록 해제" : "저장소 등록 해제";
     document.getElementById("unregister-description").textContent = isProfile
       ? `“${unregisterTarget.name}” Agent Profile의 저장된 실행 설정을 제거합니다.`
       : isProject
         ? `“${unregisterTarget.name}” 프로젝트의 등록과 모든 저장소 관찰 기록을 해제합니다.`
-      : isIntegration ? `“${unregisterTarget.name}” 연동 설정을 제거합니다.` : isRunbook ? `“${unregisterTarget.name}” PowerShell runbook 설정을 제거합니다.` : `“${unregisterTarget.name}” 저장소의 등록과 관찰 기록을 해제합니다.`;
+      : isIntegration ? `“${unregisterTarget.name}” 연동 설정을 제거합니다.` : isExternalGroup ? `“${unregisterTarget.name}” Jenkins 대상 그룹 설정을 제거합니다.` : isRunbook ? `“${unregisterTarget.name}” PowerShell runbook 설정을 제거합니다.` : `“${unregisterTarget.name}” 저장소의 등록과 관찰 기록을 해제합니다.`;
     document.getElementById("unregister-safety").textContent = isProfile
       ? "Profile 설정만 제거하며 Agent 프로그램이나 작업 파일은 삭제하지 않습니다."
       : isIntegration ? "저장소나 외부 시스템은 변경하지 않고 로컬 설정만 제거합니다."
+      : isExternalGroup ? "Jenkins나 credential는 변경하지 않고 로컬 그룹 설정만 제거합니다."
       : isRunbook ? "runbook 설정만 제거하며 .ps1 파일은 삭제하지 않습니다."
       : "등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.";
     document.getElementById("unregister-label").textContent = `확인 문구: “${unregisterTarget.name}”`;
@@ -851,6 +939,15 @@
       openEditor("integration", {});
       return;
     }
+    if (button.id === "add-external-group") {
+      openEditor("external-group", {});
+      return;
+    }
+    if (button.dataset.externalGroup === "edit") {
+      const group = state.externalGroups.find(item => item.id === button.dataset.id);
+      if (group) openEditor("external-group", { group });
+      return;
+    }
     if (button.id === "add-runbook") {
       openEditor("runbook", {});
       return;
@@ -873,6 +970,25 @@
       try {
         await request(`/api/runbooks/${encode(runbookID)}/plan`, { method: "POST", headers: mutationHeaders(), body: JSON.stringify({ projectId: projectID, repositoryId: repositoryID, worktreeId: worktreeID, parameters }) });
         showNotice("PowerShell runbook 실행 계획을 만들었습니다. 작업 화면에서 승인 후 실행하세요.");
+        state.loaded.work = false;
+        location.hash = "work";
+        await loadWorkData(true);
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+    if (button.dataset.cleanup === "plan") {
+      button.disabled = true;
+      try {
+        await request(`/api/cleanup/${encode(button.dataset.id)}/plan`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          body: JSON.stringify({ projectId: button.dataset.project, repositoryId: button.dataset.repository, worktreeId: button.dataset.worktree }),
+        });
+        showNotice("정리 계획을 만들었습니다. 작업 화면에서 안전 근거와 승인을 확인하세요.");
         state.loaded.work = false;
         location.hash = "work";
         await loadWorkData(true);
@@ -965,6 +1081,51 @@
         state.repositorySyncPlan = await request(`/api/projects/${encode(projectID)}/repository-sync/plan`, { method: "POST", headers: mutationHeaders(), body: "" });
         showNotice("프로젝트 저장소 최신화 계획을 만들었습니다. 제외된 저장소의 사유도 확인하세요.");
         await refreshAll();
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+    if (["external-plan", "release-stage-plan", "release-production-plan"].includes(button.id)) {
+      const target = document.getElementById("external-target").value.split("|");
+      const groupID = document.getElementById("external-group").value;
+      const isRelease = button.id !== "external-plan";
+      const environment = button.id === "release-production-plan" ? "production" : "stage";
+      button.disabled = true;
+      try {
+        const path = isRelease ? `/api/releases/${encode(groupID)}/plan` : `/api/external-work-groups/${encode(groupID)}/plan`;
+        const body = { projectId: target[0], repositoryId: target[1], worktreeId: target[2] };
+        if (isRelease) {
+          body.environment = environment;
+          body.expectedRevision = document.getElementById("expected-revision").value.trim();
+        }
+        await request(path, { method: "POST", headers: mutationHeaders(), body: JSON.stringify(body) });
+        showNotice(isRelease ? `${environment === "production" ? "Production" : "Stage"} 릴리스 계획을 만들었습니다.` : "외부 작업 계획을 만들었습니다.");
+        await loadWorkData(true);
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+    if (button.dataset.specialAction) {
+      const detail = state.actionDetails.find(item => item.plan.metadata.id === button.dataset.id);
+      if (!detail) return;
+      const actionType = detail.plan.spec.actionType;
+      const path = button.dataset.specialAction === "cleanup"
+        ? `/api/cleanup/plans/${encode(button.dataset.id)}/execute`
+        : button.dataset.specialAction === "release"
+          ? `/api/release-plans/${encode(button.dataset.id)}/execute`
+          : `/api/external-work-plans/${encode(button.dataset.id)}/execute`;
+      button.disabled = true;
+      try {
+        const result = await request(path, { method: "POST", headers: mutationHeaders(), body: JSON.stringify({ holder: "ui", idempotencyKey: `ui-${Date.now()}` }) });
+        state.operationResults[button.dataset.id] = result;
+        showNotice(`${actionType.startsWith("release.") ? "릴리스" : actionType === "cleanup.destructive" ? "정리" : "외부 작업"} 결과를 기록했습니다.`, result.status !== "succeeded");
+        await loadWorkData(true);
       } catch (error) {
         showNotice(error.message, true);
       } finally {
@@ -1268,10 +1429,12 @@
     const path = unregisterTarget.kind === "project"
       ? `/api/projects/${encode(unregisterTarget.projectID)}`
       : unregisterTarget.kind === "profile"
-        ? `/api/agent-profiles/${encode(unregisterTarget.profileID)}`
-        : unregisterTarget.kind === "integration"
-          ? `/api/integrations/${encode(unregisterTarget.integrationID)}`
-          : unregisterTarget.kind === "runbook"
+          ? `/api/agent-profiles/${encode(unregisterTarget.profileID)}`
+          : unregisterTarget.kind === "integration"
+            ? `/api/integrations/${encode(unregisterTarget.integrationID)}`
+            : unregisterTarget.kind === "external-group"
+              ? `/api/external-work-groups/${encode(unregisterTarget.externalGroupID)}`
+            : unregisterTarget.kind === "runbook"
             ? `/api/runbooks/${encode(unregisterTarget.runbookID)}`
         : `/api/projects/${encode(unregisterTarget.projectID)}/repositories/${encode(unregisterTarget.repositoryID)}`;
     const submit = document.getElementById("unregister-submit");
@@ -1280,9 +1443,9 @@
       await request(path, { method: "DELETE", headers: mutationHeaders() });
       if (unregisterTarget.kind === "project") state.activeProjectID = "";
       unregisterDialog.close();
-      showNotice(unregisterTarget.kind === "profile" ? "Agent Profile을 제거했습니다." : unregisterTarget.kind === "integration" ? "연동 설정을 제거했습니다." : unregisterTarget.kind === "runbook" ? "PowerShell runbook을 제거했습니다." : "등록을 해제했습니다. 원본 저장소 파일은 변경하지 않았습니다.");
+      showNotice(unregisterTarget.kind === "profile" ? "Agent Profile을 제거했습니다." : unregisterTarget.kind === "integration" ? "연동 설정을 제거했습니다." : unregisterTarget.kind === "external-group" ? "Jenkins 대상 그룹을 제거했습니다." : unregisterTarget.kind === "runbook" ? "PowerShell runbook을 제거했습니다." : "등록을 해제했습니다. 원본 저장소 파일은 변경하지 않았습니다.");
       await refreshAll();
-      document.getElementById(unregisterTarget.kind === "profile" ? "add-profile" : unregisterTarget.kind === "integration" ? "add-integration" : unregisterTarget.kind === "runbook" ? "add-runbook" : "project-list-panel").focus();
+      document.getElementById(unregisterTarget.kind === "profile" ? "add-profile" : unregisterTarget.kind === "integration" ? "add-integration" : unregisterTarget.kind === "external-group" ? "add-external-group" : unregisterTarget.kind === "runbook" ? "add-runbook" : "project-list-panel").focus();
     } catch (error) {
       showNotice(error.message, true);
       submit.disabled = false;

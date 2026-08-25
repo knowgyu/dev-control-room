@@ -35,12 +35,11 @@ The current source checkpoint is the pushed `main` tip. The earlier
 Agent-Handoff continuation note below is historical and is retained only as
 evidence; it does not describe the current working tree.
 
-- The source implementation tip is `643c9721475ba5a6a9ce4811d8bb075813bb88b1`;
-  `60f599e` introduced grouped execution workflows and `643c972` added target
-  outcome audit events. Follow-up documentation commits record the current
-  acceptance boundaries. Verify the exact checked-out and remote tip with
-  `git rev-parse HEAD` and `git ls-remote origin refs/heads/main` before
-  resuming.
+- The 0.5.0 source includes the grouped execution implementation from
+  `60f599e`, per-target audit events from `643c972`, and the Korean UI flow for
+  setup, external groups, release plans, and cleanup plans. Verify the exact
+  checked-out and remote tip with `git rev-parse HEAD` and
+  `git ls-remote origin refs/heads/main` before resuming.
 - The only current untracked paths are user-created `.agents/` and
   `skills-lock.json`; neither may be staged or modified.
 - The source includes the Korean five-screen UI, typed Action execution,
@@ -52,9 +51,10 @@ evidence; it does not describe the current working tree.
   revision evidence, provider-specific deployment contracts, and
   organization-specific PowerShell fallback behavior remain gated by local
   configuration and separate contracts.
-- No current native Windows acceptance is claimed for changes after the
-  recorded `v0.4.0-rc.2` evidence. WSL and Windows toolchain checks remain
-  separate from interactive Windows UI/provider acceptance.
+- No native Windows acceptance is claimed for the 0.5.0 UI and grouped
+  external/release/cleanup surfaces until the user runs the pending checklist
+  in `docs/NATIVE_WINDOWS_SMOKE.md`. WSL, Windows toolchain, and native runtime
+  evidence remain separate.
 
 The prior continuation checkpoint beginning with `e536297` described a
 different historical working tree and is superseded by this section.
@@ -161,7 +161,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.4.0-rc.2`;
+- binary version: `0.5.0`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;

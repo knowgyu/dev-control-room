@@ -1,71 +1,80 @@
-# Dev Control Room
+# Dev Control Room 0.5.0
 
-Dev Control Room is a Windows-native, local-first engineering control plane for
-one developer. It continuously diagnoses explicitly registered projects,
-presents evidence-backed findings, and runs reviewed deterministic operations.
+Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만 관찰하고,
+근거가 있는 점검과 Action을 계획·승인·실행합니다. 서비스는 loopback에만
+열리며 telemetry를 보내지 않습니다.
 
-The background service is the product. The browser UI is its control room, and
-the CLI and optional MCP adapter expose the same capabilities to coding agents.
-Codex, Claude, Gemini, and `claude-local` remain optional workers rather than the
-source of truth.
+## 가장 짧은 사용 순서
 
-## What it should solve
+1. `dev-control-room.exe`를 실행하고 <http://127.0.0.1:38471>을 엽니다.
+2. `프로젝트`에서 폴더를 선택하고 등록할 Git 저장소를 명시적으로 고릅니다.
+3. `진단`에서 도구, Agent Profile, GitHub/Jenkins/Kubernetes 연동을 설정합니다.
+   credential 값이 아니라 `env:NAME` 또는 `credential_manager:NAME` 같은
+   참조만 입력합니다.
+4. `작업`에서 `기존 점검 찾기 → 제안 검토 → Checkset 만들기 → 적용 → 실행`을
+   진행합니다.
+5. Jenkins 대상 그룹이 필요하면 `진단 → Jenkins 대상 그룹`에서 완료된 build
+   URL을 묶습니다. 이후 `작업`에서 외부 작업 또는 Stage/Production 계획을
+   만들고 `Worktree 신뢰 → 승인 요청 → 전용 실행` 순서로 진행합니다.
+6. 정리는 `진단 → 정리 후보`에서 안전 근거가 `검토 가능`인 경우에만 계획을
+   만들 수 있습니다. 실행은 연결 Worktree와 정확한 branch를 다시 확인한 뒤
+   Action Broker를 통과합니다.
 
-- Group several repositories under one project, such as a generic
-  `sample-project` composed of multiple repositories.
-- Show actionable findings by severity instead of making the user read logs.
-- Diagnose Git, worktrees, pull requests, CI, local tools, PowerShell profiles,
-  and environment configuration on a schedule.
-- Run reviewed pre-PR checks and PowerShell release procedures without an AI
-  round trip.
-- Keep production and destructive actions behind explicit approval.
-- Hand a bounded failure bundle to a user-selected coding agent when judgment
-  or code changes are needed.
-- Turn repeated verified failures into proposed deterministic safeguards.
+홈 화면에도 같은 4단계 흐름이 표시됩니다. 먼저 계획과 digest, 대상,
+위험 등급을 확인하고 실행하세요.
 
-## Product contract
+## Windows 실행
 
-- Windows 11 and PowerShell 7.6 are the target runtime; WSL is not required.
-- Only explicitly registered projects, paths, and connectors are observed.
-- The service binds to loopback and sends no telemetry.
-- Secrets never appear in logs, events, CLI JSON, HTTP responses, MCP results,
-  prompts, or agent handoff bundles.
-- GitHub is detected as a repository capability, not modeled as a separate
-  top-level workspace.
-- Human UI, CLI, and MCP all use the same application service and policy engine.
-- AI is never required for known checks or runbooks.
-- Dependencies require an approved permissive license and network review.
+압축을 풀고 아래처럼 실행합니다. 데이터는 기본적으로
+`%LOCALAPPDATA%\DevControlRoom`에 저장됩니다.
 
-## Repository status
+```powershell
+.\dev-control-room.exe
+Start-Process http://127.0.0.1:38471
+```
 
-Milestones 0–3 are implemented and accepted, including SQLite-backed Agent
-Profile CRUD, Environment Doctor, Worktree-aware Git observation, deterministic
-discovery proposals, typed read-only Checksets, and the Action Broker's
-planning/approval boundary. Native Windows acceptance passed at `3dbc90d`.
+다른 데이터 폴더를 쓰려면 `serve --home`을 지정합니다.
 
-Real Action process execution, target mutation, postchecks, Scheduler
-install/uninstall, configured release/cleanup (Milestone 4), Guidance/Agent
-Handoff/MCP (Milestone 5), and repeated-failure safeguards (Milestone 6) have
-not started. The former JSONL ledger and in-memory snapshot spike adapters are
-no longer used.
+```powershell
+.\dev-control-room.exe serve --home "$env:TEMP\dev-control-room-fixture"
+```
 
-The target stack is a small Go service and CLI, an embedded local web UI,
-SQLite-backed state, PowerShell 7.6 runbooks, and Windows Task Scheduler for
-startup and catch-up scheduling. A stdio MCP adapter is planned after the stable
-CLI/application contracts exist.
+## 패키지 만들기
 
-The UI registration flow can open the native Windows folder picker and discover
-Git repositories below a selected workspace. Discovery is bounded, read-only,
-does not follow symlinks, and requires explicit repository selection before
-anything is registered.
+PowerShell 7.6과 Go가 설치된 Windows에서 다음 명령이 amd64/arm64 portable
+ZIP과 SHA-256 목록을 만듭니다. 실제 Jenkins, production, Scheduler, 삭제
+작업은 패키징에 포함되지 않습니다.
 
-## Start here
+```powershell
+pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.5.0
+```
 
-- [Current state and implementation handoff](docs/HANDOFF.md)
-- [Product definition](docs/PRODUCT.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Configuration and secrets](docs/CONFIGURATION.md)
-- [AI and agent integration](docs/AI_INTEGRATION.md)
-- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- [Luna implementation brief](docs/LUNA_IMPLEMENTATION_BRIEF.md)
-- [Roadmap](docs/ROADMAP.md)
+검증까지 포함한 후보 확인은 다음 명령을 먼저 실행합니다.
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
+```
+
+## 경계와 현재 확인 범위
+
+- 대상 경로와 외부 endpoint는 설정한 값만 사용합니다.
+- 비밀 값은 config, UI, CLI, HTTP, MCP, 로그, handoff에 저장하거나 출력하지
+  않습니다.
+- Production, 외부 Jenkins, destructive cleanup은 항상 별도 계획과 명시적
+  승인이 필요합니다.
+- `FallbackRunbookID`는 참조만 저장하며 자동으로 PowerShell을 이어 실행하지
+  않습니다. 이어 실행은 별도 계약과 승인이 필요합니다.
+- 0.5.0의 WSL 테스트와 Windows toolchain 검증은 통과했지만, 실제 Windows
+  UI/PowerShell 7.6, 회사 Jenkins/provider credential, proxy, configured-agent
+  acceptance는 사용자의 Windows 환경에서 별도로 실행해야 합니다.
+
+## 문서
+
+- [현재 상태와 handoff](docs/HANDOFF.md)
+- [Windows acceptance 절차](docs/NATIVE_WINDOWS_SMOKE.md)
+- [검증 playbook](docs/VERIFICATION_PLAYBOOK.md)
+- [제품 계약](docs/PRODUCT.md)
+- [구성·자격 증명 경계](docs/CONFIGURATION.md)
+- [연동 설정](docs/INTEGRATIONS.md)
+- [아키텍처](docs/ARCHITECTURE.md)
+- [전체 구현 계획](docs/POST_MVP_EXECUTION_PLAN.md)

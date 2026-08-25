@@ -282,13 +282,12 @@ install/uninstall, release tagging, or release publication as part of this UI
 acceptance. Temporary fixture data may be removed only after its exact path is
 verified and the acceptance evidence has been copied into this document.
 
-## Post-MVP Workstreams 2–4 acceptance: pending
+## 0.5.0 UI and Post-MVP Workstreams 2–4 acceptance: pending
 
-The current post-MVP source adds protected HTTP/service contracts for grouped
-Jenkins work, explicitly approved linked-Worktree cleanup, and generic stage or
-production release evidence. No native Windows acceptance is claimed for these
-contracts until source `643c9721475ba5a6a9ce4811d8bb075813bb88b1` is checked
-out in a fresh NTFS copy.
+The 0.5.0 source adds the Korean setup flow and UI for grouped Jenkins work,
+explicitly approved linked-Worktree cleanup, and generic stage or production
+release evidence. No native Windows acceptance is claimed for these surfaces
+until the 0.5.0 source is checked out in a fresh NTFS copy.
 
 Run the repeatable gate from PowerShell 7.6 in that checkout:
 
@@ -303,23 +302,34 @@ never use the default application-data directory:
 1. Confirm the five Korean screens and the Action result review checklist
    above, including exact Worktree/HEAD, masked output, prechecks, postchecks,
    and audit events.
-2. Configure only a local fixture Jenkins HTTP server and fixture environment
-   variables such as `JENKINS_USERNAME` and `JENKINS_TOKEN`. Verify a nested
+2. On Home, follow `등록 → 관찰 → 계획 → 실행`; confirm each step links to
+   the matching screen and remains usable at a narrow browser width with
+   keyboard focus visible.
+3. In `진단 -> 연동 설정`, configure only a local fixture Jenkins HTTP server
+   and fixture environment variables such as `JENKINS_USERNAME` and
+   `JENKINS_TOKEN`. Verify a nested
    completed-build URL previews its Jenkins base path, folder job, selected
    `/build` or `/buildWithParameters` endpoint, credential references, and no
    credential value. Do not point the app at a company or production endpoint.
-3. Plan a two-target external group, change one target or credential reference,
+4. In `진단 -> Jenkins 대상 그룹`, add a two-target group using the target-line
+   format shown by the editor. Confirm the screen displays endpoint and
+   integration references but no credential value.
+5. In `작업 -> 외부 작업과 릴리스`, plan a two-target external group, change one target or credential reference,
    and confirm the old plan is stale. With a fresh plan and trusted fixture
    Worktree, verify that approval is required, queue correlation returns the
    actual build number, and one failed target does not hide its sibling result.
-4. Use a safe linked Worktree fixture only to preview cleanup. Verify dirty,
+6. Plan both `stage` and `production` release paths from the same screen. Verify
+   stage is an external-change plan, production is high-impact, both require
+   explicit approval, successful-build evidence is recorded, and an expected
+   revision without provider revision evidence is `postcheck_failed`.
+7. Use a safe linked Worktree fixture only to preview cleanup. In `진단 -> 정리
+   후보`, confirm only a `검토 가능` candidate offers a plan button. Verify dirty,
    untracked, detached, locked, prunable, ahead, missing-upstream, primary,
    and stale candidates remain blocked. Do not execute destructive cleanup on
    a user-important checkout.
-5. Plan both `stage` and `production` release paths. Verify stage is an
-   external-change plan, production is high-impact, both require explicit
-   approval, successful-build evidence is recorded, and an expected revision
-   without provider revision evidence is `postcheck_failed`.
+8. Build a portable package with `pwsh -NoProfile -File .\scripts\package.ps1
+   -Version 0.5.0`, verify both ZIP hashes from `SHA256SUMS`, and start the
+   packaged executable with a fresh `serve --home` directory.
 
 Record the exact source SHA, OS, PowerShell, Go, Node, gcc, commands, exit
 codes, fixture root, and any unavailable provider/UI gap below this section.
