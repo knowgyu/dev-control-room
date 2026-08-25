@@ -1,6 +1,6 @@
 # Phase 2 — Product usability and interface plan
 
-Status: P2.0–P2.3 implemented; P2.4 validation and native provider gate remain
+Status: implemented and released in v0.6.0; native provider/manual gaps remain recorded
 Updated: 2026-08-26
 Owner: local operator
 Prerequisite: [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md) Phase 1
@@ -204,7 +204,7 @@ Initial measurable targets, to refine during the journey draft:
 4. **P2.3 CLI parity and copy pass** — [implemented] improve help/doctor output, then run the
    Korean UI-string review. Do not allow generic prose to re-enter as a result
    of implementation.
-5. **P2.4 Validation and release decision** — [in progress] run the complete verification
+5. **P2.4 Validation and release decision** — [completed] run the complete verification
    loop, compare against the prior screenshot issues, update status documents,
    and create follow-up issues only for clearly bounded deferred work.
 

@@ -11,12 +11,13 @@ accepted so far.
 
 ## 2026-08-26 active planning status
 
-The current release candidate is local `main` after Phase 1 A–G automated
-acceptance and Phase 2 P2.0–P2.3 implementation. The original two unpushed plan
-commits and all subsequent user-scoped implementation commits are preserved.
-The remaining gate is the complete verification record, release packaging, and
-the explicitly recorded native real-provider/manual gaps. Read the applicable
-plan and verification record before selecting follow-up work.
+The current `main` is the pushed v0.6.0 release after Phase 1 A–G automated
+acceptance and Phase 2 P2.0–P2.4 implementation. The original two plan commits
+and all subsequent user-scoped implementation commits are preserved. Full
+verification, Windows packages, hashes, and the GitHub Release are complete.
+Native real-provider, company endpoint, second-device, and full keyboard
+traversal gaps remain explicitly recorded. Read the applicable plan and
+verification record before selecting follow-up work.
 
 ## Read before changing code
 
