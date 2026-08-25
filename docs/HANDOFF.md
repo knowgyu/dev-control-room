@@ -35,11 +35,12 @@ The current source checkpoint is the pushed `main` tip. The earlier
 Agent-Handoff continuation note below is historical and is retained only as
 evidence; it does not describe the current working tree.
 
-- `HEAD` and `origin/main` are both `3820a85d7683d90f465e76a47776239dfd0497e0`
-  (`docs: refresh post-MVP source checkpoint`). The implementation commits
-  are `60f599e` for grouped execution workflows and `643c972` for target
-  outcome audit events; `d1753dc` and `3820a85` record the accompanying docs
-  and native acceptance boundaries. The source code tip is `643c972`.
+- The source implementation tip is `643c9721475ba5a6a9ce4811d8bb075813bb88b1`;
+  `60f599e` introduced grouped execution workflows and `643c972` added target
+  outcome audit events. Follow-up documentation commits record the current
+  acceptance boundaries. Verify the exact checked-out and remote tip with
+  `git rev-parse HEAD` and `git ls-remote origin refs/heads/main` before
+  resuming.
 - The only current untracked paths are user-created `.agents/` and
   `skills-lock.json`; neither may be staged or modified.
 - The source includes the Korean five-screen UI, typed Action execution,
