@@ -72,6 +72,7 @@ type QueryService interface {
 	AssuranceEffects(context.Context) ([]domain.Effect, error)
 	ProviderStatuses(context.Context) ([]ProviderStatus, error)
 	PricingSnapshots(context.Context) ([]domain.ProviderPricingSnapshot, error)
+	AssuranceDashboard(context.Context, string, string) (AssuranceDashboard, error)
 }
 
 type CommandService interface {
@@ -486,6 +487,19 @@ type ArtifactExportResult struct {
 	Destination string   `json:"destination"`
 	ArtifactIDs []string `json:"artifactIds"`
 	Verified    bool     `json:"verified"`
+}
+
+type AssuranceDashboard struct {
+	GeneratedAt    time.Time                `json:"generatedAt"`
+	ProviderFilter string                   `json:"providerFilter,omitempty"`
+	ModelFilter    string                   `json:"modelFilter,omitempty"`
+	Effects        []domain.Effect          `json:"effects"`
+	Invocations    []domain.AgentInvocation `json:"invocations"`
+	TotalTokens    int64                    `json:"totalTokens"`
+	UsageComplete  bool                     `json:"usageComplete"`
+	EstimatedCost  *float64                 `json:"estimatedCost,omitempty"`
+	CostLabel      string                   `json:"costLabel"`
+	CostState      string                   `json:"costState"`
 }
 
 type GuidanceFinding struct {

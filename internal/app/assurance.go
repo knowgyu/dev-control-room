@@ -91,6 +91,72 @@ func (a *App) PricingSnapshots(ctx context.Context) ([]domain.ProviderPricingSna
 	return a.store.ListPricingSnapshots(ctx)
 }
 
+func (a *App) AssuranceDashboard(ctx context.Context, providerFilter, modelFilter string) (AssuranceDashboard, error) {
+	invocations, err := a.AgentInvocations(ctx)
+	if err != nil {
+		return AssuranceDashboard{}, err
+	}
+	effects, err := a.AssuranceEffects(ctx)
+	if err != nil {
+		return AssuranceDashboard{}, err
+	}
+	pricing, err := a.PricingSnapshots(ctx)
+	if err != nil {
+		return AssuranceDashboard{}, err
+	}
+	providerFilter, modelFilter = strings.TrimSpace(providerFilter), strings.TrimSpace(modelFilter)
+	filtered := make([]domain.AgentInvocation, 0, len(invocations))
+	var total int64
+	complete := true
+	var cost float64
+	costKnown := true
+	for _, invocation := range invocations {
+		if providerFilter != "" && invocation.Spec.Provider != providerFilter {
+			continue
+		}
+		if modelFilter != "" && invocation.Spec.RequestedModel != modelFilter {
+			continue
+		}
+		filtered = append(filtered, invocation)
+		if invocation.Spec.Usage.TotalTokens == nil {
+			complete = false
+		} else {
+			total += *invocation.Spec.Usage.TotalTokens
+		}
+		if invocation.Spec.Usage.InputTokens == nil || invocation.Spec.Usage.OutputTokens == nil {
+			costKnown = false
+			continue
+		}
+		snapshot, found := pricingFor(pricing, invocation.Spec.Provider, invocation.Spec.RequestedModel, invocation.Spec.StartedAt)
+		if !found {
+			costKnown = false
+			continue
+		}
+		cost += float64(*invocation.Spec.Usage.InputTokens)*snapshot.Spec.InputPerMillion/1_000_000 + float64(*invocation.Spec.Usage.OutputTokens)*snapshot.Spec.OutputPerMillion/1_000_000
+	}
+	var estimated *float64
+	costState := "unknown"
+	if costKnown && len(filtered) > 0 {
+		estimated = &cost
+		costState = "estimated"
+	}
+	return AssuranceDashboard{GeneratedAt: time.Now().UTC(), ProviderFilter: providerFilter, ModelFilter: modelFilter, Effects: effects, Invocations: filtered, TotalTokens: total, UsageComplete: complete, EstimatedCost: estimated, CostLabel: "estimated public API list-price equivalent", CostState: costState}, nil
+}
+
+func pricingFor(items []domain.ProviderPricingSnapshot, provider, model string, at time.Time) (domain.ProviderPricingSnapshot, bool) {
+	var selected domain.ProviderPricingSnapshot
+	found := false
+	for _, item := range items {
+		if item.Spec.Provider != provider || item.Spec.Model != model || item.Spec.EffectiveAt.After(at) {
+			continue
+		}
+		if !found || item.Spec.EffectiveAt.After(selected.Spec.EffectiveAt) {
+			selected, found = item, true
+		}
+	}
+	return selected, found
+}
+
 func (a *App) ProviderStatuses(ctx context.Context) ([]ProviderStatus, error) {
 	_ = ctx
 	codex := assurance.CodexResolver{}

@@ -1323,6 +1323,14 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
+	mux.HandleFunc("GET /api/assurance/dashboard", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.AssuranceDashboard(request.Context(), request.URL.Query().Get("provider"), request.URL.Query().Get("model"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
 	mux.HandleFunc("POST /api/assurance/pricing", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input domain.ProviderPricingSnapshot
 		if err := decodeBody(response, request, &input); err != nil {

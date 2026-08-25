@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/domain"
 )
@@ -261,5 +262,68 @@ func TestAllV1TechniqueAdaptersCreateArtifactsAndArchiveDeleteWithWarning(t *tes
 	deleted, err := service.DeleteAssuranceArtifact(context.Background(), ids[2], "DELETE")
 	if err != nil || deleted.Spec.Retention != domain.ArtifactRetentionDeleted {
 		t.Fatalf("deleted = %#v, %v", deleted, err)
+	}
+}
+
+func TestEffectsAndUsageDashboardKeepLabelsUnknownFieldsAndHistoricalPricing(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Effects", Path: tempGitRepository(t, "effects")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := service.RunAgentInvocation(context.Background(), AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "fake", ProfileID: "fake", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := invocation.Spec.StartedAt.Add(-time.Minute)
+	snapshot := domain.ProviderPricingSnapshot{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ProviderPricingSnapshotKind}, Metadata: domain.ObjectMeta{ID: "price-fixture", Name: "Fixture pricing"}, Spec: domain.ProviderPricingSpec{Provider: "fake", Model: "fixture-model", OfficialURL: "https://example.invalid/pricing", Currency: "USD", InputPerMillion: 1, OutputPerMillion: 2, EffectiveAt: now, RetrievedAt: now, Status: "manual_review"}}
+	if _, err := service.SavePricingSnapshot(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	dashboard, err := service.AssuranceDashboard(context.Background(), "fake", "fixture-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.EstimatedCost == nil || dashboard.CostState != "estimated" || dashboard.CostLabel != "estimated public API list-price equivalent" {
+		t.Fatalf("dashboard = %#v", dashboard)
+	}
+	missing, err := service.RunAgentInvocation(context.Background(), AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "fake", ProfileID: "fake", RequestedModel: "unknown-model", Scenario: "missing_usage"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := service.AssuranceDashboard(context.Background(), "fake", "unknown-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown.EstimatedCost != nil || unknown.CostState != "unknown" || unknown.UsageComplete {
+		t.Fatalf("unknown usage = %#v; invocation=%#v", unknown, missing)
+	}
+	effect, err := service.CreateEffect(context.Background(), EffectInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Fingerprint: "sha256:effect-fixture", Kind: domain.EffectMeasured, SourceRunID: invocation.Metadata.ID, Adopted: true, Reverified: true, Label: "measured"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Spec.Kind != domain.EffectMeasured {
+		t.Fatalf("effect = %#v", effect)
+	}
+	if _, err := service.CreateEffect(context.Background(), EffectInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Fingerprint: "sha256:effect-fixture", Kind: domain.EffectMeasured, Label: "duplicate"}); err == nil {
+		t.Fatal("duplicate measured effect accepted")
+	}
+	if _, err := service.SavePricingSnapshot(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Spec.OutputPerMillion = 99
+	if _, err := service.SavePricingSnapshot(context.Background(), snapshot); err == nil {
+		t.Fatal("historical pricing snapshot mutated")
 	}
 }

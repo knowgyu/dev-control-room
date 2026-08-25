@@ -157,8 +157,21 @@ func (s *Store) SavePricingSnapshot(ctx context.Context, item domain.ProviderPri
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO provider_pricing_snapshots(id, provider, model, effective_at, object_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, item.Metadata.ID, item.Spec.Provider, item.Spec.Model, item.Spec.EffectiveAt.UTC().Format(timeFormat), object)
-	return err
+	result, err := s.db.ExecContext(ctx, `INSERT INTO provider_pricing_snapshots(id, provider, model, effective_at, object_json) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, item.Metadata.ID, item.Spec.Provider, item.Spec.Model, item.Spec.EffectiveAt.UTC().Format(timeFormat), object)
+	if err != nil {
+		return err
+	}
+	if count, _ := result.RowsAffected(); count > 0 {
+		return nil
+	}
+	var existing string
+	if err := s.db.QueryRowContext(ctx, `SELECT object_json FROM provider_pricing_snapshots WHERE id = ?`, item.Metadata.ID).Scan(&existing); err != nil {
+		return err
+	}
+	if existing != object {
+		return errors.New("pricing snapshot is immutable")
+	}
+	return nil
 }
 
 func (s *Store) saveAssurance(ctx context.Context, kind, id, projectID, repositoryID, worktreeID, state string, revision int, createdAt, updatedAt time.Time, value any, validation error) error {
