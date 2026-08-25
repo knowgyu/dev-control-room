@@ -490,10 +490,14 @@
 
   function renderDiagnostics() {
     const environment = state.environment;
+    const optionalProfileIDs = new Set(["codex", "claude", "gemini", "claude-local"]);
     const visibleEnvironmentFindings = (environment.findings || []).filter(item => {
       if (!item.type?.startsWith("tool.")) return true;
       const tool = (environment.tools || []).find(candidate => candidate.name === item.target);
       return !tool || tool.required;
+    }).filter(item => {
+      if (!item.type?.startsWith("agent_profile.")) return true;
+      return !optionalProfileIDs.has(item.target);
     }).filter((item, index, all) => all.findIndex(candidate => candidate.type === item.type && candidate.target === item.target) === index);
     document.getElementById("environment").innerHTML = `<div class="list-item ${environment.generatedAt && environment.available ? "state-ok" : "state-warn"}"><strong>${!environment.generatedAt ? "아직 환경을 점검하지 않았습니다." : environment.available ? "필수 기능을 사용할 수 있습니다." : "필수 기능을 확인하세요."}</strong><p class="meta">선택 Provider는 아래 상태에서 따로 확인합니다.</p></div>${visibleEnvironmentFindings.length ? `<div class="finding-list" style="margin-top:10px">${visibleEnvironmentFindings.map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><span class="chip ${item.severity === "high" ? "bad" : "warn"}">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>` : ""}`;
     renderProviderStatuses("provider-statuses");
