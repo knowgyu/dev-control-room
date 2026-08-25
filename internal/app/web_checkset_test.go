@@ -56,6 +56,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"data-finding=\"acknowledge\"", "confidenceLabels", "/acknowledge",
 		"data-proposal=\"apply\"", "data-proposal=\"reject\"", "/worktrees/${encode(target[2])}/discover",
 		"renderCheckRun", "사전 점검", "사후 점검", "실행 종료 코드",
+		"renderActionEvents", "감사 이벤트", "작업 폴더", "프로젝트 저장소 최신화 결과",
 		"Agent Profile 추가", "data-profile=\"edit\"", "/api/agent-profiles",
 		"근거 변경됨", "기존 점검 다시 찾기", "열림 및 확인함", `data-unregister="profile"`,
 		"surfaceErrors", `role="alert"`, "data-retry", "loadRouteData(currentRoute(), true)",
