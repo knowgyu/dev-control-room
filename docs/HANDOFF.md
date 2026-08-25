@@ -29,34 +29,34 @@ Do not infer current behavior from the roadmap alone. `PRODUCT.md` and
 `ARCHITECTURE.md` describe the target product, while the milestone verification
 files distinguish implemented behavior from planned behavior.
 
-## 2026-08-25 continuation checkpoint
+## 2026-08-25 current source checkpoint
 
-This checkpoint is the shortest safe resume path for the current working tree.
+The current source checkpoint is the pushed `main` tip. The earlier
+Agent-Handoff continuation note below is historical and is retained only as
+evidence; it does not describe the current working tree.
 
-- Base `HEAD`: `e536297 feat: add persistent safeguard lifecycle`.
-- Branch: `main`, aligned with `origin/main` before the current uncommitted
-  Agent Handoff slice. Do not stage the user-created `.agents/` directory or
-  `skills-lock.json`.
-- Implemented in this slice: digest-bound Handoff preview, exact argv
-  contract, Worktree HEAD/state revalidation, allowlisted detached launcher,
-  Windows new-console process boundary, protected UI launch, CLI launch, and
-  launch audit metadata. Transcript collection remains false.
-- Main files: `internal/app/guidance.go`, `internal/app/service.go`,
-  `internal/app/web.go`, `internal/app/ui/app.js`,
-  `internal/environment/doctor.go`, `internal/environment/process_windows.go`,
-  `internal/environment/process_unix.go`, and
-  `cmd/dev-control-room/main.go`.
-- Fresh validation: Windows Go 1.26.7 in an NTFS temporary copy passed the
-  `internal/app` tests and race tests, the remaining package tests and race
-  tests, `go vet ./...`, `go mod verify`, Windows amd64/arm64 builds,
-  `node --check internal/app/ui/app.js`, and `git diff --check`.
-- WSL has no Linux `go`/`gofmt`; invoking Windows Go directly on the WSL UNC
-  checkout fails with `RLock ... go.mod: Incorrect function`. The temporary
-  NTFS copy is a validation workaround, not a runtime acceptance result.
-- Still required: commit/push this slice, native Windows manual UI launch
-  smoke with a real configured Agent Profile, and provider-specific MCP
-  client acceptance. CI/hook/launched-Handoff verification producers remain
-  intentionally unimplemented.
+- `HEAD` and `origin/main` are both `a870bb03ffc4b1991145f045f970d3081de312c3`
+  (`docs: add post-MVP execution plan`).
+- The only current untracked paths are user-created `.agents/` and
+  `skills-lock.json`; neither may be staged or modified.
+- The source includes the Korean five-screen UI, typed Action execution,
+  repository-sync grouping, read-only GitHub/Jenkins/Kubernetes integration
+  checks, PowerShell runbook planning, and safeguard lifecycle foundations.
+- Jenkins triggers, generic external target groups, cleanup mutation, and
+  configured release/post-deploy workflows are not implemented at this
+  checkpoint. This post-MVP plan owns that remaining work.
+- No current native Windows acceptance is claimed for changes after the
+  recorded `v0.4.0-rc.2` evidence. WSL and Windows toolchain checks remain
+  separate from interactive Windows UI/provider acceptance.
+
+The prior continuation checkpoint beginning with `e536297` described a
+different historical working tree and is superseded by this section.
+
+## Historical 2026-08-25 Agent Handoff checkpoint
+
+The historical checkpoint recorded digest-bound Handoff preview and launch
+work, but it was not the current source baseline. Its exact validation notes
+remain useful only as historical evidence.
 - Repeatable native toolchain checks are documented in
   `docs/VERIFICATION_PLAYBOOK.md` and automated by
   `scripts/verify.ps1 -Mode Full`. The script does not replace the native UI,
@@ -82,7 +82,7 @@ the current Handoff checklist in `docs/NATIVE_WINDOWS_SMOKE.md`. Treat the
 preview digest as review evidence: preview again if the Worktree, profile,
 model, or Findings change.
 
-## 2026-08-25 repository group sync checkpoint
+## Historical repository group sync checkpoint
 
 The first generic multi-repository operation is now implemented without
 company-specific configuration. A selected Project acts as a one-to-many

@@ -203,6 +203,10 @@ mutation, or Scheduler mutation was performed during publication.
 
 ## Post-RC Korean UI usability acceptance: pending
 
+The current source tip is `a870bb03ffc4b1991145f045f970d3081de312c3`.
+The post-MVP batch must add a new native acceptance entry after its code and
+docs commits; this file does not claim native acceptance for that batch.
+
 Run this only after the implementation commit is available in a native Windows
 11 NTFS checkout. Record the accepted source SHA, PowerShell/Go versions, built
 EXE SHA-256, and exact result below this section. Use a fresh temporary

@@ -31,6 +31,12 @@ registered projects without reading raw logs.
 - PR, branch, worktree, and explicitly linked issue cleanup queue.
 - Mechanical Guidance Doctor checks.
 
+The next implementation batch is `docs/POST_MVP_EXECUTION_PLAN.md`. Its
+generic scope covers grouped Jenkins work, explicitly approved linked-worktree
+cleanup, and redacted release/post-deploy evidence. Company-specific targets,
+credentials, production deployment, and release publication remain outside
+automated fixture verification.
+
 Outcome: common pre-PR, release, and cleanup work is fast, repeatable, and
 auditable without asking an AI to rediscover commands.
 

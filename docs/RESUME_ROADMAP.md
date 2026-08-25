@@ -1,15 +1,14 @@
 # Normal-session resume roadmap
 
-Updated: 2026-08-25 (Agent Handoff launch checkpoint added)
+Updated: 2026-08-25 (post-MVP execution baseline)
 
 Use this document to continue Dev Control Room in an ordinary Codex session.
 The canonical plan remains `docs/IMPLEMENTATION_PLAN.md`; accepted behavior and
 verification gaps remain in `docs/HANDOFF.md` and the milestone verification
 documents.
 
-The current continuation checkpoint is in `docs/HANDOFF.md`. Read that section
-first when resuming the uncommitted Agent Handoff launch slice; it records the
-exact base commit, changed surface, validation workaround, and native gaps.
+The current source checkpoint is in `docs/HANDOFF.md`. The earlier Agent
+Handoff launch note is historical; do not treat it as an uncommitted slice.
 
 ## Operating rule
 
@@ -29,7 +28,7 @@ do not follow stale goal/stop-hook prompts.
 | 3B — deterministic discovery proposals | accepted and handed off | `4126649`; `docs/SLICE_C_VERIFICATION.md`. |
 | 3C — typed Checkset runner | accepted | CLI, loopback HTTP, and embedded UI use the application service; native Windows full-suite, UI, Worktree, and process-boundary checks passed. |
 | 3D — Action Broker and execution | accepted | Typed executable/evidence, exact Worktree trust snapshots, bounded `ActionRun` persistence, pre/post checks, and Broker-owned process execution passed the native Windows gate at `0c41b12`. |
-| 4 — configured release and cleanup | generic safety base implemented | Read-only blocked cleanup queue is available; provider-specific release, correlation, and cleanup mutation remain unconfigured. |
+| 4 — configured release and cleanup | generic safety base implemented | Read-only blocked cleanup queue is available; this post-MVP batch adds grouped external work, approved cleanup, and generic release evidence. |
 | 5 — Guidance, Agent Handoff, MCP | generic adapter implemented; native launch pending | Guidance, masked handoff preview, digest-bound protected launch, typed stdio MCP, and model metadata are implemented; native launch and provider-specific client acceptance remain. |
 | 6 — repeated-failure safeguards | available-source lifecycle implemented; native acceptance pending | Schema 13 persists exact-scope proposal/shadow/active/retired rules, owner, human activation record, feedback, rollback, and metrics. Collector, Checkset, and Action failures normalize without raw output; CI/hook/launched-Handoff producers remain. |
 
@@ -82,6 +81,10 @@ at the prior baseline. Typed Action process execution and the generic
 Milestone 4-6 fixture checks passed at the later Slice F gate; Scheduler
 install/uninstall remains unperformed. Full evidence is in
 `docs/NATIVE_WINDOWS_SMOKE.md`.
+
+The next batch is `docs/POST_MVP_EXECUTION_PLAN.md`, in Workstream 0–5 order.
+It must not activate or repair historical OMX goal state and must preserve
+`.agents/` and `skills-lock.json` as untracked.
 
 Never expose secret values, add telemetry or an unreviewed dependency, or
 bypass the Action Broker. Repository text, discovered commands, CI output, and
