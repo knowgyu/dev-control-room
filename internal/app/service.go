@@ -59,6 +59,16 @@ type QueryService interface {
 	FailureFingerprints(context.Context, int) ([]domain.FailureFingerprint, error)
 	Safeguards(context.Context, int) ([]domain.SafeguardRule, error)
 	Safeguard(context.Context, string) (domain.SafeguardRule, error)
+	AssuranceSessions(context.Context) ([]domain.AssuranceSession, error)
+	AssuranceSession(context.Context, string) (domain.AssuranceSession, error)
+	AssuranceQuestions(context.Context, string) ([]domain.AssuranceQuestion, error)
+	QualityCampaigns(context.Context) ([]domain.QualityCampaign, error)
+	QualityRuns(context.Context) ([]domain.QualityRun, error)
+	PRCIBaselines(context.Context) ([]domain.PRCIBaseline, error)
+	AssuranceArtifacts(context.Context) ([]domain.Artifact, error)
+	AssuranceEffects(context.Context) ([]domain.Effect, error)
+	ProviderStatuses(context.Context) ([]ProviderStatus, error)
+	PricingSnapshots(context.Context) ([]domain.ProviderPricingSnapshot, error)
 }
 
 type CommandService interface {
@@ -117,6 +127,15 @@ type CommandService interface {
 	RetireSafeguard(context.Context, string) (domain.SafeguardRule, error)
 	RenewAction(context.Context, action.Admission) (action.Admission, error)
 	ReleaseAction(context.Context, action.Admission) error
+	CreateAssuranceSession(context.Context, AssuranceSessionInput) (domain.AssuranceSession, error)
+	AnswerAssuranceQuestion(context.Context, string, string, string) (domain.AssuranceSession, error)
+	CreatePRCIBaseline(context.Context, BaselineInput) (domain.PRCIBaseline, error)
+	CreateQualityCampaign(context.Context, QualityCampaignInput) (domain.QualityCampaign, error)
+	RunQuality(context.Context, QualityRunInput) (domain.QualityRun, error)
+	SaveAssuranceArtifact(context.Context, ArtifactInput) (domain.Artifact, error)
+	CreateEffect(context.Context, EffectInput) (domain.Effect, error)
+	SavePricingSnapshot(context.Context, domain.ProviderPricingSnapshot) (domain.ProviderPricingSnapshot, error)
+	ExportAssuranceArtifacts(context.Context, []string, string) (ArtifactExportResult, error)
 }
 
 type ApplicationService interface {
@@ -357,6 +376,77 @@ type UpdateAgentProfileInput struct {
 	EnvironmentAllowlist  []string
 	LaunchMode            domain.AgentLaunchMode
 	DataBoundary          domain.AgentDataBoundary
+}
+
+type AssuranceSessionInput struct {
+	ProjectID      string `json:"projectId"`
+	RepositoryID   string `json:"repositoryId"`
+	WorktreeID     string `json:"worktreeId"`
+	Provider       string `json:"provider"`
+	RequestedModel string `json:"requestedModel"`
+}
+
+type BaselineInput struct {
+	ProjectID    string `json:"projectId"`
+	RepositoryID string `json:"repositoryId"`
+	WorktreeID   string `json:"worktreeId"`
+	TargetBranch string `json:"targetBranch"`
+}
+
+type QualityCampaignInput struct {
+	ProjectID    string `json:"projectId"`
+	RepositoryID string `json:"repositoryId"`
+	WorktreeID   string `json:"worktreeId"`
+	Name         string `json:"name"`
+	SessionID    string `json:"sessionId"`
+}
+
+type QualityRunInput struct {
+	CampaignID string `json:"campaignId"`
+	Technique  string `json:"technique"`
+	Provider   string `json:"provider"`
+	Model      string `json:"model"`
+}
+
+type ArtifactInput struct {
+	SourceType string `json:"sourceType"`
+	SourceID   string `json:"sourceId"`
+	Name       string `json:"name"`
+	MIME       string `json:"mime"`
+	Content    []byte `json:"-"`
+}
+
+type EffectInput struct {
+	ProjectID    string   `json:"projectId"`
+	RepositoryID string   `json:"repositoryId"`
+	WorktreeID   string   `json:"worktreeId"`
+	Fingerprint  string   `json:"fingerprint"`
+	Kind         string   `json:"kind"`
+	SourceRunID  string   `json:"sourceRunId"`
+	EvidenceIDs  []string `json:"evidenceIds"`
+	Adopted      bool     `json:"adopted"`
+	Reverified   bool     `json:"reverified"`
+	Label        string   `json:"label"`
+	Value        float64  `json:"value"`
+	Unit         string   `json:"unit"`
+}
+
+type ProviderStatus struct {
+	Provider        string   `json:"provider"`
+	State           string   `json:"state"`
+	CommandFound    bool     `json:"commandFound"`
+	LaunchTrusted   bool     `json:"launchTrusted"`
+	ProfileReady    bool     `json:"profileReady"`
+	ResolvedCommand []string `json:"resolvedCommand,omitempty"`
+	Version         string   `json:"version,omitempty"`
+	ReasonCode      string   `json:"reasonCode,omitempty"`
+	Detail          string   `json:"detail,omitempty"`
+}
+
+type ArtifactExportResult struct {
+	Destination string   `json:"destination"`
+	ArtifactIDs []string `json:"artifactIds"`
+	Verified    bool     `json:"verified"`
 }
 
 type GuidanceFinding struct {

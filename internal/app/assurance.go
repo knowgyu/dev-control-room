@@ -1,0 +1,401 @@
+package app
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/knowgyu/dev-control-room/internal/assurance"
+	"github.com/knowgyu/dev-control-room/internal/contract"
+	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/environment"
+)
+
+func (a *App) AssuranceSessions(ctx context.Context) ([]domain.AssuranceSession, error) {
+	return a.store.ListAssuranceSessions(ctx)
+}
+
+func (a *App) AssuranceSession(ctx context.Context, id string) (domain.AssuranceSession, error) {
+	var item domain.AssuranceSession
+	if err := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, id, &item); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return item, contract.NotFound("assurance session not found")
+		}
+		return item, err
+	}
+	return item, nil
+}
+
+func (a *App) AssuranceQuestions(ctx context.Context, sessionID string) ([]domain.AssuranceQuestion, error) {
+	return a.store.ListAssuranceQuestions(ctx, sessionID)
+}
+
+func (a *App) QualityCampaigns(ctx context.Context) ([]domain.QualityCampaign, error) {
+	return a.store.ListQualityCampaigns(ctx)
+}
+
+func (a *App) QualityRuns(ctx context.Context) ([]domain.QualityRun, error) {
+	return a.store.ListQualityRuns(ctx)
+}
+
+func (a *App) PRCIBaselines(ctx context.Context) ([]domain.PRCIBaseline, error) {
+	return a.store.ListBaselines(ctx)
+}
+
+func (a *App) AssuranceArtifacts(ctx context.Context) ([]domain.Artifact, error) {
+	return a.store.ListArtifacts(ctx)
+}
+
+func (a *App) AssuranceEffects(ctx context.Context) ([]domain.Effect, error) {
+	return a.store.ListEffects(ctx)
+}
+
+func (a *App) PricingSnapshots(ctx context.Context) ([]domain.ProviderPricingSnapshot, error) {
+	return a.store.ListPricingSnapshots(ctx)
+}
+
+func (a *App) ProviderStatuses(ctx context.Context) ([]ProviderStatus, error) {
+	_ = ctx
+	codex := assurance.CodexResolver{}
+	items := []ProviderStatus{providerStatus(codex.Resolve())}
+	for _, provider := range []string{"claude", "gemini"} {
+		items = append(items, ProviderStatus{Provider: provider, State: string(assurance.ProviderNotConfigured), ReasonCode: "provider.optional_not_configured", Detail: "선택한 경우에만 설정합니다."})
+	}
+	return items, nil
+}
+
+func providerStatus(status assurance.ProviderStatus) ProviderStatus {
+	return ProviderStatus{Provider: status.Provider, State: string(status.State), CommandFound: status.CommandFound, LaunchTrusted: status.LaunchTrusted, ProfileReady: status.ProfileReady, ResolvedCommand: append([]string(nil), status.ResolvedCommand...), Version: status.Version, ReasonCode: status.ReasonCode, Detail: status.Detail}
+}
+
+func (a *App) CreateAssuranceSession(ctx context.Context, input AssuranceSessionInput) (domain.AssuranceSession, error) {
+	worktree, err := a.Worktree(ctx, input.ProjectID, input.RepositoryID, input.WorktreeID)
+	if err != nil {
+		return domain.AssuranceSession{}, err
+	}
+	for _, existing := range mustAssuranceSessions(a.store.ListAssuranceSessions(ctx)) {
+		if existing.Spec.ProjectID == input.ProjectID && existing.Spec.RepositoryID == input.RepositoryID && existing.Spec.WorktreeID == input.WorktreeID && isActiveAssuranceState(existing.Spec.State) {
+			return domain.AssuranceSession{}, contract.Conflict("an active assurance session already exists for this Worktree")
+		}
+	}
+	now := time.Now().UTC()
+	id := assuranceID("session", input.ProjectID, input.RepositoryID, input.WorktreeID, now)
+	item := domain.AssuranceSession{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AssuranceSessionKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Assurance session"}, Spec: domain.AssuranceSessionSpec{ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, Head: worktree.Spec.Head, State: domain.AssuranceStateDraft, Provider: strings.TrimSpace(input.Provider), RequestedModel: strings.TrimSpace(input.RequestedModel), CreatedAt: now, UpdatedAt: now, ResumeBrief: domain.ResumeBrief{SessionID: id, CurrentHead: worktree.Spec.Head, NextSafeAction: "CI baseline을 먼저 확인합니다."}}}
+	if err := a.store.SaveAssuranceSession(ctx, item); err != nil {
+		return domain.AssuranceSession{}, err
+	}
+	return item, nil
+}
+
+func (a *App) AnswerAssuranceQuestion(ctx context.Context, sessionID, questionID, answer string) (domain.AssuranceSession, error) {
+	session, err := a.AssuranceSession(ctx, sessionID)
+	if err != nil {
+		return domain.AssuranceSession{}, err
+	}
+	questions, err := a.AssuranceQuestions(ctx, sessionID)
+	if err != nil {
+		return domain.AssuranceSession{}, err
+	}
+	found := false
+	for _, question := range questions {
+		if question.Metadata.ID == questionID {
+			found = true
+			break
+		}
+	}
+	if !found || strings.TrimSpace(answer) == "" {
+		return domain.AssuranceSession{}, contract.InvalidInput("answer requires a known question and non-empty answer")
+	}
+	now := time.Now().UTC()
+	session.Spec.State = domain.AssuranceStateReady
+	session.Spec.UpdatedAt = now
+	session.Spec.ResumeBrief.WaitingQuestion = ""
+	session.Spec.ResumeBrief.NextSafeAction = "답변을 반영해 Assurance Spec을 검토합니다."
+	if err := a.store.UpdateAssuranceRevision(ctx, domain.AssuranceSessionKind, session.Metadata.ID, 2, session.Spec.State, now, session); err != nil {
+		return domain.AssuranceSession{}, err
+	}
+	return session, nil
+}
+
+func (a *App) CreatePRCIBaseline(ctx context.Context, input BaselineInput) (domain.PRCIBaseline, error) {
+	worktree, err := a.Worktree(ctx, input.ProjectID, input.RepositoryID, input.WorktreeID)
+	if err != nil {
+		return domain.PRCIBaseline{}, err
+	}
+	entries, digest, sources, err := discoverBaseline(worktree.Spec.CanonicalPath)
+	if err != nil {
+		return domain.PRCIBaseline{}, contract.CodedError{Code: contract.ErrorUnavailable, Message: "PR CI baseline discovery is unavailable"}
+	}
+	now := time.Now().UTC()
+	item := domain.PRCIBaseline{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.PRCIBaselineKind}, Metadata: domain.ObjectMeta{ID: assuranceID("baseline", input.ProjectID, input.RepositoryID, input.WorktreeID, now), Name: "PR CI baseline"}, Spec: domain.PRCIBaselineSpec{ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, TargetBranch: strings.TrimSpace(input.TargetBranch), Head: worktree.Spec.Head, SourceDigest: digest, CapturedAt: now, FreshUntil: now.Add(24 * time.Hour), State: "fresh", Entries: entries, Sources: sources}}
+	if err := a.store.SaveBaseline(ctx, item); err != nil {
+		return domain.PRCIBaseline{}, err
+	}
+	return item, nil
+}
+
+func (a *App) CreateQualityCampaign(ctx context.Context, input QualityCampaignInput) (domain.QualityCampaign, error) {
+	worktree, err := a.Worktree(ctx, input.ProjectID, input.RepositoryID, input.WorktreeID)
+	if err != nil {
+		return domain.QualityCampaign{}, err
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return domain.QualityCampaign{}, contract.InvalidInput("quality campaign name is required")
+	}
+	now := time.Now().UTC()
+	item := domain.QualityCampaign{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityCampaignKind}, Metadata: domain.ObjectMeta{ID: assuranceID("campaign", input.ProjectID, input.RepositoryID, input.WorktreeID, now), Name: name}, Spec: domain.QualityCampaignSpec{ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, Name: name, State: domain.AssuranceStateDraft, SessionID: strings.TrimSpace(input.SessionID), CreatedAt: now, UpdatedAt: now}}
+	_ = worktree
+	if err := a.store.SaveQualityCampaign(ctx, item); err != nil {
+		return domain.QualityCampaign{}, err
+	}
+	return item, nil
+}
+
+func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.QualityRun, error) {
+	campaigns, err := a.QualityCampaigns(ctx)
+	if err != nil {
+		return domain.QualityRun{}, err
+	}
+	var campaign domain.QualityCampaign
+	for _, item := range campaigns {
+		if item.Metadata.ID == input.CampaignID {
+			campaign = item
+			break
+		}
+	}
+	if campaign.Metadata.ID == "" {
+		return domain.QualityRun{}, contract.NotFound("quality campaign not found")
+	}
+	worktree, err := a.Worktree(ctx, campaign.Spec.ProjectID, campaign.Spec.RepositoryID, campaign.Spec.WorktreeID)
+	if err != nil {
+		return domain.QualityRun{}, err
+	}
+	if !validTechnique(input.Technique) {
+		return domain.QualityRun{}, contract.InvalidInput("quality technique is not enabled in v1")
+	}
+	now := time.Now().UTC()
+	run := domain.QualityRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityRunKind}, Metadata: domain.ObjectMeta{ID: assuranceID("run", campaign.Metadata.ID, input.Technique, now.String()), Name: "Quality Run"}, Spec: domain.QualityRunSpec{CampaignID: campaign.Metadata.ID, ProjectID: campaign.Spec.ProjectID, RepositoryID: campaign.Spec.RepositoryID, WorktreeID: campaign.Spec.WorktreeID, Head: worktree.Spec.Head, Technique: input.Technique, Runner: "typed-git-diff-check", Command: domain.CheckCommand{Executable: "git", Arguments: []string{"diff", "--check"}, TimeoutSeconds: 60}, ConfigDigest: digestText(input.Technique, input.Provider, input.Model), State: domain.AssuranceStateQueued, StartedAt: now, Evidence: map[string]any{"provider": input.Provider, "model": input.Model}}}
+	if err := a.store.SaveQualityRun(ctx, run); err != nil {
+		return domain.QualityRun{}, err
+	}
+	run.Spec.State = domain.AssuranceStateRunning
+	if err := a.store.UpdateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, 2, run.Spec.State, now, run); err != nil {
+		return domain.QualityRun{}, err
+	}
+	result, processErr := (environment.ProcessRunner{OutputLimit: 128 << 10}).RunInDirectory(ctx, "git", []string{"diff", "--check"}, environment.AllowlistedEnvironment(nil), worktree.Spec.CanonicalPath, time.Minute)
+	completed := time.Now().UTC()
+	run.Spec.CompletedAt = &completed
+	run.Spec.ExitCode = result.ExitCode
+	run.Spec.State = domain.AssuranceStateSucceeded
+	run.Spec.Summary = "정적 diff 점검이 완료되었습니다."
+	if processErr != nil {
+		run.Spec.State = domain.AssuranceStateFailed
+		run.Spec.Summary = "정적 diff 점검이 실패했습니다."
+		run.Spec.StaleReason = "typed runner failed"
+	}
+	report, _ := json.Marshal(map[string]any{"runId": run.Metadata.ID, "technique": input.Technique, "state": run.Spec.State, "exitCode": run.Spec.ExitCode, "stderr": a.masker.Mask(result.Stderr)})
+	artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".json", MIME: "application/json", Content: report})
+	if artifactErr == nil {
+		run.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
+	}
+	if err := a.store.UpdateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, 3, run.Spec.State, completed, run); err != nil {
+		return domain.QualityRun{}, err
+	}
+	if processErr != nil {
+		return run, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "quality run did not succeed"}
+	}
+	return run, nil
+}
+
+func (a *App) SaveAssuranceArtifact(ctx context.Context, input ArtifactInput) (domain.Artifact, error) {
+	if strings.TrimSpace(input.SourceType) == "" || strings.TrimSpace(input.SourceID) == "" || len(input.Content) == 0 {
+		return domain.Artifact{}, contract.InvalidInput("artifact source and content are required")
+	}
+	masked := []byte(a.masker.Mask(string(input.Content)))
+	sum := sha256.Sum256(masked)
+	id := assuranceID("artifact", input.SourceType, input.SourceID, input.Name, time.Now().UTC())
+	directory := filepath.Join(a.home, "artifacts", "assurance")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return domain.Artifact{}, err
+	}
+	name := filepath.Base(strings.TrimSpace(input.Name))
+	if name == "." || name == "" {
+		name = id + ".dat"
+	}
+	path := filepath.Join(directory, id+"-"+name)
+	if err := os.WriteFile(path, masked, 0o600); err != nil {
+		return domain.Artifact{}, err
+	}
+	now := time.Now().UTC()
+	item := domain.Artifact{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ArtifactKind}, Metadata: domain.ObjectMeta{ID: id, Name: name}, Spec: domain.ArtifactSpec{SourceType: input.SourceType, SourceID: input.SourceID, Path: path, MIME: input.MIME, Size: int64(len(masked)), SHA256: hex.EncodeToString(sum[:]), Retention: domain.ArtifactRetentionActive, CreatedAt: now, SourceRef: input.SourceID}}
+	if err := a.store.SaveArtifact(ctx, item); err != nil {
+		return domain.Artifact{}, err
+	}
+	return item, nil
+}
+
+func (a *App) CreateEffect(ctx context.Context, input EffectInput) (domain.Effect, error) {
+	now := time.Now().UTC()
+	fingerprint := strings.TrimSpace(input.Fingerprint)
+	if fingerprint == "" {
+		fingerprint = digestText(input.SourceRunID, input.Kind, strings.Join(input.EvidenceIDs, ","))
+	}
+	item := domain.Effect{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.EffectKind}, Metadata: domain.ObjectMeta{ID: assuranceID("effect", fingerprint), Name: "Assurance effect"}, Spec: domain.EffectSpec{Fingerprint: fingerprint, ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, Kind: input.Kind, SourceRunID: input.SourceRunID, EvidenceIDs: append([]string(nil), input.EvidenceIDs...), Adopted: input.Adopted, Reverified: input.Reverified, Label: input.Label, Value: input.Value, Unit: input.Unit, CreatedAt: now, UpdatedAt: now}}
+	if err := a.store.SaveEffect(ctx, item); err != nil {
+		return domain.Effect{}, err
+	}
+	return item, nil
+}
+
+func (a *App) SavePricingSnapshot(ctx context.Context, item domain.ProviderPricingSnapshot) (domain.ProviderPricingSnapshot, error) {
+	if item.Metadata.ID == "" {
+		item.Metadata.ID = assuranceID("pricing", item.Spec.Provider, item.Spec.Model, item.Spec.EffectiveAt)
+	}
+	if item.TypeMeta.Kind == "" {
+		item.TypeMeta = domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ProviderPricingSnapshotKind}
+	}
+	if err := a.store.SavePricingSnapshot(ctx, item); err != nil {
+		return domain.ProviderPricingSnapshot{}, err
+	}
+	return item, nil
+}
+
+func (a *App) ExportAssuranceArtifacts(ctx context.Context, ids []string, destination string) (ArtifactExportResult, error) {
+	if filepath.IsAbs(destination) == false || strings.TrimSpace(destination) == "" {
+		return ArtifactExportResult{}, contract.InvalidInput("artifact export destination must be an absolute local path")
+	}
+	artifacts, err := a.AssuranceArtifacts(ctx)
+	if err != nil {
+		return ArtifactExportResult{}, err
+	}
+	wanted := map[string]bool{}
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	if len(wanted) == 0 {
+		return ArtifactExportResult{}, contract.InvalidInput("artifact export requires at least one artifact")
+	}
+	staging := destination + ".staging"
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		return ArtifactExportResult{}, err
+	}
+	result := ArtifactExportResult{Destination: destination, ArtifactIDs: []string{}}
+	for _, item := range artifacts {
+		if !wanted[item.Metadata.ID] {
+			continue
+		}
+		data, err := os.ReadFile(item.Spec.Path)
+		if err != nil {
+			return ArtifactExportResult{}, err
+		}
+		sum := sha256.Sum256(data)
+		if hex.EncodeToString(sum[:]) != item.Spec.SHA256 {
+			return ArtifactExportResult{}, errors.New("artifact hash verification failed")
+		}
+		if err := os.WriteFile(filepath.Join(staging, filepath.Base(item.Spec.Path)), data, 0o600); err != nil {
+			return ArtifactExportResult{}, err
+		}
+		result.ArtifactIDs = append(result.ArtifactIDs, item.Metadata.ID)
+	}
+	if len(result.ArtifactIDs) != len(wanted) {
+		return ArtifactExportResult{}, contract.NotFound("one or more artifacts were not found")
+	}
+	if err := os.RemoveAll(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return ArtifactExportResult{}, err
+	}
+	if err := os.Rename(staging, destination); err != nil {
+		return ArtifactExportResult{}, err
+	}
+	result.Verified = true
+	return result, nil
+}
+
+func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, error) {
+	if root == "" {
+		return nil, "", nil, errors.New("root is empty")
+	}
+	files := []string{}
+	if _, err := os.Stat(filepath.Join(root, "package.json")); err == nil {
+		files = append(files, filepath.Join(root, "package.json"))
+	}
+	workflowRoot := filepath.Join(root, ".github", "workflows")
+	_ = filepath.WalkDir(workflowRoot, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".yaml") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	sort.Strings(files)
+	hash := sha256.New()
+	entries := []domain.BaselineEntry{}
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, "", nil, err
+		}
+		_, _ = hash.Write([]byte(filepath.ToSlash(strings.TrimPrefix(path, root))))
+		_, _ = hash.Write(data)
+		rel, _ := filepath.Rel(root, path)
+		text := string(data)
+		if filepath.Base(path) == "package.json" {
+			var manifest struct {
+				Scripts map[string]string `json:"scripts"`
+			}
+			if json.Unmarshal(data, &manifest) == nil {
+				for name, command := range manifest.Scripts {
+					entries = append(entries, domain.BaselineEntry{ID: "package-" + name, Name: "package script " + name, Classification: domain.BaselineLocalEquivalent, SourcePath: rel, Command: command, Observed: true})
+				}
+			}
+		}
+		for index, line := range strings.Split(text, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "run:") {
+				command := strings.TrimSpace(strings.TrimPrefix(trimmed, "run:"))
+				entries = append(entries, domain.BaselineEntry{ID: fmt.Sprintf("workflow-%d", index), Name: "GitHub Actions run", Classification: domain.BaselineObserved, SourcePath: rel, Command: command, Observed: true})
+			}
+		}
+	}
+	if len(entries) == 0 {
+		entries = append(entries, domain.BaselineEntry{ID: "unknown", Name: "PR check baseline", Classification: domain.BaselineUnknown})
+	}
+	sum := hash.Sum(nil)
+	return entries, "sha256:" + hex.EncodeToString(sum), files, nil
+}
+
+func validTechnique(value string) bool {
+	switch value {
+	case domain.QualityTechniqueStaticSecurity, domain.QualityTechniqueMutation, domain.QualityTechniqueProperty, domain.QualityTechniqueFuzz, domain.QualityTechniqueTargetedE2E:
+		return true
+	}
+	return false
+}
+func isActiveAssuranceState(value string) bool {
+	return value != domain.AssuranceStateSucceeded && value != domain.AssuranceStateFailed && value != domain.AssuranceStateCancelled && value != domain.AssuranceStateExpired && value != domain.AssuranceStateStale
+}
+func assuranceID(prefix string, values ...any) string {
+	return normalizeAppID(prefix + "-" + digestText(values...)[7:23])
+}
+func digestText(values ...any) string {
+	data, _ := json.Marshal(values)
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+func mustAssuranceSessions(items []domain.AssuranceSession, err error) []domain.AssuranceSession {
+	if err != nil {
+		return nil
+	}
+	return items
+}

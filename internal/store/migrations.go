@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentSchemaVersion = 13
+const CurrentSchemaVersion = 14
 
 // acceptedHistoricalMigrationChecksums permits only the checksum emitted by a
 // released build whose migration-11 SQL was later corrected before the next
@@ -393,6 +393,58 @@ CREATE TABLE IF NOT EXISTS safeguard_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_safeguard_rules_state_updated ON safeguard_rules(state, updated_at DESC, id);
 CREATE INDEX IF NOT EXISTS idx_safeguard_rules_scope_category ON safeguard_rules(project_id, repository_id, worktree_id, category, id);
+		`,
+	},
+	{
+		Version: 14,
+		Name:    "ai-assisted-code-assurance-lifecycle",
+		SQL: `
+CREATE TABLE IF NOT EXISTS assurance_objects (
+ id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+ kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
+ project_id TEXT,
+ repository_id TEXT,
+ worktree_id TEXT,
+ state TEXT NOT NULL,
+ revision INTEGER NOT NULL CHECK (revision > 0),
+ digest TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ object_json TEXT NOT NULL,
+ FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+ FOREIGN KEY (project_id, repository_id) REFERENCES repositories(project_id, id) ON DELETE CASCADE,
+ FOREIGN KEY (project_id, repository_id, worktree_id) REFERENCES worktrees(project_id, repository_id, id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_assurance_active_session
+ ON assurance_objects(kind, project_id, repository_id, worktree_id)
+ WHERE kind = 'AssuranceSession' AND state NOT IN ('succeeded', 'failed', 'cancelled', 'expired', 'stale');
+CREATE INDEX IF NOT EXISTS idx_assurance_kind_state ON assurance_objects(kind, state, updated_at DESC, id);
+CREATE INDEX IF NOT EXISTS idx_assurance_scope ON assurance_objects(project_id, repository_id, worktree_id, kind, updated_at DESC);
+CREATE TABLE IF NOT EXISTS assurance_leases (
+ idempotency_key TEXT PRIMARY KEY CHECK (length(trim(idempotency_key)) > 0),
+ object_id TEXT NOT NULL REFERENCES assurance_objects(id) ON DELETE CASCADE,
+ digest TEXT NOT NULL,
+ holder TEXT NOT NULL,
+ expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS assurance_artifacts (
+ id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+ source_type TEXT NOT NULL,
+ source_id TEXT NOT NULL,
+ sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+ retention TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ object_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assurance_artifacts_retention ON assurance_artifacts(retention, created_at);
+CREATE TABLE IF NOT EXISTS provider_pricing_snapshots (
+ id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+ provider TEXT NOT NULL,
+ model TEXT NOT NULL,
+ effective_at TEXT NOT NULL,
+ object_json TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pricing_snapshot_immutable ON provider_pricing_snapshots(provider, model, effective_at);
 `,
 	},
 }

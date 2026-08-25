@@ -35,7 +35,7 @@ It is not a generic autonomous coding swarm or a single vanity quality score.
 ## Current state and plan transitions
 
 | Existing material | Status | Treatment |
-| --- | --- | --- |
+| --- | --- | --- | --- |
 | Milestones 0–6 and verification files | accepted historical evidence, with recorded native gaps | Preserve as the foundation for the application service, Action Broker, masking, profiles, and UI. |
 | docs/POST_MVP_EXECUTION_PLAN.md | historical implementation plan | Generic v0.5.0 source work is implemented; explicitly recorded native acceptance work remains pending. |
 | docs/IMPLEMENTATION_PLAN.md | historical foundation plan | Milestones 0–6 are not an active queue. |
@@ -319,10 +319,10 @@ or reruns an uncertain external/high-impact Action.
 
 ## Delivery milestones
 
-| Milestone | Scope | Exit evidence |
+| Milestone | Scope | Exit evidence | Status |
 | --- | --- | --- |
-| A — plan/persistence | status markers, ADRs, migrations for sessions/runs/artifacts/pricing | migration/lifecycle tests and no duplicate active plan |
-| B — providers/continuity | Doctor, Codex adapter, structured schema, profiles/model picker, fake Claude/Gemini, Resume Brief | fake matrix; masking; cancellation; non-TTY, closed-stdin, auth/prompt/output/usage failure cases; no raw transcript default; separate native real-CLI acceptance |
+| A — plan/persistence | status markers, ADRs, migrations for sessions/runs/artifacts/pricing | migration/lifecycle tests and no duplicate active plan | accepted; see MILESTONE_A_VERIFICATION.md |
+| B — providers/continuity | Doctor, Codex adapter, structured schema, profiles/model picker, fake Claude/Gemini, Resume Brief | fake matrix; masking; cancellation; non-TTY, closed-stdin, auth/prompt/output/usage failure cases; no raw transcript default; separate native real-CLI acceptance | in progress |
 | C — CI/runner | gh/Jenkins baseline discovery and typed Quality Runs | fixture proves required/observed/local equivalent/unknown and stale detection |
 | D — assurance authoring | Q&A, Assurance Spec, test/property/mutation/fuzz proposals, isolated patch, critic | tests prove AI cannot adopt/commit/push and stale specs/runs surface |
 | E — techniques/artifacts | v1 static/security, mutation, property, fuzz, and targeted-E2E adapters; reports; archive/export/cleanup | three-repo fixture creates/verifies/exports/restores artifacts and deletion warning |

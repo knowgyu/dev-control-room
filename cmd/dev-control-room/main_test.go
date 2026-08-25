@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -149,11 +150,24 @@ func TestEnvironmentDoctorJSONUsesStableEnvelopeAndHidesSecret(t *testing.T) {
 
 func TestProjectWorktreeListJSONUsesReadOnlyEnvelope(t *testing.T) {
 	home := t.TempDir()
-	workingDirectory, err := os.Getwd()
-	if err != nil {
+	repository := filepath.Join(t.TempDir(), "fixture-repository")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	repository := filepath.Dir(filepath.Dir(workingDirectory))
+	if output, err := exec.Command("git", "init", repository).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		command := exec.Command("git", append([]string{"-C", repository, "-c", "user.email=fixture@example.invalid", "-c", "user.name=fixture"}, args...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	git("add", "README.md")
+	git("commit", "-m", "fixture")
 	service, err := app.New(home, "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
