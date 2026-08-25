@@ -161,4 +161,18 @@ func TestExternalJenkinsGroupTracksQueueBuildAndPartialFailure(t *testing.T) {
 	if _, err := service.ExternalWorkResult(context.Background(), plan.ActionPlan.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
+	actionStatus, err := service.ActionStatus(context.Background(), plan.ActionPlan.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenTargetEvent := false
+	for _, event := range actionStatus.Events {
+		if strings.HasPrefix(event.Spec.EventType, "external_target_") {
+			seenTargetEvent = true
+			break
+		}
+	}
+	if !seenTargetEvent {
+		t.Fatalf("target audit event missing: %#v", actionStatus.Events)
+	}
 }

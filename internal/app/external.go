@@ -287,6 +287,7 @@ func (a *App) ExecuteExternalWork(ctx context.Context, planID, holder, idempoten
 	_ = a.store.SaveActionEvent(ctx, externalActionEvent(groupPlan.ActionPlan, "external_group_started", holder, started, "started"))
 	result := runJenkinsGroup(ctx, a, groupPlan, started)
 	result.PlanID = planID
+	saveExternalTargetEvents(ctx, a, groupPlan.ActionPlan, holder, result)
 	_ = a.store.SaveActionEvent(ctx, externalActionEvent(groupPlan.ActionPlan, "external_group_"+result.Status, holder, result.CompletedAt, result.Status))
 	_ = a.broker.Release(context.Background(), admission)
 	if saveErr := a.saveExternalWorkResult(result); saveErr != nil {
@@ -600,4 +601,11 @@ func externalActionEvent(plan domain.ActionPlan, eventType, holder string, at ti
 	digest, _ := plan.Digest()
 	sum := sha256.Sum256([]byte(plan.Metadata.ID + "\x00" + eventType + "\x00" + holder + "\x00" + nonce))
 	return domain.ActionEvent{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ActionEventKind}, Metadata: domain.ObjectMeta{ID: "action-" + hex.EncodeToString(sum[:])[:57], Name: eventType}, Spec: domain.ActionEventSpec{ActionPlanID: plan.Metadata.ID, ActionPlanDigest: digest, EventType: eventType, Actor: domain.Actor{Kind: domain.ActorSystem, ID: holder}, OccurredAt: at}}
+}
+
+func saveExternalTargetEvents(ctx context.Context, app *App, plan domain.ActionPlan, holder string, result ExternalWorkGroupResult) {
+	for _, outcome := range result.Outcomes {
+		eventType := "external_target_" + outcome.TargetID + "_" + outcome.Status
+		_ = app.store.SaveActionEvent(ctx, externalActionEvent(plan, eventType, holder, outcome.CompletedAt, outcome.TargetID))
+	}
 }

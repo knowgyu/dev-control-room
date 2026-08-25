@@ -99,6 +99,7 @@ func (a *App) ExecuteRelease(ctx context.Context, planID, holder, idempotencyKey
 	started := time.Now().UTC()
 	_ = a.store.SaveActionEvent(ctx, externalActionEvent(plan.ActionPlan, "release_started", holder, started, "started"))
 	external := runJenkinsGroup(ctx, a, ExternalWorkGroupPlan{ActionPlan: plan.ActionPlan, Group: plan.Group, Digest: plan.Digest, Targets: plan.Targets, CreatedAt: plan.CreatedAt}, started)
+	saveExternalTargetEvents(ctx, a, plan.ActionPlan, holder, external)
 	postchecks := []ReleasePostcheckEvidence{{ID: "successful-build", Status: "passed", Detail: "every required Jenkins target completed successfully"}}
 	status := "succeeded"
 	if external.Status != "succeeded" {
