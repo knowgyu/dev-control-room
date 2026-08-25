@@ -8,7 +8,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).ProviderPath
-$outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $repositoryRoot $OutputDirectory }
+$outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) {
+    [IO.Path]::GetFullPath($OutputDirectory)
+}
+else {
+    [IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
+}
 $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) ("dev-control-room-package-" + [guid]::NewGuid().ToString("N"))
 
 try {
@@ -37,7 +42,7 @@ try {
         Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath
     }
     Get-ChildItem -LiteralPath $outputRoot -Filter "*.zip" | Get-FileHash -Algorithm SHA256 |
-        ForEach-Object { "{0}  {1}" -f $_.Hash.ToLowerInvariant(), $_.Path.Substring($outputRoot.Length + 1) } |
+        ForEach-Object { "{0}  {1}" -f $_.Hash.ToLowerInvariant(), ([IO.Path]::GetFileName($_.Path)) } |
         Set-Content -LiteralPath (Join-Path $outputRoot "SHA256SUMS") -Encoding ascii
     Write-Host "Packages: $outputRoot"
 }
