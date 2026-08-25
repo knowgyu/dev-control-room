@@ -11,17 +11,12 @@ accepted so far.
 
 ## 2026-08-26 active planning status
 
-The remote source checkpoint is c14faa0 (v0.5.0). Local `main` is ahead with
-unpushed documentation commits for the Phase 1 and Phase 2 plans; verify the
-current commit before resuming. The active feature
-plan is Phase 1, docs/AI_CODE_ASSURANCE_PLAN.md, with durable decisions in
-docs/decisions/ADR-001-ai-assisted-code-assurance.md. Phase 2 product-usability
-work is separately planned in docs/PHASE_2_PRODUCT_USABILITY_PLAN.md and must
-begin only after Phase 1 acceptance. Phase 1 supersedes the old deferred
-managed-Hardener/QA wording, but not accepted milestone evidence, existing
-Checkset semantics, Agent Handoff, Action Broker, or pending native Windows
-acceptance items. Read the applicable plan after this handoff and before
-selecting implementation work.
+The current release candidate is local `main` after Phase 1 A–G automated
+acceptance and Phase 2 P2.0–P2.3 implementation. The original two unpushed plan
+commits and all subsequent user-scoped implementation commits are preserved.
+The remaining gate is the complete verification record, release packaging, and
+the explicitly recorded native real-provider/manual gaps. Read the applicable
+plan and verification record before selecting follow-up work.
 
 ## Read before changing code
 
@@ -47,7 +42,7 @@ Do not infer current behavior from the roadmap alone. `PRODUCT.md` and
 `ARCHITECTURE.md` describe the target product, while the milestone verification
 files distinguish implemented behavior from planned behavior.
 
-## 2026-08-25 current source checkpoint
+## Historical 2026-08-25 0.5.0 source checkpoint
 
 The current source checkpoint is the pushed `main` tip. The earlier
 Agent-Handoff continuation note below is historical and is retained only as
@@ -179,11 +174,11 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.5.0`;
+- binary version: `0.6.0`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
-- SQLite schema: version 13;
+- SQLite schema: version 14;
 - Go module target: Go 1.23.
 
 ## Repository state at this handoff

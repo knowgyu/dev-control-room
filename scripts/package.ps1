@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.5.0",
-    [string]$OutputDirectory = "artifacts\0.5.0"
+    [string]$Version = "0.6.0",
+    [string]$OutputDirectory = "artifacts\0.6.0"
 )
 
 Set-StrictMode -Version Latest
@@ -36,7 +36,7 @@ try {
         }
         Copy-Item (Join-Path $repositoryRoot "README.md"), (Join-Path $repositoryRoot "LICENSE"), (Join-Path $repositoryRoot "THIRD_PARTY_POLICY.md") -Destination $stage
         New-Item -ItemType Directory -Path (Join-Path $stage "docs") -Force | Out-Null
-        Copy-Item (Join-Path $repositoryRoot "docs\NATIVE_WINDOWS_SMOKE.md"), (Join-Path $repositoryRoot "docs\VERIFICATION_PLAYBOOK.md") -Destination (Join-Path $stage "docs")
+        Copy-Item (Join-Path $repositoryRoot "docs\NATIVE_WINDOWS_SMOKE.md"), (Join-Path $repositoryRoot "docs\VERIFICATION_PLAYBOOK.md"), (Join-Path $repositoryRoot "docs\RELEASE_NOTES_v0.6.0.md"), (Join-Path $repositoryRoot "docs\VERIFICATION_v0.6.0.md") -Destination (Join-Path $stage "docs")
         $zipPath = Join-Path $outputRoot ($name + ".zip")
         if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
         Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath

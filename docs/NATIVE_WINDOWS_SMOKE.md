@@ -335,3 +335,40 @@ Record the exact source SHA, OS, PowerShell, Go, Node, gcc, commands, exit
 codes, fixture root, and any unavailable provider/UI gap below this section.
 These checks do not authorize production deployment, release publication,
 Scheduler mutation, real credentials, or cleanup outside the exact fixture.
+
+## 2026-08-26 v0.6.0 release-candidate verification
+
+Source: local `main` release candidate after Phase 1 A–G and Phase 2 P2.0–P2.3.
+
+Environment:
+
+- Windows PowerShell `7.6.4`
+- Go `go1.26.7 windows/amd64`
+- Node `v24.15.0`
+- Git `2.53.0.windows.1`
+- GitHub CLI `2.98.0`
+
+Passed:
+
+- Focused Phase 1 assurance tests and three-repository dogfood fixture.
+- Focused Phase 2 provider grouping, optional-state doctor, CLI help/JSON,
+  HTTP, and UI JavaScript syntax checks.
+- Local Windows loopback service on a fresh home, first-use home, established
+  home, Provider recovery grouping, narrow viewport, and primary keyboard
+  activation.
+- The Codex npm launcher contract reports `node.exe` plus verified
+  `@openai/codex\bin\codex.js`; no `cmd.exe`, arbitrary `.cmd`, or `.bat`
+  execution path is accepted.
+
+Not run or not claimed:
+
+- `pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
+  -ArtifactDirectory artifacts\verification-0.6.0`: PASS. The full summary is
+  `artifacts/verification-0.6.0/verification-summary.json`.
+- Real Codex task invocation or provider authentication.
+- Company Jenkins/GitHub/Kubernetes endpoints, proxy, production, or real
+  credentials.
+- Manual acceptance on a second physical Windows 11 device.
+- Full keyboard traversal could not be observed reliably in the in-app Browser
+  after the initial main focus; skip-link and focus-visible source checks remain
+  in place.
