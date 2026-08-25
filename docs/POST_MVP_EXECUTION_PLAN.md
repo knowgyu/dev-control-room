@@ -1,13 +1,19 @@
 # Post-MVP execution plan
 
-Updated: 2026-08-25
+Status: historical implementation plan
+Updated: 2026-08-26
 
-This is the next implementation batch for Dev Control Room. It groups the
-remaining product work into one resumable sequence, while keeping each stage
+The generic source work described here was implemented for v0.5.0. The native
+Windows acceptance items explicitly marked pending in
+docs/NATIVE_WINDOWS_SMOKE.md remain open. Do not restart completed workstreams;
+use docs/AI_CODE_ASSURANCE_PLAN.md for the active feature plan.
+
+This was the v0.5.0 implementation batch for Dev Control Room. It grouped the
+remaining source work into one resumable sequence while keeping each stage
 independently testable and fail-closed. Do not activate or repair any OMX
-Ultragoal, Autopilot, or historical goal state for this plan.
+Ultragoal, Autopilot, or historical goal state from this plan.
 
-## Goal
+## Historical goal
 
 Complete the first usable release-project workflow:
 
@@ -219,7 +225,7 @@ Stop and report instead of guessing when:
 - Terra High identifies an unresolved security, data-loss, or policy-boundary
   defect.
 
-## Next-session command
+## Historical next-session command
 
 Paste this as the first instruction in the next coding session:
 

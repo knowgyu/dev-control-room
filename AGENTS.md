@@ -12,8 +12,9 @@ Read, in order:
 5. `docs/ARCHITECTURE.md`
 6. `docs/CONFIGURATION.md`
 7. `docs/AI_INTEGRATION.md`
-8. `docs/IMPLEMENTATION_PLAN.md`
-9. `THIRD_PARTY_POLICY.md`
+8. `docs/AI_CODE_ASSURANCE_PLAN.md`
+9. `docs/IMPLEMENTATION_PLAN.md` (historical foundation only)
+10. `THIRD_PARTY_POLICY.md`
 
 Implement one milestone at a time. Target native Windows 11 and PowerShell 7.6,
 although the source workspace is currently accessed through WSL. Keep UI, CLI,

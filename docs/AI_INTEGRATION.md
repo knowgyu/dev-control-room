@@ -1,5 +1,14 @@
 # AI and agent integration
 
+Status: active foundation; partially superseded
+Updated: 2026-08-26
+
+This document remains canonical for existing Agent Profiles, interactive Agent
+Handoff, and the stdio MCP boundary. Managed non-interactive quality sessions,
+provider/model selection, usage/pricing, artifacts, and effect evidence are
+defined in [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md). Do not
+interpret the older deferred-Hardener wording below as current scope.
+
 ## Principle
 
 AI is a first-class client of Dev Control Room, but not a privileged client.
@@ -77,7 +86,7 @@ need to be exposed; no MCP tool can approve or execute an Action.
 There is no generic command execution or unrestricted file-read MCP tool. An MCP
 client cannot approve its own high-risk action.
 
-## Hooks, skills, and future quality roles
+## Hooks, skills, and quality roles
 
 Core deterministic behavior remains in Dev Control Room commands. Provider-
 specific hooks or skills should only decide when to call those commands and how
@@ -87,12 +96,13 @@ to present their structured results.
 Agent hook/skill -> devroom check run pre-pr --json -> normalized result
 ```
 
-Specifier, Cleaner, Hardener, QA, and CRAP-style workflows are deferred. If
-added, they are thin provider adapters consuming stable checks and findings,
-not duplicated implementations inside prompts. This avoids coupling core
-quality rules to any model or agent version.
+The previously deferred Hardener/QA-style workflows are now planned as
+AI-assisted Code Assurance. They remain thin provider adapters consuming stable
+checks, Quality Runs, artifacts, and findings—not duplicated implementations
+inside prompts. CRAP is not an initial metric or release gate; see
+docs/AI_CODE_ASSURANCE_PLAN.md.
 
-## AI batch policy
+## Existing AI batch policy
 
 Scheduled AI use is opt-in per Project and task type. The user selects an Agent
 Profile/data boundary. AI may:
@@ -103,4 +113,6 @@ Profile/data boundary. AI may:
 - summarize a complex, read-only diagnostic result.
 
 AI may not automatically activate safeguards, rewrite instructions, close
-issues, delete branches/worktrees, or perform release operations.
+issues, delete branches/worktrees, adopt a patch, commit, push, or perform
+release operations. The active plan adds an explicitly bounded unattended
+approval scope, never blanket authority.

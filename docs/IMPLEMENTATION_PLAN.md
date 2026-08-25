@@ -1,5 +1,13 @@
 # Implementation plan
 
+Status: historical foundation plan
+Superseded as an active queue: 2026-08-26
+
+Milestones 0–6 in this document were implemented and their acceptance evidence
+is retained in the milestone verification documents. Use
+docs/AI_CODE_ASSURANCE_PLAN.md for the active implementation sequence; do not
+rerun these milestones merely because they remain described here.
+
 This is the execution plan for an implementation agent. Complete milestones in
 order and keep every milestone runnable on Windows 11 with PowerShell 7.6.
 

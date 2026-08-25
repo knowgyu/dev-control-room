@@ -3,8 +3,9 @@
 ## One-sentence definition
 
 Dev Control Room continuously observes selected software projects, diagnoses
-drift and failures, performs approved deterministic actions, and converts
-repeated failures into reviewable safeguards.
+drift and failures, performs approved deterministic actions, converts repeated
+failures into reviewable safeguards, and provides evidence-driven,
+AI-assisted code assurance.
 
 ## Primary jobs
 
@@ -14,8 +15,9 @@ repeated failures into reviewable safeguards.
 3. Run known pre-PR, cleanup, and release procedures quickly and verify them.
 4. Preserve operational continuity across Codex, Claude, Gemini,
    `claude-local`, terminals, and sessions.
-5. Escalate bounded problems to a user-selected agent without turning the app
-   into an agent orchestrator.
+5. Escalate bounded problems to a user-selected agent and manage approved,
+   evidence-first assurance sessions without turning the app into a generic
+   autonomous coding swarm.
 6. Learn from repeated verified failures without growing permanent prompt files.
 
 ## Core concepts
@@ -192,6 +194,8 @@ Dev Control Room is not:
 - a team productivity or individual performance scoring system;
 - a generic workflow marketplace.
 
-Specifier, Cleaner, Hardener, QA, and CRAP-style agent workflows are deferred
-agent-side extensions. The core may expose deterministic checks they can call,
-but it does not orchestrate those roles in the initial product.
+Generic multi-agent role orchestration and CRAP as a required metric remain
+deferred. The former Hardener/QA-style agent extension is superseded by the
+bounded, evidence-first Code Assurance plan in
+docs/AI_CODE_ASSURANCE_PLAN.md; it does not turn the product into a chat-first
+agent or a generic workflow engine.

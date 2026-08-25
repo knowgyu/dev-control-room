@@ -1,11 +1,13 @@
 # Normal-session resume roadmap
 
-Updated: 2026-08-25 (post-MVP execution baseline)
+Status: active resume index
+Updated: 2026-08-26
 
 Use this document to continue Dev Control Room in an ordinary Codex session.
-The canonical plan remains `docs/IMPLEMENTATION_PLAN.md`; accepted behavior and
-verification gaps remain in `docs/HANDOFF.md` and the milestone verification
-documents.
+The active feature plan is docs/AI_CODE_ASSURANCE_PLAN.md. The old
+docs/IMPLEMENTATION_PLAN.md and docs/POST_MVP_EXECUTION_PLAN.md are historical
+implementation plans. Accepted behavior and verification gaps remain in
+docs/HANDOFF.md and the milestone verification documents.
 
 The current source checkpoint is in `docs/HANDOFF.md`. The earlier Agent
 Handoff launch note is historical; do not treat it as an uncommitted slice.
@@ -54,7 +56,7 @@ asset has SHA-256
 The Environment Health source-label UI was verified during the native Slice F
 gate; GitHub issue #1 can be resolved separately by its owner.
 
-## Next implementation order
+## Historical implementation order
 
 3C now has typed executable/arguments, an allowlisted child environment,
 trusted Worktree binding, dependency ordering, timeout/cancellation,

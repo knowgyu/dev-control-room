@@ -1,5 +1,20 @@
 # Roadmap
 
+Status: active status index
+Updated: 2026-08-26
+
+The active detailed feature plan is
+[AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md). Historical plans and
+verification documents remain evidence; they are not instructions to rerun
+completed work.
+
+| Area | Current status | Source of truth |
+| --- | --- | --- |
+| P0 local control plane | implemented and accepted | milestone verification documents and docs/HANDOFF.md |
+| P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
+| P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |
+| AI-assisted Code Assurance | active implementation plan | docs/AI_CODE_ASSURANCE_PLAN.md |
+
 ## P0: dependable local control plane
 
 - Project with multiple repositories.
@@ -36,16 +51,17 @@ registered projects without reading raw logs.
   gated by a configured contract.
 - Mechanical Guidance Doctor checks.
 
-The next implementation batch is `docs/POST_MVP_EXECUTION_PLAN.md`. Its
-generic scope covers grouped Jenkins work, explicitly approved linked-worktree
-cleanup, and redacted release/post-deploy evidence. Company-specific targets,
+The former next implementation batch in docs/POST_MVP_EXECUTION_PLAN.md is
+historical. Its generic v0.5.0 source scope covers grouped Jenkins work,
+approved linked-worktree cleanup, and redacted release/post-deploy evidence;
+the documented native acceptance gaps remain open. Company-specific targets,
 credentials, production deployment, and release publication remain outside
 automated fixture verification.
 
 Outcome: common pre-PR, release, and cleanup work is fast, repeatable, and
 auditable without asking an AI to rediscover commands.
 
-## P2: AI assistance without orchestration
+## P2: AI assistance foundation
 
 - Configurable Codex, Claude, Gemini, and `claude-local` Agent Profiles.
 - Previewable, masked Agent Handoff and terminal launch.
@@ -57,6 +73,10 @@ auditable without asking an AI to rediscover commands.
 Outcome: humans and agents use the same deterministic control plane, while AI
 is invoked only for bounded judgment-heavy work.
 
+Managed non-interactive assurance sessions, provider/model selection, usage and
+price-equivalent ledger, Quality Runs, artifacts, and the effect screen are
+active work under docs/AI_CODE_ASSURANCE_PLAN.md.
+
 ## P3: optional operational visibility
 
 - Read-only Kubernetes Pod status and bounded log retrieval are implemented
@@ -66,10 +86,12 @@ is invoked only for bounded judgment-heavy work.
 - Compact reliability, rule-effectiveness, connector-freshness, and
   control-plane health metrics.
 
-## Deferred
+## Deferred or superseded
 
-- Managed agent runs and multi-agent role orchestration.
-- Specifier/Cleaner/Hardener/QA/CRAP workflow products.
+- Managed Hardener/QA-style assurance is superseded by the active
+  AI_CODE_ASSURANCE_PLAN.md; generic multi-agent role orchestration remains
+  deferred.
+- CRAP as a product metric or required gate remains deferred.
 - Multi-user RBAC and organization-wide deployment.
 - Generic plugin marketplace or visual workflow builder.
 - Automatic production deployment.

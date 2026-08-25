@@ -1,6 +1,6 @@
 # Current state and implementation handoff
 
-Updated: 2026-08-25
+Updated: 2026-08-26
 
 This is the canonical current-state handoff for continuing Dev Control Room.
 It exists so the next long-running goal or implementation agent can start from
@@ -8,6 +8,16 @@ the repository without relying on prior conversation history. Product and
 architecture requirements remain canonical in their dedicated documents; this
 file records what is implemented, what is only designed, and how work has been
 accepted so far.
+
+## 2026-08-26 active planning status
+
+The current pushed source checkpoint is c14faa0 (v0.5.0). The active feature
+plan is docs/AI_CODE_ASSURANCE_PLAN.md, with durable decisions in
+docs/decisions/ADR-001-ai-assisted-code-assurance.md. It supersedes the old
+deferred managed-Hardener/QA wording, but not accepted milestone evidence,
+existing Checkset semantics, Agent Handoff, Action Broker, or pending native
+Windows acceptance items. Read it after this handoff and before selecting new
+implementation work.
 
 ## Read before changing code
 
@@ -21,9 +31,11 @@ Read in this order:
 6. `docs/ARCHITECTURE.md`;
 7. `docs/CONFIGURATION.md`;
 8. `docs/AI_INTEGRATION.md`;
-9. `docs/IMPLEMENTATION_PLAN.md`;
-10. `THIRD_PARTY_POLICY.md`;
-11. the verification document for the most recently completed milestone.
+9. `docs/AI_CODE_ASSURANCE_PLAN.md`;
+10. `docs/decisions/ADR-001-ai-assisted-code-assurance.md`;
+11. `docs/IMPLEMENTATION_PLAN.md` (historical foundation only);
+12. `THIRD_PARTY_POLICY.md`;
+13. the verification document for the most recently completed milestone.
 
 Do not infer current behavior from the roadmap alone. `PRODUCT.md` and
 `ARCHITECTURE.md` describe the target product, while the milestone verification
@@ -367,8 +379,9 @@ separate improvements, not falsely labelled discoveries.
 - Optional AI clustering beyond deterministic exact-fingerprint safeguards.
 - Kubernetes mutation, Harbor, or operational visibility beyond the bounded
   Pod status/log surface.
-- Specifier, Cleaner, Hardener, QA, CRAP, managed agent runs, or role
-  orchestration.
+- Generic multi-agent role orchestration and CRAP as a required metric remain
+  unimplemented. The former managed Hardener/QA scope is superseded by the
+  active plan in docs/AI_CODE_ASSURANCE_PLAN.md.
 
 Do not treat existing domain structs or empty SQLite tables as implemented
 features. Several Milestone 0 schemas intentionally reserve later concepts.
@@ -496,9 +509,12 @@ acceptance remains an explicit verification gap; see
 
 See `docs/SLICE_F_VERIFICATION.md`.
 
-## Decisions intentionally left for the next implementation
+## Historical decisions left for the former implementation sequence
 
-Resolve these from tests and product constraints before finalizing schemas:
+This is retained historical context for Milestones 0–6. Do not treat it as the
+active decision queue; the active unresolved choices are in
+docs/AI_CODE_ASSURANCE_PLAN.md. Resolve the following only when maintaining the
+historical feature area:
 
 - whether the primary Worktree receives a stable generated ID or a reserved ID;
 - how a linked Worktree becomes trusted for execution after read-only discovery;
