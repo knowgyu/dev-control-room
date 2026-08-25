@@ -15,8 +15,8 @@ instructions to rerun completed work.
 | P0 local control plane | implemented and accepted | milestone verification documents and docs/HANDOFF.md |
 | P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
 | P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |
-| AI-assisted Code Assurance | Milestones A–F accepted for automated scope; Milestone G in progress | docs/AI_CODE_ASSURANCE_PLAN.md and milestone verification documents |
-| Product usability and interface | planned after AI-assisted Code Assurance acceptance | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md |
+| AI-assisted Code Assurance | A–G automated scope accepted; native real-provider gate remains explicit | docs/AI_CODE_ASSURANCE_PLAN.md and milestone verification documents |
+| Product usability and interface | active follow-on after automated Phase 1 acceptance | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md |
 
 ## P0: dependable local control plane
 

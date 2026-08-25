@@ -1,6 +1,6 @@
 # Phase 1 — AI-assisted Code Assurance plan
 
-Status: active
+Status: automated implementation accepted; native real-provider acceptance gap recorded
 Updated: 2026-08-26
 Owner: local operator
 
@@ -327,7 +327,7 @@ or reruns an uncertain external/high-impact Action.
 | D — assurance authoring | Q&A, Assurance Spec, test/property/mutation/fuzz proposals, isolated patch, critic | tests prove AI cannot adopt/commit/push and stale specs/runs surface | accepted; see MILESTONE_D_VERIFICATION.md |
 | E — techniques/artifacts | v1 static/security, mutation, property, fuzz, and targeted-E2E adapters; reports; archive/export/cleanup | three-repo fixture creates/verifies/exports/restores artifacts and deletion warning | accepted fixture scope; see MILESTONE_E_VERIFICATION.md |
 | F — effects/usage | dashboard, filters, usage ledger, pricing snapshots, exports | fixture produces correctly labelled measured/estimated/unknown effects and stable historical pricing | accepted automated scope; see MILESTONE_F_VERIFICATION.md |
-| G — dogfood/release | campaign on Dev Control Room and existing three-repo fixture | full automated suite, fake-provider E2E, targeted real CLI acceptance, reviewed effect report | in progress |
+| G — dogfood/release | campaign on Dev Control Room and existing three-repo fixture | full automated suite, fake-provider E2E, targeted real CLI acceptance, reviewed effect report | automated dogfood accepted; see MILESTONE_G_VERIFICATION.md |
 
 Implement one milestone per branch. Mark it completed here and in the Roadmap;
 use superseded or stale for changed plans, never silent replacement.

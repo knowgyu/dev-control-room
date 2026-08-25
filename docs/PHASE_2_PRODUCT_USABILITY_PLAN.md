@@ -1,6 +1,6 @@
 # Phase 2 — Product usability and interface plan
 
-Status: planned; begins only after Phase 1 acceptance
+Status: active implementation after Phase 1 automated acceptance; native provider gate remains recorded
 Updated: 2026-08-26
 Owner: local operator
 Prerequisite: [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md) Phase 1
