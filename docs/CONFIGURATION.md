@@ -67,6 +67,19 @@ arguments to this repository. Persist stable logical targets and resolve
 volatile runtime targets such as build IDs and Pod names immediately before the
 operation.
 
+External work groups are also user-local. A group contains two or more typed
+Jenkins targets with a completed-build URL, optional bounded non-secret named
+parameters, and an optional PowerShell runbook fallback ID. The stored target
+contains no build number, token, password, or response body. Plans bind the
+group digest to the selected Worktree and integration credential reference;
+changing either invalidates the plan.
+
+Jenkins uses `env:JENKINS_USERNAME` and `env:JENKINS_TOKEN` by default. Set an
+integration's non-secret `username_ref` value to another supported reference
+when the username is supplied by a different environment variable or native
+credential source; `username` remains a non-secret literal compatibility
+option for local fixtures.
+
 ## Secrets
 
 Supported secret sources are references to:

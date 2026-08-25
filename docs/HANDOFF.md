@@ -342,13 +342,14 @@ separate improvements, not falsely labelled discoveries.
 
 ## What has not started
 
-- Target-specific release mutation and post-deploy procedures. The Action
-  Broker now owns typed Action execution, bounded runs, pre/post evidence,
-  and UI/CLI/HTTP result review; company-specific release commands remain
-  intentionally unconfigured.
-- Configured release procedures, Jenkins triggers, or cleanup execution.
-- Jenkins triggers beyond the read-only latest build lookup; GitHub trigger and
-  release operations.
+- Company-specific release mutation and provider deployment evidence. Generic
+  stage/production Jenkins group plans, queue correlation, bounded target
+  results, and successful-build postchecks are implemented; expected revision
+  and organization-specific behavior remain gated by configured contracts.
+- Explicitly approved linked-Worktree cleanup is implemented through the Broker;
+  remote branch deletion and company-specific cleanup policy remain out of
+  scope.
+- GitHub trigger/release operations and Kubernetes mutation remain unimplemented.
 - Native configured PowerShell runbook acceptance and project-specific release
   procedure mapping.
 - Native Agent Handoff launch and provider-specific MCP client acceptance.
@@ -449,10 +450,11 @@ is a read-only, Worktree-bound assessment exposed through the application
 service, CLI (`cleanup list`), loopback HTTP, and the embedded UI. Every
 candidate is blocked unless a configured GitHub integration confirms a merged
 PR and the linked Worktree passes clean/upstream/ahead/locked/prunable safety
-checks; those candidates are marked `reviewable`, never auto-deleted. See
-`docs/MILESTONE_4_VERIFICATION.md`. Jenkins correlation, company release
-procedures, and cleanup mutation remain intentionally unimplemented until
-reviewed provider and policy inputs are supplied.
+checks; those candidates are marked `reviewable` until a separate approved
+cleanup plan is executed. See `docs/MILESTONE_4_VERIFICATION.md` and the
+post-MVP integration contract. Jenkins group triggers and generic release
+postchecks now use the same Action Broker; company-specific inputs remain
+unconfigured.
 
 Milestone 5 now has bounded Guidance Doctor checks, masked Agent Handoff
 preview and protected terminal launch, optional model metadata, and a typed

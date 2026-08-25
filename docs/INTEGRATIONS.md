@@ -119,9 +119,7 @@ It accepts an empty body, uses the configured credential reference only for the
 outbound request, and never persists or returns the credential or raw response.
 
 Jenkins latest build lookup is also read-only. It resolves the stable `job`
-value as nested Jenkins Job segments; an optional non-secret `username` value
-selects Basic Auth, otherwise the credential reference is sent as a bearer
-token. The protected route is:
+value as nested Jenkins Job segments. The protected route is:
 
 ```text
 POST /api/integrations/{id}/jenkins/latest-build
@@ -169,8 +167,27 @@ The implementation supports these sources without forcing one into the other:
   operation; stable target values are `owner`, `repository`, and `workflow`.
 - Jenkins latest build lookup is available as a read-only configured
   operation; stable target values are `job` and optional `username`.
-- Jenkins triggers remain pending and must use the same credential-reference
-  and Action Broker boundaries.
+- A reusable `ExternalWorkGroupConfig` can contain two to 32 typed Jenkins
+  targets. Each target accepts a completed-build URL, preserves Jenkins base
+  paths and nested folders, and discards the completed build number and
+  `/console` or API suffix.
+- Group planning binds the target configuration, integration endpoint, and
+  credential reference to one immutable ActionPlan digest. Execution requires
+  the normal Worktree trust, one human approval, Broker admission, lock, and
+  idempotency key. Jenkins uses standard Basic Auth and resolves the queue
+  item to its executable build number before polling that build; it never uses
+  `lastBuild` to correlate a trigger.
+- A target's parsed Jenkins base URL must match its configured integration
+  endpoint before planning, so a credential cannot be sent to another host or
+  base path by a mismatched target.
+- The default username and API-token references are `env:JENKINS_USERNAME`
+  and `env:JENKINS_TOKEN`. A user may replace them with other `env:` or
+  Windows Credential Manager references; no resolved value is persisted or
+  returned.
+- Parameterized targets use `/buildWithParameters`; empty parameter sets use
+  `/build`. Results are bounded per target and preserve partial failures,
+  timeout, build number, safe build URL, and result without response bodies or
+  credential values.
 
 - a reviewed local CLI/PowerShell runbook with exact argv and named parameters;
 - a typed REST adapter using a configured endpoint, operation, and credential
@@ -181,6 +198,31 @@ Action for the selected repository set, with one approval ceremony, per-target
 results, bounded output, and a postcondition such as a successful run or
 expected deployment state. A specific Jenkins job need not be hardcoded if the
 existing user runbook already owns that selection.
+
+The protected generic routes are:
+
+```text
+GET    /api/external-work-groups
+POST   /api/external-work-groups
+PUT    /api/external-work-groups/{id}
+DELETE /api/external-work-groups/{id}
+POST   /api/external-work-groups/{id}/plan
+POST   /api/external-work-plans/{id}/execute
+GET    /api/external-work-plans/{id}/result
+```
+
+Release preview and execution reuse the same group and Broker contract:
+
+```text
+POST /api/releases/{group-id}/plan
+POST /api/release-plans/{id}/execute
+GET  /api/release-plans/{id}/result
+```
+
+`stage` and `production` are separate plan inputs. Both remain explicitly
+approved; production is always high-impact. A successful Jenkins build is
+recorded as postcondition evidence. An expected revision is marked
+`postcheck_failed` until a provider contract supplies verified revision data.
 
 ### Kubernetes logs and status
 
@@ -239,6 +281,21 @@ POST   /api/runbooks/{id}/plan
 The plan is high-impact and requires the normal human approval flow before the
 existing Action execution route can start `pwsh -NoProfile -File` with typed
 arguments in the selected Worktree.
+
+Plugin-specific or multi-step Jenkins procedures should use this runbook
+fallback instead of embedding organization-specific behavior in the generic
+REST adapter.
+
+### Approved cleanup execution
+
+The cleanup candidate queue remains read-only until a candidate is explicitly
+planned and approved. The cleanup plan binds candidate identity, exact linked
+Worktree path, branch, HEAD, policy fields, and candidate digest. Execution
+re-observes immediately before and after admission, then uses only typed
+`git worktree remove -- <exact-path>` and `git branch -d -- <exact-branch>`.
+Primary, dirty, untracked, detached, locked, prunable, ahead, missing-upstream,
+stale, and incompletely observed targets fail closed. Remote branch deletion is
+not included.
 
 ## Redacted examples to add later
 

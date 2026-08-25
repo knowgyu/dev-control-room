@@ -27,8 +27,13 @@ registered projects without reading raw logs.
 - Local repository synchronization and fast-forward validation.
 - Separate backend/frontend stage and production procedures.
 - Opt-in read-only GitHub workflow and Jenkins build collectors are implemented;
-  Jenkins triggers remain.
+  generic Jenkins target groups, queue correlation, and bounded partial-failure
+  results are implemented; company-specific procedures remain runbook-owned.
 - PR, branch, worktree, and explicitly linked issue cleanup queue.
+- Explicitly approved linked-Worktree cleanup with fail-closed re-observation.
+- Generic stage/production release preview and build-result postcondition
+  evidence; expected-revision and provider-specific deployment evidence remain
+  gated by a configured contract.
 - Mechanical Guidance Doctor checks.
 
 The next implementation batch is `docs/POST_MVP_EXECUTION_PLAN.md`. Its

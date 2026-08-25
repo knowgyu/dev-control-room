@@ -281,3 +281,46 @@ Do not perform production work, destructive cleanup, Scheduler
 install/uninstall, release tagging, or release publication as part of this UI
 acceptance. Temporary fixture data may be removed only after its exact path is
 verified and the acceptance evidence has been copied into this document.
+
+## Post-MVP Workstreams 2–4 acceptance: pending
+
+The current post-MVP source adds protected HTTP/service contracts for grouped
+Jenkins work, explicitly approved linked-Worktree cleanup, and generic stage or
+production release evidence. No native Windows acceptance is claimed for these
+contracts until the source commit below is checked out in a fresh NTFS copy.
+
+Run the repeatable gate from PowerShell 7.6 in that checkout:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
+```
+
+Then run the manual checks below with a fresh temporary `appDataRoot` from
+`scripts/prepare-slice-f-acceptance.ps1`; never assign or override `$HOME` and
+never use the default application-data directory:
+
+1. Confirm the five Korean screens and the Action result review checklist
+   above, including exact Worktree/HEAD, masked output, prechecks, postchecks,
+   and audit events.
+2. Configure only a local fixture Jenkins HTTP server and fixture environment
+   variables such as `JENKINS_USERNAME` and `JENKINS_TOKEN`. Verify a nested
+   completed-build URL previews its Jenkins base path, folder job, selected
+   `/build` or `/buildWithParameters` endpoint, credential references, and no
+   credential value. Do not point the app at a company or production endpoint.
+3. Plan a two-target external group, change one target or credential reference,
+   and confirm the old plan is stale. With a fresh plan and trusted fixture
+   Worktree, verify that approval is required, queue correlation returns the
+   actual build number, and one failed target does not hide its sibling result.
+4. Use a safe linked Worktree fixture only to preview cleanup. Verify dirty,
+   untracked, detached, locked, prunable, ahead, missing-upstream, primary,
+   and stale candidates remain blocked. Do not execute destructive cleanup on
+   a user-important checkout.
+5. Plan both `stage` and `production` release paths. Verify stage is an
+   external-change plan, production is high-impact, both require explicit
+   approval, successful-build evidence is recorded, and an expected revision
+   without provider revision evidence is `postcheck_failed`.
+
+Record the exact source SHA, OS, PowerShell, Go, Node, gcc, commands, exit
+codes, fixture root, and any unavailable provider/UI gap below this section.
+These checks do not authorize production deployment, release publication,
+Scheduler mutation, real credentials, or cleanup outside the exact fixture.

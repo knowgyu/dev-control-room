@@ -149,6 +149,8 @@ For projects that enable release capabilities:
 - verify fast-forward eligibility before stage or production promotion;
 - support separate backend and frontend procedures;
 - trigger configured Jenkins stage or production jobs;
+- trigger reusable, credential-reference-only Jenkins target groups through
+  queue-to-build correlation;
 - perform explicit prechecks, approvals, postchecks, and evidence capture;
 - never infer a production topology and act without user confirmation.
 
@@ -161,6 +163,8 @@ For projects that enable release capabilities:
 - never delete a dirty worktree or a branch containing unpushed commits;
 - never close an issue based only on an AI inference;
 - group candidates by project and explain why each is safe or blocked.
+- execute only an explicitly approved clean linked Worktree candidate through
+  the Action Broker; registry removal never deletes source files.
 
 ### Guidance doctor
 
