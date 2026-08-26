@@ -134,6 +134,17 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 4vw, 44px)
 .assurance-summary span, .assurance-summary strong { display: block; }
 .assurance-summary span { color: var(--muted); font-size: 11px; }
 .assurance-summary strong { margin-top: 6px; font-size: 18px; }
+.home-assurance-proof { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.home-assurance-proof article { min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-left: 3px solid #c6d1df; border-radius: 9px; background: #fff; }
+.home-assurance-proof article.ok { border-left-color: var(--green); }
+.home-assurance-proof article.warn { border-left-color: var(--amber); }
+.home-assurance-proof article.bad { border-left-color: var(--red); }
+.home-assurance-proof span, .home-assurance-proof strong, .home-assurance-proof small { display: block; }
+.home-assurance-proof span { color: var(--muted); font-size: 11px; }
+.home-assurance-proof strong { margin-top: 5px; font-size: 18px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.home-assurance-proof small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.home-assurance-footer { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 10px; }
+.home-assurance-footer .meta { margin: 0; }
 .assurance-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, .95fr); gap: 24px; align-items: center; background: #f8fafc; }
 .assurance-hero h2 { margin: 6px 0 8px; font-size: clamp(21px, 3vw, 30px); letter-spacing: -.025em; }
 .assurance-hero p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: 13px; }
@@ -316,6 +327,7 @@ dialog .safety-copy { padding: 11px 12px; border-radius: 8px; color: #7c4e08; ba
   .provider-list { grid-template-columns: 1fr; }
   .assurance-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .assurance-hero { grid-template-columns: 1fr; }
+  .home-assurance-proof { grid-template-columns: 1fr; }
   .assurance-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .assurance-benefits { grid-template-columns: 1fr; }
   .span-two { grid-column: auto; }
@@ -350,4 +362,5 @@ dialog .safety-copy { padding: 11px 12px; border-radius: 8px; color: #7c4e08; ba
   .storage-summary .meta { text-align: left; }
   .trace-flow { grid-template-columns: 1fr; }
   .surface-error { align-items: flex-start; flex-wrap: wrap; }
+  .home-assurance-footer { align-items: stretch; flex-direction: column; }
 }

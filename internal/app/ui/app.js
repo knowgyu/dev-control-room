@@ -480,7 +480,7 @@
     const assurance = state.assuranceDashboard || {};
     const runs = state.assuranceRuns || [];
     document.getElementById("home-assurance").innerHTML = runs.length || assurance.invocations?.length || assurance.effects?.length
-      ? `<div class="assurance-summary"><article><span>Quality Run</span><strong>${escapeHTML(runs.length)}</strong></article><article><span>Agent 실행</span><strong>${escapeHTML(assurance.invocations?.length || 0)}</strong></article><article><span>효과 기록</span><strong>${escapeHTML(assurance.effects?.length || 0)}</strong></article><article><span>비용 상태</span><strong>${escapeHTML(assurance.costState === "estimated" ? "추정" : "미확인")}</strong></article></div><p class="meta">비용은 사용량과 저장된 가격 snapshot이 모두 있을 때만 추정합니다.</p>`
+      ? renderHomeAssurance(assurance, runs)
        : '<div class="empty-state"><strong>아직 검증 결과가 없습니다.</strong><span>Quality Run을 실행하면 근거와 효과 기록이 여기에 나타납니다.</span></div>';
   }
 
@@ -609,6 +609,29 @@
 
   function impactMetricValue(metric) {
     return metric ? formatImpactValue(metric.value, metric.unit) : "확인 불가";
+  }
+
+  function renderHomeAssurance(dashboard, runs) {
+    const impact = state.assuranceImpact;
+    const metrics = impact?.metrics || [];
+    const trace = impact?.traceability || {};
+    const recordsTotal = Number(impact?.dataQuality?.recordsTotal) || 0;
+    const effectsTotal = Number(trace.effectsTotal) || 0;
+    const hasImpactRecords = recordsTotal > 0 || effectsTotal > 0;
+    const verified = findImpactMetric(metrics, ["verified_effects"], "검증된 효과");
+    const measured = metrics.find(metric => metric.key === "time_saved" && metric.value !== null && metric.value !== undefined);
+    const estimated = metrics.find(metric => metric.key === "time_saved_estimated" && metric.value !== null && metric.value !== undefined);
+    const duration = measured || estimated;
+    const durationState = duration?.state || "unavailable";
+    const durationTitle = measured ? "기록된 시간 절감" : estimated ? "예상 시간 절감" : "시간 절감";
+    const traceValue = hasImpactRecords && effectsTotal
+      ? `${formatCount(trace.completeEffects)} / ${formatCount(effectsTotal)}`
+      : "확인 불가";
+    const traceState = traceValue === "확인 불가" ? "" : Number(trace.completeEffects) === effectsTotal ? "ok" : "warn";
+    const impactPeriod = Number(impact?.periodDays) || 30;
+    const summary = `<div class="assurance-summary"><article><span>Quality Run</span><strong>${escapeHTML(formatCount(runs?.length || 0))}</strong></article><article><span>Agent 실행</span><strong>${escapeHTML(formatCount(dashboard?.invocations?.length || 0))}</strong></article><article><span>효과 기록</span><strong>${escapeHTML(formatCount(dashboard?.effects?.length || 0))}</strong></article><article><span>비용 상태</span><strong>${escapeHTML(dashboard?.costState === "estimated" ? "추정" : "미확인")}</strong></article></div>`;
+    const proof = `<div class="home-assurance-proof" aria-label="효과 추적 요약"><article class="${escapeHTML(assuranceImpactStateClass(verified?.state || "unavailable"))}"><span>검증된 효과</span><strong>${escapeHTML(hasImpactRecords ? impactMetricValue(verified) : "확인 불가")}</strong><small>원본·artifact·재검증 연결</small></article><article class="${escapeHTML(traceState)}"><span>근거 완결성</span><strong>${escapeHTML(traceValue)}</strong><small>완결된 효과 / 전체 효과</small></article><article class="${escapeHTML(assuranceImpactStateClass(durationState))}"><span>${escapeHTML(durationTitle)}</span><strong>${escapeHTML(hasImpactRecords ? impactMetricValue(duration) : "확인 불가")}</strong><small>${escapeHTML(`최근 ${impactPeriod}일 · 추정값은 측정값과 분리`)}</small></article></div>`;
+    return `${summary}${proof}<div class="home-assurance-footer"><p class="meta">검증된 효과는 같은 채택 HEAD에서 성공한 재검증까지 연결된 기록만 셉니다.</p><a class="button small" href="#assurance">효과 추적 보기</a></div>`;
   }
 
   function renderAssuranceImpactHeadline(impact) {
@@ -1188,6 +1211,7 @@
       state.assuranceStorage = null;
       state.assuranceStorageError = storageResult.reason?.message || "잠시 후 다시 시도하세요.";
     }
+    renderHome();
     renderAssuranceDashboard();
   }
 

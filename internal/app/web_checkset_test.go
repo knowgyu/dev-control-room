@@ -29,7 +29,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"폴더 선택", "저장소 찾기",
 		"발견 및 제안 검토", "Agent Profile 관리",
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
-		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`,
+		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`, `id="home-assurance" class="loading" aria-live="polite"`,
 		`href="/ui/app.css"`, `src="/ui/app.js"`, `meta name="control-room-token"`,
 	} {
 		if !strings.Contains(html, value) {
@@ -109,6 +109,7 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 		"Agent 실행", "효과 기록", "재실행", "근거 연결", "비용 경계", "회귀 방지", "예상 시간 절감", "time_saved_estimated", "근거 흐름",
 		"const hasActivity = trend.some", "추세를 만들 표본이 없습니다.",
 		"rawTranscript", "usageComplete", "estimatedCost", "configDigest", "artifactIds", "evidenceIds",
+		"function renderHomeAssurance(dashboard, runs)", "home-assurance-proof", "효과 추적 보기", "원본·artifact·재검증 연결",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded Assurance dashboard JavaScript missing %q", value)
@@ -119,7 +120,7 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".assurance-hero", ".assurance-benefits", ".assurance-filters", ".assurance-metrics", ".assurance-record"} {
+	for _, value := range []string{".assurance-hero", ".assurance-benefits", ".assurance-filters", ".assurance-metrics", ".assurance-record", ".home-assurance-proof"} {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded Assurance dashboard CSS missing %q", value)
 		}
