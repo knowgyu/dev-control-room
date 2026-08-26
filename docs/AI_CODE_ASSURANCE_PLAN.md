@@ -1,6 +1,7 @@
 # Phase 1 — AI-assisted Code Assurance plan
 
-Status: v0.9.0 adds the effect-proof surface, traceable artifact lifecycle, and
+Status: v0.9.1 adds actionable startup/storage diagnostics while preserving the
+v0.9.0 effect-proof surface, traceable artifact lifecycle, and
 honest period comparisons; unfinished authority, native resilience, and
 accessibility criteria remain tracked by issue
 Updated: 2026-08-26

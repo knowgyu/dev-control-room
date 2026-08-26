@@ -13,20 +13,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	_ "modernc.org/sqlite"
 )
 
 const CurrentSchemaVersion = 14
 
-// acceptedHistoricalMigrationChecksums permits only the checksum emitted by a
-// released build whose migration-11 SQL was later corrected before the next
-// schema version shipped. Keeping this narrow exception preserves the
+// acceptedHistoricalMigrationChecksums permits only checksums emitted by
+// released builds whose migration SQL was corrected before the next schema
+// version shipped. Keeping these exceptions narrow preserves the
 // tamper-detection guarantee for every other migration history entry while
-// allowing those existing local databases to advance to version 12.
+// allowing existing local databases to advance safely.
 var acceptedHistoricalMigrationChecksums = map[int]map[string]struct{}{
 	11: {
 		"702c15eb78f7a8a8df908067791f986258907d6620ad0a8a9dd45f302e19c772": {},
+	},
+	13: {
+		"40b27a7d4374a6bbd2b592d939900f3d959a8d4eda34618ae8dabcdee6172ff4": {},
 	},
 }
 
@@ -450,24 +451,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pricing_snapshot_immutable ON provider_pri
 }
 
 func Open(ctx context.Context, path string) (*sql.DB, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if path == "" {
 		return nil, errors.New("database path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	databasePath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return nil, errors.New("resolve database path")
+	}
+	if err := os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
+	storageLock, err := acquireStorageLock(ctx, databaseLockPath(databasePath))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = storageLock.Close() }()
+	storageContext := contextWithStorageLock(ctx)
+	db, err := openStorageDatabase(databasePath)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	if _, err := db.ExecContext(ctx, `PRAGMA busy_timeout = 5000`); err != nil {
+	if _, err := db.ExecContext(storageContext, `PRAGMA busy_timeout = 5000`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("configure sqlite busy timeout: %w", err)
 	}
 	var journalMode string
-	if err := db.QueryRowContext(ctx, `PRAGMA journal_mode = WAL`).Scan(&journalMode); err != nil {
+	if err := db.QueryRowContext(storageContext, `PRAGMA journal_mode = WAL`).Scan(&journalMode); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("enable sqlite WAL mode: %w", err)
 	}
@@ -475,11 +489,11 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("sqlite WAL mode is unavailable: %s", journalMode)
 	}
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(storageContext, db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := os.Chmod(databasePath, 0o600); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("restrict sqlite database permissions: %w", err)
 	}
@@ -490,6 +504,49 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return errors.New("database is required")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !hasStorageLock(ctx) {
+		lockPath, err := migrationLockPath(ctx, db)
+		if err != nil {
+			return err
+		}
+		if lockPath != "" {
+			storageLock, err := acquireStorageLock(ctx, lockPath)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = storageLock.Close() }()
+			ctx = contextWithStorageLock(ctx)
+		}
+	}
+	return migrateDatabase(ctx, db)
+}
+
+func migrationLockPath(ctx context.Context, db *sql.DB) (string, error) {
+	rows, err := db.QueryContext(ctx, `PRAGMA database_list`)
+	if err != nil {
+		return "", errors.New("inspect database path for migration locking")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sequence int
+		var name, path string
+		if err := rows.Scan(&sequence, &name, &path); err != nil {
+			return "", errors.New("inspect database path for migration locking")
+		}
+		if name == "main" {
+			return storageLockPath(path), nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", errors.New("inspect database path for migration locking")
+	}
+	return "", nil
+}
+
+func migrateDatabase(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,

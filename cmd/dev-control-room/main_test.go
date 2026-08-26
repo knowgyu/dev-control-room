@@ -19,6 +19,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/app"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/store"
 )
 
 func TestWriteCLIErrorDoesNotExposeInternalDetails(t *testing.T) {
@@ -68,7 +69,7 @@ func TestCLIHelpDescribesFirstUseAndJSON(t *testing.T) {
 	if code := run([]string{"--help"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
 		t.Fatalf("help exit code = %d, stderr=%s", code, stderr.String())
 	}
-	for _, want := range []string{"첫 사용", "project add", "env doctor", "--json"} {
+	for _, want := range []string{"첫 사용", "project add", "env doctor", "troubleshoot", "--json"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("help omitted %q: %s", want, stdout.String())
 		}
@@ -276,11 +277,127 @@ func TestAssuranceCLIRejectsUnsafeOrAmbiguousInputs(t *testing.T) {
 			if code := run(test.args, &stdout, &stderr); code != int(contract.ExitInvalidInput) {
 				t.Fatalf("exit code = %d, want invalid input (%d), stdout=%s stderr=%s", code, contract.ExitInvalidInput, stdout.String(), stderr.String())
 			}
-			var envelope contract.Envelope[map[string]any]
-			if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil || envelope.Schema != contract.EnvelopeSchema || envelope.OK || envelope.Error == nil || !strings.Contains(envelope.Error.Message, test.want) {
-				t.Fatalf("unexpected error envelope: %s (%v)", stderr.String(), err)
+			if strings.HasPrefix(strings.TrimSpace(stderr.String()), "{") || !strings.Contains(stderr.String(), "원인:") || !strings.Contains(stderr.String(), "조치:") || !strings.Contains(stderr.String(), "다음 명령:") || !strings.Contains(stderr.String(), test.want) {
+				t.Fatalf("unexpected human error output: %s", stderr.String())
 			}
 		})
+	}
+}
+
+func TestCLIErrorJSONEnvelopeRemainsAvailable(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"unknown", "--json"}, &stdout, &stderr)
+	if code != int(contract.ExitInvalidInput) {
+		t.Fatalf("unknown command exit code = %d, want invalid input", code)
+	}
+	var envelope contract.Envelope[map[string]any]
+	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil || envelope.Schema != contract.EnvelopeSchema || envelope.OK || envelope.Error == nil {
+		t.Fatalf("JSON error envelope changed: %s (%v)", stderr.String(), err)
+	}
+	if stdout.Len() != 0 || strings.Contains(stderr.String(), "원인:") {
+		t.Fatalf("JSON mode wrote human output: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestCLIProblemClassifiesMigrationMismatchSafely(t *testing.T) {
+	problem := cliProblemFor(errors.New("schema migration history mismatch at version 13: C:\\private\\state.db"))
+	if problem.Code != "storage_schema_mismatch" || problem.Reason == "" || problem.Action == "" || problem.NextCommand != "dev-control-room troubleshoot" {
+		t.Fatalf("unexpected migration problem: %#v", problem)
+	}
+	var output bytes.Buffer
+	writeCLIProblem(&output, problem)
+	if strings.Contains(output.String(), "version 13") || strings.Contains(output.String(), "private\\state.db") {
+		t.Fatalf("migration details leaked into human guidance: %s", output.String())
+	}
+}
+
+func TestCLIProblemClassifiesTypedStorageBusy(t *testing.T) {
+	problem := cliProblemFor(store.ErrStorageBusy)
+	if problem.Code != "storage_busy" || problem.NextCommand != "dev-control-room troubleshoot" || problem.Reason == "" || problem.Action == "" {
+		t.Fatalf("typed storage busy was not actionable: %#v", problem)
+	}
+}
+
+func TestServeFailureWritesSafeTroubleshootingRecord(t *testing.T) {
+	home := t.TempDir()
+	statePath := filepath.Join(home, "state.db")
+	if err := os.WriteFile(statePath, []byte("not a sqlite database: secret-canary"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"serve", "--home", home}, &stdout, &stderr)
+	if code != int(contract.ExitInternal) {
+		t.Fatalf("serve failure exit code = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "오류\n") || !strings.Contains(stderr.String(), "원인:") || !strings.Contains(stderr.String(), "조치:") || !strings.Contains(stderr.String(), "진단 기록: troubleshooting/latest.json") || !strings.Contains(stderr.String(), "다음 명령: dev-control-room troubleshoot") {
+		t.Fatalf("serve failure guidance is incomplete: %s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), home) || strings.Contains(stderr.String(), "secret-canary") || strings.Contains(stderr.String(), "not a sqlite database") {
+		t.Fatalf("serve failure leaked sensitive details: %s", stderr.String())
+	}
+
+	recordPath := filepath.Join(home, troubleshootingDirectory, troubleshootingFilename)
+	recordData, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatalf("troubleshooting record was not written: %v", err)
+	}
+	var record troubleshootingRecord
+	if err := json.Unmarshal(recordData, &record); err != nil || record.Schema != "devroom/troubleshooting/v1" || record.Problem.Code != "internal_error" {
+		t.Fatalf("invalid troubleshooting record: %s (%v)", recordData, err)
+	}
+	if strings.Contains(string(recordData), home) || strings.Contains(string(recordData), "secret-canary") || strings.Contains(string(recordData), "not a sqlite database") {
+		t.Fatalf("troubleshooting record leaked sensitive details: %s", recordData)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"serve", "--home", home, "--json"}, &stdout, &stderr)
+	if code != int(contract.ExitInternal) || stdout.Len() != 0 || strings.Contains(stderr.String(), "원인:") {
+		t.Fatalf("JSON serve failure was not machine-readable: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var serveEnvelope contract.Envelope[map[string]any]
+	if err := json.Unmarshal(stderr.Bytes(), &serveEnvelope); err != nil || serveEnvelope.Schema != contract.EnvelopeSchema || serveEnvelope.OK || serveEnvelope.Error == nil {
+		t.Fatalf("JSON serve error envelope changed: %s (%v)", stderr.String(), err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"troubleshoot", "--home", home}, &stdout, &stderr)
+	if code != int(contract.ExitUnavailable) || !strings.Contains(stdout.String(), "상태: 시작 불가") || !strings.Contains(stdout.String(), "최근 기록: troubleshooting/latest.json") {
+		t.Fatalf("troubleshoot output = code %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), home) || strings.Contains(stdout.String(), "not a sqlite database") {
+		t.Fatalf("troubleshoot leaked sensitive details: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"troubleshoot", "--home", home, "--json"}, &stdout, &stderr)
+	if code != int(contract.ExitUnavailable) || stderr.Len() != 0 {
+		t.Fatalf("JSON troubleshoot exit/output = code %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var resultEnvelope contract.Envelope[troubleshootResult]
+	if err := json.Unmarshal(stdout.Bytes(), &resultEnvelope); err != nil || !resultEnvelope.OK || resultEnvelope.Data == nil || resultEnvelope.Data.Ready || resultEnvelope.Data.Problem == nil {
+		t.Fatalf("invalid JSON troubleshoot result: %s (%v)", stdout.String(), err)
+	}
+}
+
+func TestNoArgumentStartupFailureDoesNotPauseWithCapturedWriters(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "state.db"), []byte("not a sqlite database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEV_CONTROL_ROOM_HOME", home)
+
+	var stdout, stderr bytes.Buffer
+	started := time.Now()
+	code := run(nil, &stdout, &stderr)
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("captured no-argument startup failure paused for %s", elapsed)
+	}
+	if code != int(contract.ExitInternal) || !strings.Contains(stderr.String(), "진단 명령: dev-control-room troubleshoot") {
+		t.Fatalf("no-argument startup failure = code %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 }
 

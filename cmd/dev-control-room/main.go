@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -22,15 +24,17 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/mcp"
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
+	"github.com/knowgyu/dev-control-room/internal/store"
 )
 
-const version = "0.9.0"
+const version = "0.9.1"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	stderr = newCLIErrorWriter(stderr, containsCLIJSONFlag(args))
 	if len(args) == 0 {
-		return runServe(nil, stdout, stderr)
+		return runServeMode(nil, stdout, stderr, true)
 	}
 	if args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
 		return runHelp(args[1:], stdout, stderr)
@@ -39,7 +43,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		return runVersionTo(args[1:], stdout, stderr)
 	case "serve":
-		return runServe(args[1:], stdout, stderr)
+		return runServeMode(args[1:], stdout, stderr, false)
+	case "troubleshoot":
+		return runTroubleshoot(args[1:], stdout, stderr)
 	case "project":
 		return runProject(args[1:], stdout, stderr)
 	case "proposal":
@@ -142,9 +148,11 @@ func cliHelpSpecFor(path []string) (cliHelpSpec, bool) {
 	noRequired := []string{"없음"}
 	switch key {
 	case "":
-		return spec("dev-control-room", "로컬 프로젝트와 검증 흐름을 관리합니다. 첫 사용은 serve → project add → env doctor입니다.", "dev-control-room [command] [options]", "dev-control-room project add --name sample --path C:\\work\\sample", noRequired, []string{"serve", "project", "env", "assurance", "proposal", "check", "action", "finding", "cleanup", "guidance", "failure", "safeguard", "mcp", "event", "agent", "schedule", "version"}), true
+		return spec("dev-control-room", "로컬 프로젝트와 검증 흐름을 관리합니다. 첫 사용은 serve → project add → env doctor입니다.", "dev-control-room [command] [options]", "dev-control-room project add --name sample --path C:\\work\\sample", noRequired, []string{"serve", "troubleshoot", "project", "env", "assurance", "proposal", "check", "action", "finding", "cleanup", "guidance", "failure", "safeguard", "mcp", "event", "agent", "schedule", "version"}), true
 	case "serve":
-		return spec("serve", "로컬 웹 제어실을 시작합니다.", "dev-control-room serve [--listen <addr>] [--home <dir>]", "dev-control-room serve --home <dir>", noRequired, nil), true
+		return spec("serve", "로컬 웹 제어실을 시작합니다.", "dev-control-room serve [--listen <addr>] [--home <dir>] [--json]", "dev-control-room serve --home <dir>", noRequired, nil), true
+	case "troubleshoot":
+		return spec("troubleshoot", "시작 실패 원인과 조치 방법을 진단합니다.", "dev-control-room troubleshoot [--home <dir>] [--json]", "dev-control-room troubleshoot", noRequired, nil), true
 	case "version":
 		return spec("version", "CLI와 API 버전을 출력합니다.", "dev-control-room version [--json]", "dev-control-room version --json", noRequired, nil), true
 	case "project":
@@ -298,16 +306,24 @@ func runVersionTo(args []string, stdout, stderr io.Writer) int {
 }
 
 func runServe(args []string, stdout, stderr io.Writer) int {
+	return runServeMode(args, stdout, stderr, false)
+}
+
+func runServeMode(args []string, stdout, stderr io.Writer, noArgs bool) int {
+	jsonOutput, args, err := parseJSONFlag(args)
+	if err != nil {
+		return writeCLIErrorFormatted(stderr, contract.InvalidInput(err.Error()), jsonOutput)
+	}
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	listen := flags.String("listen", "127.0.0.1:38471", "loopback address for the local control room")
 	home := flags.String("home", defaultHome(), "local data directory")
 	if err := flags.Parse(args); err != nil {
-		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+		return writeCLIErrorFormatted(stderr, contract.InvalidInput(err.Error()), jsonOutput)
 	}
 	service, err := app.New(*home, *listen)
 	if err != nil {
-		return writeCLIErrorTo(stderr, err)
+		return reportServeStartupFailure(stderr, stdout, *home, err, jsonOutput, noArgs)
 	}
 	defer service.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -322,9 +338,286 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	}()
 	log.Printf("Dev Control Room listening on http://%s", *listen)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return writeCLIErrorTo(stderr, err)
+		return reportServeStartupFailure(stderr, stdout, *home, err, jsonOutput, noArgs)
 	}
 	return int(contract.ExitSuccess)
+}
+
+type cliProblem struct {
+	Code        string `json:"code"`
+	Reason      string `json:"reason"`
+	Action      string `json:"action"`
+	NextCommand string `json:"next_command"`
+	Detail      string `json:"-"`
+}
+
+type troubleshootingRecord struct {
+	Schema     string     `json:"schema"`
+	Version    string     `json:"version"`
+	Command    string     `json:"command"`
+	OccurredAt string     `json:"occurred_at"`
+	Problem    cliProblem `json:"problem"`
+}
+
+type troubleshootResult struct {
+	Ready             bool        `json:"ready"`
+	StartupRecord     bool        `json:"startup_record"`
+	StartupRecordName string      `json:"startup_record_name,omitempty"`
+	Problem           *cliProblem `json:"problem,omitempty"`
+}
+
+const (
+	troubleshootingDirectory  = "troubleshooting"
+	troubleshootingFilename   = "latest.json"
+	troubleshootingRecordName = troubleshootingDirectory + "/" + troubleshootingFilename
+)
+
+func reportServeStartupFailure(stderr, stdout io.Writer, home string, err error, jsonOutput, noArgs bool) int {
+	recorded := writeTroubleshootingRecord(home, "serve", err)
+	code := writeCLIErrorFormatted(stderr, err, jsonOutput)
+	if !jsonOutput {
+		writeTroubleshootingHint(stderr, recorded)
+	}
+	if noArgs {
+		pauseAfterWindowsStartupFailure(stdout)
+	}
+	return code
+}
+
+func writeTroubleshootingRecord(home, command string, err error) bool {
+	if strings.TrimSpace(home) == "" {
+		return false
+	}
+	record := troubleshootingRecord{
+		Schema:     "devroom/troubleshooting/v1",
+		Version:    version,
+		Command:    command,
+		OccurredAt: time.Now().UTC().Format(time.RFC3339),
+		Problem:    cliProblemFor(err),
+	}
+	data, marshalErr := json.MarshalIndent(record, "", "  ")
+	if marshalErr != nil {
+		return false
+	}
+	directory := filepath.Join(home, troubleshootingDirectory)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return false
+	}
+	path := filepath.Join(directory, troubleshootingFilename)
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return false
+	}
+	_ = os.Chmod(path, 0o600)
+	return true
+}
+
+func troubleshootingRecordExists(home string) bool {
+	info, err := os.Stat(filepath.Join(home, troubleshootingDirectory, troubleshootingFilename))
+	return err == nil && !info.IsDir()
+}
+
+func writeTroubleshootingHint(stderr io.Writer, recorded bool) {
+	if recorded {
+		_, _ = fmt.Fprintf(stderr, "진단 기록: %s\n", troubleshootingRecordName)
+	} else {
+		_, _ = fmt.Fprintln(stderr, "진단 기록을 저장하지 못했습니다. 데이터 폴더의 쓰기 권한을 확인합니다.")
+	}
+	_, _ = fmt.Fprintln(stderr, "진단 명령: dev-control-room troubleshoot")
+}
+
+func runTroubleshoot(args []string, stdout, stderr io.Writer) int {
+	if jsonOutput, helpArgs, help := parseCLIHelpArgs(args); help {
+		return runCLIHelpPath(append([]string{"troubleshoot"}, helpArgs...), jsonOutput, stdout, stderr)
+	}
+	jsonOutput, args, err := parseJSONFlag(args)
+	if err != nil {
+		return writeCLIErrorFormatted(stderr, contract.InvalidInput(err.Error()), jsonOutput)
+	}
+	args, home, err := parseHome(args)
+	if err != nil || len(args) != 0 {
+		if err == nil {
+			err = errors.New("troubleshoot accepts only --json and --home")
+		}
+		return writeCLIErrorFormatted(stderr, contract.InvalidInput(err.Error()), jsonOutput)
+	}
+
+	result := inspectTroubleshooting(home)
+	if jsonOutput {
+		if code := encodeSuccess(stdout, result); code != int(contract.ExitSuccess) {
+			return code
+		}
+	} else {
+		writeTroubleshootResult(stdout, result)
+	}
+	if !result.Ready {
+		return int(contract.ExitUnavailable)
+	}
+	return int(contract.ExitSuccess)
+}
+
+func inspectTroubleshooting(home string) troubleshootResult {
+	result := troubleshootResult{
+		StartupRecord:     troubleshootingRecordExists(home),
+		StartupRecordName: troubleshootingRecordName,
+	}
+	service, err := app.New(home, "127.0.0.1:0")
+	if err != nil {
+		problem := cliProblemFor(err)
+		result.Problem = &problem
+		return result
+	}
+	if err := service.Close(); err != nil {
+		problem := cliProblemFor(err)
+		result.Problem = &problem
+		return result
+	}
+	result.Ready = true
+	return result
+}
+
+func writeTroubleshootResult(stdout io.Writer, result troubleshootResult) {
+	_, _ = fmt.Fprintln(stdout, "Dev Control Room 진단")
+	if result.Ready {
+		_, _ = fmt.Fprintln(stdout, "상태: 준비됨")
+		_, _ = fmt.Fprintln(stdout, "조치: serve를 다시 실행합니다.")
+		_, _ = fmt.Fprintln(stdout, "다음 명령: dev-control-room serve")
+	} else {
+		_, _ = fmt.Fprintln(stdout, "상태: 시작 불가")
+		if result.Problem != nil {
+			writeCLIProblem(stdout, *result.Problem)
+		}
+	}
+	if result.StartupRecord {
+		_, _ = fmt.Fprintf(stdout, "최근 기록: %s\n", result.StartupRecordName)
+	}
+}
+
+func cliProblemFor(err error) cliProblem {
+	if store.IsStorageBusy(err) {
+		return cliProblem{
+			Code:        "storage_busy",
+			Reason:      "저장소가 다른 실행 중인 프로세스에 사용 중입니다.",
+			Action:      "Dev Control Room의 다른 창이나 프로세스를 닫고 잠시 후 다시 실행합니다.",
+			NextCommand: "dev-control-room troubleshoot",
+		}
+	}
+	raw := strings.ToLower(errString(err))
+	switch {
+	case strings.Contains(raw, "schema migration history mismatch"):
+		return cliProblem{
+			Code:        "storage_schema_mismatch",
+			Reason:      "기존 저장소의 스키마 호환성 확인에 실패했습니다.",
+			Action:      "최신 실행 파일로 다시 시작합니다. state.db는 삭제하지 않습니다.",
+			NextCommand: "dev-control-room troubleshoot",
+		}
+	case strings.Contains(raw, "schema migration") && strings.Contains(raw, "newer than supported"):
+		return cliProblem{
+			Code:        "storage_schema_newer",
+			Reason:      "저장소가 현재 실행 파일보다 새 버전입니다.",
+			Action:      "저장소를 만든 버전과 같거나 더 최신인 실행 파일을 사용합니다.",
+			NextCommand: "dev-control-room troubleshoot",
+		}
+	case strings.Contains(raw, "database is locked"), strings.Contains(raw, "database is busy"), strings.Contains(raw, "sqlite busy"):
+		return cliProblem{
+			Code:        "storage_busy",
+			Reason:      "저장소가 다른 실행 중인 프로세스에 사용 중입니다.",
+			Action:      "Dev Control Room의 다른 창이나 프로세스를 닫고 다시 실행합니다.",
+			NextCommand: "dev-control-room troubleshoot",
+		}
+	case strings.Contains(raw, "listen tcp"), strings.Contains(raw, "address already in use"):
+		return cliProblem{
+			Code:        "listen_unavailable",
+			Reason:      "로컬 웹 포트를 열 수 없습니다.",
+			Action:      "다른 로컬 포트로 실행합니다.",
+			NextCommand: "dev-control-room serve --listen 127.0.0.1:38472",
+		}
+	case strings.Contains(raw, "permission denied"), strings.Contains(raw, "access is denied"):
+		return cliProblem{
+			Code:        "storage_permission",
+			Reason:      "로컬 데이터 폴더에 접근할 수 없습니다.",
+			Action:      "현재 사용자에게 데이터 폴더의 읽기·쓰기 권한이 있는지 확인합니다.",
+			NextCommand: "dev-control-room troubleshoot",
+		}
+	}
+
+	classified := contract.Classify(err)
+	switch classified.Code {
+	case contract.ErrorInvalidInput:
+		return cliProblem{Code: "invalid_input", Reason: "명령 형식 또는 입력값을 확인해야 합니다.", Detail: safeHumanDetail(classified.Message), Action: "도움말에서 지원 옵션을 확인합니다.", NextCommand: "dev-control-room --help"}
+	case contract.ErrorNotFound:
+		return cliProblem{Code: "not_found", Reason: "요청한 항목을 찾지 못했습니다.", Action: "식별자와 --home 값을 확인합니다.", NextCommand: "dev-control-room troubleshoot"}
+	case contract.ErrorConflict:
+		return cliProblem{Code: "conflict", Reason: "상태가 바뀌었거나 다른 작업과 충돌했습니다.", Action: "잠시 후 같은 명령을 다시 실행합니다.", NextCommand: "dev-control-room troubleshoot"}
+	case contract.ErrorForbidden, contract.ErrorPolicyDenied:
+		return cliProblem{Code: "policy_denied", Reason: "안전 정책이 요청을 차단했습니다.", Action: "대상과 승인 조건을 확인합니다.", NextCommand: "dev-control-room --help"}
+	case contract.ErrorCheckFailed:
+		return cliProblem{Code: "check_failed", Reason: "검증이 실패했습니다.", Action: "실패 결과와 실행 환경을 확인합니다.", NextCommand: "dev-control-room env doctor"}
+	case contract.ErrorExecutionFailed:
+		return cliProblem{Code: "execution_failed", Reason: "작업 실행이 실패했습니다.", Action: "Provider와 실행 기록을 확인합니다.", NextCommand: "dev-control-room assurance provider"}
+	case contract.ErrorUnavailable:
+		return cliProblem{Code: "unavailable", Reason: "필요한 기능을 사용할 수 없습니다.", Action: "실행 환경과 Provider 상태를 확인합니다.", NextCommand: "dev-control-room env doctor"}
+	default:
+		return cliProblem{Code: "internal_error", Reason: "예상하지 못한 내부 오류가 발생했습니다.", Action: "저장소 진단을 실행합니다.", NextCommand: "dev-control-room troubleshoot"}
+	}
+}
+
+func safeHumanDetail(message string) string {
+	if strings.TrimSpace(message) == "" || len(message) > 120 || strings.ContainsAny(message, "\r\n\x00") {
+		return ""
+	}
+	lower := strings.ToLower(message)
+	for _, blocked := range []string{"password", "secret", "token", "api_key", "authorization", "sql", "sqlite", "private", "credential", "access key"} {
+		if strings.Contains(lower, blocked) {
+			return ""
+		}
+	}
+	if strings.Contains(message, `\`) || strings.Contains(message, "/") {
+		return ""
+	}
+	return message
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func writeCLIProblem(stdout io.Writer, problem cliProblem) {
+	_, _ = fmt.Fprintf(stdout, "원인: %s\n", problem.Reason)
+	if problem.Detail != "" {
+		_, _ = fmt.Fprintf(stdout, "세부: %s\n", problem.Detail)
+	}
+	_, _ = fmt.Fprintf(stdout, "조치: %s\n다음 명령: %s\n", problem.Action, problem.NextCommand)
+}
+
+func pauseAfterWindowsStartupFailure(stdout io.Writer) {
+	if runtime.GOOS != "windows" || !isProcessWriter(stdout, os.Stdout) || !interactiveStandardInput() || os.Getenv("DEV_CONTROL_ROOM_NO_PAUSE") != "" || os.Getenv("CI") != "" {
+		return
+	}
+	_, _ = fmt.Fprintln(stdout, "Enter를 누르면 종료합니다. 30초 후 자동 종료합니다.")
+	finished := make(chan struct{})
+	go func() {
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+		close(finished)
+	}()
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-finished:
+	case <-timer.C:
+	}
+}
+
+func isProcessWriter(writer io.Writer, processWriter *os.File) bool {
+	file, ok := writer.(*os.File)
+	return ok && file == processWriter
+}
+
+func interactiveStandardInput() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func runAssurance(args []string, stdout, stderr io.Writer) int {
@@ -2040,13 +2333,44 @@ func encodeSuccess[T any](stdout io.Writer, value T) int {
 	return int(contract.ExitSuccess)
 }
 
-func writeCLIError(err error) int { return writeCLIErrorTo(os.Stderr, err) }
+type cliErrorWriter struct {
+	io.Writer
+	json bool
+}
+
+func newCLIErrorWriter(writer io.Writer, jsonOutput bool) io.Writer {
+	return cliErrorWriter{Writer: writer, json: jsonOutput}
+}
+
+func containsCLIJSONFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--json" {
+			return true
+		}
+	}
+	return false
+}
+
+func writeCLIError(err error) int { return writeCLIErrorFormatted(os.Stderr, err, true) }
 
 func writeCLIErrorTo(stderr io.Writer, err error) int {
+	jsonOutput := false
+	if formatted, ok := stderr.(cliErrorWriter); ok {
+		jsonOutput = formatted.json
+	}
+	return writeCLIErrorFormatted(stderr, err, jsonOutput)
+}
+
+func writeCLIErrorFormatted(stderr io.Writer, err error, jsonOutput bool) int {
 	classified := contract.Classify(err)
-	payload := contract.Failure[map[string]any](classified.Code, classified.Message, classified.Details)
-	if encodeErr := json.NewEncoder(stderr).Encode(payload); encodeErr != nil {
-		_, _ = fmt.Fprintln(stderr, classified.Message)
+	if jsonOutput {
+		payload := contract.Failure[map[string]any](classified.Code, classified.Message, classified.Details)
+		if encodeErr := json.NewEncoder(stderr).Encode(payload); encodeErr != nil {
+			_, _ = fmt.Fprintln(stderr, classified.Message)
+		}
+	} else {
+		_, _ = fmt.Fprintln(stderr, "오류")
+		writeCLIProblem(stderr, cliProblemFor(err))
 	}
 	return int(classified.Code.ExitCode())
 }

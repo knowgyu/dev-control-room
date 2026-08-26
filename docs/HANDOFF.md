@@ -1,6 +1,34 @@
 # Current state and implementation handoff
 
-Updated: 2026-08-26
+Updated: 2026-08-27
+
+## 2026-08-27 AI 작업 harness
+
+The current Codex desktop workspace now has a user-scoped, non-runtime skill
+harness for the next implementation slices. It routes UI work through
+`frontend-design`, Vercel `web-design-guidelines`, and browser/screenshot
+verification; Go work through style, error, testing, concurrency, database,
+troubleshooting, security, and observability guidance; and CLI work through
+`cli-creator`. The exact workflow and effect-evidence chain are in
+[AI_WORK_HARNESS.md](AI_WORK_HARNESS.md). These skills do not weaken the
+Action Broker, masking, Worktree trust, npm Codex launcher boundary, or human
+patch-adoption rule, and they are not runtime dependencies of the binary.
+
+## 2026-08-27 v0.9.1 patch candidate
+
+The current candidate keeps the v0.9.0 evidence dashboard and adds actionable
+startup diagnostics for double-click launches. Human CLI errors now show the
+reason, action, and next command; `troubleshoot` checks the local home and
+reads a safe `troubleshooting/latest.json` classification without exposing
+paths, SQL, credentials, or raw provider output. JSON envelopes remain
+machine-readable.
+
+Same-home server, CLI, and direct migration access now share a companion file
+lock with bounded retry. Context cancellation/deadline is distinct from a
+genuinely busy store, and cross-process initialization/read/write tests pass.
+The full candidate verification is recorded in
+[VERIFICATION_v0.9.1.md](VERIFICATION_v0.9.1.md); package and remote release
+checks remain pending until the final candidate commit is fixed.
 
 This is the canonical current-state handoff for continuing Dev Control Room.
 It exists so the next long-running goal or implementation agent can start from

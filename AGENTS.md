@@ -6,15 +6,16 @@ the linked documents; do not duplicate them here.
 Read, in order:
 
 1. `docs/HANDOFF.md`
-2. `docs/VERIFICATION_PLAYBOOK.md`
-3. `docs/INTEGRATIONS.md`
-4. `docs/PRODUCT.md`
-5. `docs/ARCHITECTURE.md`
-6. `docs/CONFIGURATION.md`
-7. `docs/AI_INTEGRATION.md`
-8. `docs/AI_CODE_ASSURANCE_PLAN.md`
-9. `docs/IMPLEMENTATION_PLAN.md` (historical foundation only)
-10. `THIRD_PARTY_POLICY.md`
+2. `docs/AI_WORK_HARNESS.md`
+3. `docs/VERIFICATION_PLAYBOOK.md`
+4. `docs/INTEGRATIONS.md`
+5. `docs/PRODUCT.md`
+6. `docs/ARCHITECTURE.md`
+7. `docs/CONFIGURATION.md`
+8. `docs/AI_INTEGRATION.md`
+9. `docs/AI_CODE_ASSURANCE_PLAN.md`
+10. `docs/IMPLEMENTATION_PLAN.md` (historical foundation only)
+11. `THIRD_PARTY_POLICY.md`
 
 Implement one milestone at a time. Target native Windows 11 and PowerShell 7.6,
 although the source workspace is currently accessed through WSL. Keep UI, CLI,

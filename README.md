@@ -1,4 +1,4 @@
-# Dev Control Room 0.9.0
+# Dev Control Room 0.9.1
 
 Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만 관찰하고,
 근거가 있는 점검과 Action을 계획·승인·실행합니다. 서비스는 loopback에만
@@ -49,11 +49,11 @@ ZIP과 SHA-256 목록을 만듭니다. 실제 Jenkins, production, Scheduler, �
 작업은 패키징에 포함되지 않습니다.
 
 ```powershell
-pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.9.0
+pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.9.1
 ```
 
-이 명령은 `docs/RELEASE_NOTES_v0.9.0.md`와
-`docs/VERIFICATION_v0.9.0.md`가 모두 있을 때 패키지를 만듭니다.
+이 명령은 `docs/RELEASE_NOTES_v0.9.1.md`와
+`docs/VERIFICATION_v0.9.1.md`가 모두 있을 때 패키지를 만듭니다.
 
 검증까지 포함한 후보 확인은 다음 명령을 먼저 실행합니다.
 
@@ -61,11 +61,15 @@ pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.9.0
 pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 ```
 
-## 0.9.0 범위와 경계
+## 0.9.1 범위와 경계
 
-- Assurance dashboard와 lifecycle CLI, 기간별 효과 비교·trace·JSON/CSV 보고서,
+- 0.9.0의 Assurance dashboard와 lifecycle CLI, 기간별 효과 비교·trace·JSON/CSV 보고서,
   manifest 기반 artifact 보관/복원, 반복 가능한 first-use/return/Provider
   recovery 여정, 등록된 local Quality Run을 포함합니다.
+- 실행 파일을 더블클릭해도 시작 실패 원인·조치·다음 명령을 한국어로 보여주고,
+  `troubleshoot`와 안전한 최근 진단 기록을 제공합니다. JSON 오류 계약도 유지합니다.
+- 동일한 `--home`을 쓰는 서버·CLI·migration은 companion lock과 bounded retry로
+  직렬화하며, timeout과 저장소 busy 상태를 구분합니다.
 - Codex npm launcher는 로컬 `node.exe`와 검증된
   `@openai/codex\bin\codex.js`를 typed argv로 실행합니다. `cmd.exe`, 임의
   `.cmd`, `.bat`, bare `codex`는 실행하지 않습니다.
@@ -82,7 +86,7 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
   승인이 필요합니다.
 - `FallbackRunbookID`는 참조만 저장하며 자동으로 PowerShell을 이어 실행하지
   않습니다. 이어 실행은 별도 계약과 승인이 필요합니다.
-- 0.9.0의 확인 범위는 자동화, 로컬 Windows Browser 관찰, disposable local
+- 0.9.1의 확인 범위는 자동화, 로컬 Windows Browser 관찰, disposable local
   Git fixture의 실제 Codex invocation입니다. 회사 Jenkins/GitHub/Kubernetes,
   proxy, production, second-device, full Tab/Space, native dialog Esc driver
   acceptance는 실행하지 않았습니다.
@@ -91,6 +95,8 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 
 - [현재 상태와 handoff](docs/HANDOFF.md)
 - [효과 대시보드와 trace 계약](docs/ASSURANCE_EFFECT_DASHBOARD.md)
+- [v0.9.1 검증 기록](docs/VERIFICATION_v0.9.1.md)
+- [v0.9.1 릴리즈 노트](docs/RELEASE_NOTES_v0.9.1.md)
 - [v0.9.0 검증 기록](docs/VERIFICATION_v0.9.0.md)
 - [v0.9.0 릴리즈 노트](docs/RELEASE_NOTES_v0.9.0.md)
 - [v0.8.0 검증 기록](docs/VERIFICATION_v0.8.0.md)

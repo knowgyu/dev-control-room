@@ -1,7 +1,7 @@
 # Roadmap
 
 Status: active status index
-Updated: 2026-08-26
+Updated: 2026-08-27
 
 The active detailed feature plan is Phase 1,
 [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md). Its follow-on Phase 2
@@ -15,8 +15,9 @@ instructions to rerun completed work.
 | P0 local control plane | implemented and accepted | milestone verification documents and docs/HANDOFF.md |
 | P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
 | P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |
-| AI-assisted Code Assurance | v0.9.0 adds period-based effect proof, honest comparisons, trace drill-down, safe report export, and manifest-backed artifact retention; native resilience, mutation, patch adoption, and causal attribution remain tracked | docs/AI_CODE_ASSURANCE_PLAN.md, docs/ASSURANCE_EFFECT_DASHBOARD.md, and milestone verification documents |
-| Product usability and interface | v0.9.0 keeps first-use/return/recovery journeys and adds an evidence-first impact surface with concise Korean copy; full Tab/Space, native dialog Esc, and second-device acceptance remain #7 | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md and DESIGN.md |
+| AI-assisted Code Assurance | v0.9.1 preserves v0.9.0 effect proof and adds safer startup/storage diagnostics; durable approval scopes, native resilience, mutation, patch adoption, and causal attribution remain tracked | docs/AI_CODE_ASSURANCE_PLAN.md, docs/ASSURANCE_EFFECT_DASHBOARD.md, and milestone verification documents |
+| Product usability and interface | v0.9.1 keeps first-use/return/recovery journeys and evidence-first impact cards; full Tab/Space, native dialog Esc, and second-device acceptance remain #7 | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md and DESIGN.md |
+| AI 작업 harness | user-scoped frontend, Vercel UI review, Go reliability, browser, screenshot, and CLI skills are installed; routing and evidence rules are active, with no runtime dependency | docs/AI_WORK_HARNESS.md |
 
 ## P0: dependable local control plane
 
