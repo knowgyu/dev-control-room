@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/app"
+	"github.com/knowgyu/dev-control-room/internal/assurance"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/mcp"
@@ -75,35 +76,193 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func runHelp(args []string, stdout, stderr io.Writer) int {
-	jsonOutput, remaining, err := parseJSONFlag(args)
-	if err != nil {
-		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	jsonOutput, remaining, _ := parseCLIHelpArgs(args)
+	return runCLIHelpPath(remaining, jsonOutput, stdout, stderr)
+}
+
+type cliHelpSpec struct {
+	Command      string   `json:"command"`
+	Summary      string   `json:"summary"`
+	Usage        string   `json:"usage"`
+	Required     []string `json:"required"`
+	Commands     []string `json:"commands,omitempty"`
+	Options      []string `json:"options,omitempty"`
+	Example      string   `json:"example"`
+	JSONBehavior string   `json:"json_behavior"`
+	Safety       []string `json:"safety,omitempty"`
+}
+
+func runCLIHelpPath(path []string, jsonOutput bool, stdout, stderr io.Writer) int {
+	if len(path) > 0 && path[0] == "help" {
+		path = path[1:]
 	}
-	if len(remaining) > 1 {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("help accepts one command name"))
-	}
-	command := ""
-	if len(remaining) == 1 {
-		command = remaining[0]
-	}
-	if command == "assurance" {
-		return runAssuranceHelp(jsonOutput, stdout, stderr)
+	spec, ok := cliHelpSpecFor(path)
+	if !ok {
+		spec = cliGenericHelpSpec(path)
 	}
 	if jsonOutput {
-		return encodeSuccess(stdout, map[string]any{"command": command, "first_use": []string{"serve", "project add", "env doctor"}, "commands": []string{"serve", "project", "env", "assurance", "proposal", "check", "action", "finding", "guidance", "agent", "schedule", "mcp"}, "examples": []string{"dev-control-room serve --home <dir>", "dev-control-room project add --name sample --path C:\\work\\sample --home <dir>", "dev-control-room assurance provider --json --home <dir>"}})
+		return encodeSuccess(stdout, spec)
 	}
-	if command != "" {
-		_, _ = fmt.Fprintf(stdout, "%s 도움말\n\n", command)
-		_, _ = fmt.Fprintln(stdout, "주요 명령: list, show, add, update, remove, create, run, dashboard, provider")
-		_, _ = fmt.Fprintln(stdout, "공통 옵션: --json, --home <로컬 데이터 디렉터리>")
-		return int(contract.ExitSuccess)
+	return writeCLIHelp(stdout, spec)
+}
+
+func writeCLIHelp(stdout io.Writer, spec cliHelpSpec) int {
+	if spec.Command == "dev-control-room" {
+		_, _ = fmt.Fprintln(stdout, "Dev Control Room — 로컬 개발 제어실")
+	} else {
+		_, _ = fmt.Fprintf(stdout, "%s 도움말\n", spec.Command)
 	}
-	_, _ = fmt.Fprintln(stdout, "Dev Control Room — 로컬 개발 제어실")
-	_, _ = fmt.Fprintln(stdout, "첫 사용: serve → project add → env doctor")
-	_, _ = fmt.Fprintln(stdout, "주요 명령: serve, project, env, assurance, proposal, check, action, finding, guidance, agent, schedule, mcp")
-	_, _ = fmt.Fprintln(stdout, "공통 옵션: --json, --home <로컬 데이터 디렉터리>")
-	_, _ = fmt.Fprintln(stdout, "예시: dev-control-room assurance provider --json --home <dir>")
+	_, _ = fmt.Fprintf(stdout, "설명: %s\n", spec.Summary)
+	_, _ = fmt.Fprintf(stdout, "사용법: %s\n", spec.Usage)
+	_, _ = fmt.Fprintf(stdout, "필수: %s\n", strings.Join(spec.Required, ", "))
+	if len(spec.Commands) > 0 {
+		_, _ = fmt.Fprintf(stdout, "하위 명령: %s\n", strings.Join(spec.Commands, ", "))
+	}
+	if len(spec.Options) > 0 {
+		_, _ = fmt.Fprintf(stdout, "옵션: %s\n", strings.Join(spec.Options, ", "))
+	}
+	_, _ = fmt.Fprintf(stdout, "예시: %s\n", spec.Example)
+	_, _ = fmt.Fprintf(stdout, "JSON: %s\n", spec.JSONBehavior)
+	if len(spec.Safety) > 0 {
+		_, _ = fmt.Fprintf(stdout, "경계: %s\n", strings.Join(spec.Safety, ", "))
+	}
 	return int(contract.ExitSuccess)
+}
+
+func cliHelpSpecFor(path []string) (cliHelpSpec, bool) {
+	key := strings.Join(path, " ")
+	commonOptions := []string{"--json", "--home <dir>"}
+	spec := func(command, summary, usage, example string, required []string, commands []string) cliHelpSpec {
+		return cliHelpSpec{
+			Command: command, Summary: summary, Usage: usage, Required: required,
+			Commands: commands, Options: commonOptions, Example: example,
+			JSONBehavior: "--json 추가 시 표준 JSON envelope 출력",
+		}
+	}
+	noRequired := []string{"없음"}
+	switch key {
+	case "":
+		return spec("dev-control-room", "로컬 프로젝트와 검증 흐름을 관리합니다. 첫 사용은 serve → project add → env doctor입니다.", "dev-control-room [command] [options]", "dev-control-room project add --name sample --path C:\\work\\sample", noRequired, []string{"serve", "project", "env", "assurance", "proposal", "check", "action", "finding", "cleanup", "guidance", "failure", "safeguard", "mcp", "event", "agent", "schedule", "version"}), true
+	case "serve":
+		return spec("serve", "로컬 웹 제어실을 시작합니다.", "dev-control-room serve [--listen <addr>] [--home <dir>]", "dev-control-room serve --home <dir>", noRequired, nil), true
+	case "version":
+		return spec("version", "CLI와 API 버전을 출력합니다.", "dev-control-room version [--json]", "dev-control-room version --json", noRequired, nil), true
+	case "project":
+		return spec("project", "프로젝트와 저장소를 관리합니다.", "dev-control-room project <command> [options]", "dev-control-room project add --name sample --path C:\\work\\sample --json", []string{"<command>"}, []string{"list", "show", "add", "update", "remove", "export", "import", "scan", "repository", "worktree", "discover", "sync"}), true
+	case "project list":
+		return spec("project list", "등록된 프로젝트를 조회합니다.", "dev-control-room project list [--home <dir>] [--json]", "dev-control-room project list --json", noRequired, nil), true
+	case "project show":
+		return spec("project show", "프로젝트 하나를 조회합니다.", "dev-control-room project show <project-id> [--home <dir>] [--json]", "dev-control-room project show project-1 --json", []string{"<project-id>"}, nil), true
+	case "project add":
+		return spec("project add", "프로젝트를 등록합니다.", "dev-control-room project add --name <name> --path <path> [--home <dir>] [--json]", "dev-control-room project add --name sample --path C:\\work\\sample --json", []string{"--name <name>", "--path <path>"}, nil), true
+	case "project update":
+		return spec("project update", "프로젝트 이름을 갱신합니다.", "dev-control-room project update <project-id> [--name <name>] [--home <dir>] [--json]", "dev-control-room project update project-1 --name renamed --json", []string{"<project-id>"}, nil), true
+	case "project remove":
+		return spec("project remove", "프로젝트를 제거합니다.", "dev-control-room project remove <project-id> [--home <dir>] [--json]", "dev-control-room project remove project-1 --json", []string{"<project-id>"}, nil), true
+	case "project export":
+		return spec("project export", "프로젝트 설정을 내보냅니다.", "dev-control-room project export <project-id> [--home <dir>] [--json]", "dev-control-room project export project-1 > project.json", []string{"<project-id>"}, nil), true
+	case "project import":
+		return spec("project import", "프로젝트 설정을 가져옵니다.", "dev-control-room project import --input <file> [--home <dir>] [--json]", "dev-control-room project import --input project.json --json", []string{"--input <file>"}, nil), true
+	case "project scan":
+		return spec("project scan", "등록된 프로젝트를 다시 검사합니다.", "dev-control-room project scan [--home <dir>] [--json]", "dev-control-room project scan --json", noRequired, nil), true
+	case "project repository":
+		return spec("project repository", "프로젝트 저장소를 관리합니다.", "dev-control-room project repository <command> [options]", "dev-control-room project repository list project-1 --json", []string{"<command>"}, []string{"list", "add", "update", "remove"}), true
+	case "project repository list":
+		return spec("project repository list", "프로젝트의 저장소를 조회합니다.", "dev-control-room project repository list <project-id> [--home <dir>] [--json]", "dev-control-room project repository list project-1 --json", []string{"<project-id>"}, nil), true
+	case "project repository add":
+		return spec("project repository add", "저장소를 등록합니다.", "dev-control-room project repository add --project <project-id> --id <id> --name <name> --path <path> [--home <dir>] [--json]", "dev-control-room project repository add --project project-1 --id repo-1 --name sample --path C:\\work\\sample --json", []string{"--project <project-id>", "--id <id>", "--name <name>", "--path <path>"}, nil), true
+	case "project repository update":
+		return spec("project repository update", "저장소 정보를 갱신합니다.", "dev-control-room project repository update <project-id> <repository-id> [--name <name>] [--path <path>] [--home <dir>] [--json]", "dev-control-room project repository update project-1 repo-1 --name renamed --json", []string{"<project-id>", "<repository-id>"}, nil), true
+	case "project repository remove":
+		return spec("project repository remove", "저장소를 제거합니다.", "dev-control-room project repository remove <project-id> <repository-id> [--home <dir>] [--json]", "dev-control-room project repository remove project-1 repo-1 --json", []string{"<project-id>", "<repository-id>"}, nil), true
+	case "project worktree":
+		return spec("project worktree", "저장소 worktree를 조회합니다.", "dev-control-room project worktree <list|show> <ids...> [--home <dir>] [--json]", "dev-control-room project worktree list project-1 repo-1 --json", []string{"list 또는 show", "식별자"}, nil), true
+	case "project worktree list":
+		return spec("project worktree list", "저장소 worktree 목록을 조회합니다.", "dev-control-room project worktree list <project-id> <repository-id> [--home <dir>] [--json]", "dev-control-room project worktree list project-1 repo-1 --json", []string{"<project-id>", "<repository-id>"}, nil), true
+	case "project worktree show":
+		return spec("project worktree show", "worktree 하나를 조회합니다.", "dev-control-room project worktree show <project-id> <repository-id> <worktree-id> [--home <dir>] [--json]", "dev-control-room project worktree show project-1 repo-1 primary --json", []string{"<project-id>", "<repository-id>", "<worktree-id>"}, nil), true
+	case "project discover":
+		return spec("project discover", "worktree의 검증 후보를 탐색합니다.", "dev-control-room project discover <project-id> <repository-id> <worktree-id> [--home <dir>] [--json]", "dev-control-room project discover project-1 repo-1 primary --json", []string{"<project-id>", "<repository-id>", "<worktree-id>"}, nil), true
+	case "project sync":
+		return spec("project sync", "저장소 동기화 계획을 관리합니다.", "dev-control-room project sync <plan|execute> [ids...] [--home <dir>] [--json]", "dev-control-room project sync plan project-1 --json", []string{"plan 또는 execute"}, []string{"plan", "execute"}), true
+	case "project sync plan":
+		return spec("project sync plan", "저장소 동기화 계획을 만듭니다.", "dev-control-room project sync plan <project-id> [--home <dir>] [--json]", "dev-control-room project sync plan project-1 --json", []string{"<project-id>"}, nil), true
+	case "project sync execute":
+		return spec("project sync execute", "승인된 동기화 계획을 실행합니다.", "dev-control-room project sync execute <project-id> <plan-id>... [--home <dir>] [--json]", "dev-control-room project sync execute project-1 plan-1 --json", []string{"<project-id>", "<plan-id>..."}, nil), true
+	case "env":
+		return spec("env", "로컬 실행 환경을 진단합니다.", "dev-control-room env <doctor|status> [--home <dir>] [--json]", "dev-control-room env doctor --json", []string{"doctor 또는 status"}, []string{"doctor", "status"}), true
+	case "env doctor":
+		return spec("env doctor", "도구와 Provider 상태를 점검합니다.", "dev-control-room env doctor [--home <dir>] [--json]", "dev-control-room env doctor --json", noRequired, nil), true
+	case "env status":
+		return spec("env status", "저장된 환경 상태를 조회합니다.", "dev-control-room env status [--home <dir>] [--json]", "dev-control-room env status --json", noRequired, nil), true
+	case "assurance":
+		return cliAssuranceHelpSpec(), true
+	case "assurance provider":
+		return spec("assurance provider", "Provider 상태를 조회합니다.", "dev-control-room assurance provider [--home <dir>] [--json]", "dev-control-room assurance provider --json", noRequired, nil), true
+	case "assurance dashboard":
+		return spec("assurance dashboard", "검증 결과와 효과를 요약합니다.", "dev-control-room assurance dashboard [--provider <name>] [--model <name>] [--home <dir>] [--json]", "dev-control-room assurance dashboard --json", noRequired, nil), true
+	case "assurance sessions":
+		return spec("assurance sessions", "Assurance session 목록을 조회합니다.", "dev-control-room assurance sessions [--home <dir>] [--json]", "dev-control-room assurance sessions --json", noRequired, nil), true
+	case "assurance baselines":
+		return spec("assurance baselines", "PR CI baseline 목록을 조회합니다.", "dev-control-room assurance baselines [--home <dir>] [--json]", "dev-control-room assurance baselines --json", noRequired, nil), true
+	case "assurance campaigns":
+		return spec("assurance campaigns", "Quality campaign 목록을 조회합니다.", "dev-control-room assurance campaigns [--home <dir>] [--json]", "dev-control-room assurance campaigns --json", noRequired, nil), true
+	case "assurance runs":
+		return spec("assurance runs", "Quality Run 목록을 조회합니다.", "dev-control-room assurance runs [--home <dir>] [--json]", "dev-control-room assurance runs --json", noRequired, nil), true
+	case "assurance invocations":
+		return spec("assurance invocations", "Agent invocation 목록을 조회합니다.", "dev-control-room assurance invocations [--home <dir>] [--json]", "dev-control-room assurance invocations --json", noRequired, nil), true
+	case "assurance session":
+		return spec("assurance session", "Assurance session을 만듭니다.", "dev-control-room assurance session create [options]", "dev-control-room assurance session create --project project-1 --repository repo-1 --worktree primary --json", []string{"create", "--project <id>", "--repository <id>", "--worktree <id>"}, []string{"create"}), true
+	case "assurance session create":
+		return spec("assurance session create", "Agent 검증 세션을 만듭니다.", "dev-control-room assurance session create --project <id> --repository <id> --worktree <id> [--provider <name>] [--model <name>] [--home <dir>] [--json]", "dev-control-room assurance session create --project project-1 --repository repo-1 --worktree primary --json", []string{"--project <id>", "--repository <id>", "--worktree <id>"}, nil), true
+	case "assurance baseline":
+		return spec("assurance baseline", "PR CI baseline을 만듭니다.", "dev-control-room assurance baseline create [options]", "dev-control-room assurance baseline create --project project-1 --repository repo-1 --worktree primary --target-branch main --json", []string{"create", "--project <id>", "--repository <id>", "--worktree <id>", "--target-branch <branch>"}, []string{"create"}), true
+	case "assurance baseline create":
+		return spec("assurance baseline create", "PR CI baseline을 만듭니다.", "dev-control-room assurance baseline create --project <id> --repository <id> --worktree <id> --target-branch <branch> [--home <dir>] [--json]", "dev-control-room assurance baseline create --project project-1 --repository repo-1 --worktree primary --target-branch main --json", []string{"--project <id>", "--repository <id>", "--worktree <id>", "--target-branch <branch>"}, nil), true
+	case "assurance campaign":
+		return spec("assurance campaign", "Quality campaign을 만듭니다.", "dev-control-room assurance campaign create [options]", "dev-control-room assurance campaign create --project project-1 --repository repo-1 --worktree primary --name smoke --json", []string{"create", "--project <id>", "--repository <id>", "--worktree <id>", "--name <name>"}, []string{"create"}), true
+	case "assurance campaign create":
+		return spec("assurance campaign create", "Quality campaign을 만듭니다.", "dev-control-room assurance campaign create --project <id> --repository <id> --worktree <id> --name <name> [--session <id>] [--home <dir>] [--json]", "dev-control-room assurance campaign create --project project-1 --repository repo-1 --worktree primary --name smoke --json", []string{"--project <id>", "--repository <id>", "--worktree <id>", "--name <name>"}, nil), true
+	case "assurance run":
+		return spec("assurance run", "Quality 검증을 실행합니다.", "dev-control-room assurance run --campaign <id> --technique <technique> [--provider <name>] [--model <name>] [--home <dir>] [--json]", "dev-control-room assurance run --campaign campaign-1 --technique static_security --json", []string{"--campaign <id>", "--technique <technique>"}, nil), true
+	case "assurance invocation":
+		return spec("assurance invocation", "Agent 실행을 조회하거나 시작합니다.", "dev-control-room assurance invocation <show|run> [options]", "dev-control-room assurance invocation run --session session-1 --provider codex --prompt \"요약\" --json", []string{"show 또는 run"}, []string{"show", "run"}), true
+	case "assurance invocation show":
+		return spec("assurance invocation show", "Agent 실행 하나를 조회합니다.", "dev-control-room assurance invocation show --id <id> [--home <dir>] [--json]", "dev-control-room assurance invocation show --id invocation-1 --json", []string{"--id <id>"}, nil), true
+	case "assurance invocation run":
+		return spec("assurance invocation run", "허용된 Provider로 Agent 실행을 시작합니다.", "dev-control-room assurance invocation run --session <id> --provider <fake|claude|gemini|codex> [--prompt <한 줄>] [--profile <id>] [--model <name>] [--scenario <fixture>] [--home <dir>] [--json]", "dev-control-room assurance invocation run --session session-1 --provider codex --prompt \"요약\" --json", []string{"--session <id>", "--provider <name>"}, nil), true
+	default:
+		return cliHelpSpec{}, false
+	}
+}
+
+func cliAssuranceHelpSpec() cliHelpSpec {
+	return cliHelpSpec{
+		Command:      "assurance",
+		Summary:      "검증 기준선, Quality Run, Agent 실행을 관리합니다.",
+		Usage:        "dev-control-room assurance <command> [options]",
+		Required:     []string{"<command>"},
+		Commands:     []string{"provider", "dashboard", "sessions", "baselines", "campaigns", "runs", "invocations", "session create", "baseline create", "campaign create", "run", "invocation show", "invocation run"},
+		Options:      []string{"--json", "--home <dir>"},
+		Example:      "dev-control-room assurance invocation run --session session-1 --provider codex --prompt \"요약\" --json",
+		JSONBehavior: "--json 추가 시 표준 JSON envelope 출력",
+		Safety:       []string{"named flags only", "로컬 서비스 경계", "허용된 Provider만 실행"},
+	}
+}
+
+func cliGenericHelpSpec(path []string) cliHelpSpec {
+	command := strings.Join(path, " ")
+	if command == "" {
+		command = "dev-control-room"
+	}
+	return cliHelpSpec{
+		Command:      command,
+		Summary:      "명령 도움말입니다.",
+		Usage:        "dev-control-room " + command + " [options]",
+		Required:     []string{"없음"},
+		Example:      "dev-control-room " + command + " --json",
+		JSONBehavior: "--json 추가 시 표준 JSON envelope 출력",
+	}
 }
 
 func runVersion(args []string) int { return runVersionTo(args, os.Stdout, os.Stderr) }
@@ -155,6 +314,9 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 }
 
 func runAssurance(args []string, stdout, stderr io.Writer) int {
+	if jsonOutput, helpArgs, help := parseCLIHelpArgs(args); help {
+		return runCLIHelpPath(append([]string{"assurance"}, helpArgs...), jsonOutput, stdout, stderr)
+	}
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
 		return runAssuranceHelp(assuranceJSONRequested(args), stdout, stderr)
 	}
@@ -272,44 +434,11 @@ func newAssuranceCommandContext(parent context.Context) (context.Context, contex
 }
 
 func runAssuranceHelp(jsonOutput bool, stdout, stderr io.Writer) int {
-	commands := []string{"provider", "dashboard", "sessions", "baselines", "campaigns", "runs", "invocations", "session create", "baseline create", "campaign create", "run", "invocation show", "invocation run"}
-	if jsonOutput {
-		return encodeSuccess(stdout, map[string]any{
-			"command":  "assurance",
-			"commands": commands,
-			"safety":   []string{"named flags only", "local application service only", "no shell or network execution"},
-			"examples": []string{"dev-control-room assurance session create --project <id> --repository <id> --worktree <id> --home <dir> --json", "dev-control-room assurance baseline create --project <id> --repository <id> --worktree <id> --target-branch main --home <dir> --json", "dev-control-room assurance campaign create --project <id> --repository <id> --worktree <id> --name smoke --home <dir> --json", "dev-control-room assurance run --campaign <id> --technique static_security --home <dir> --json", "dev-control-room assurance invocation run --session <id> --provider fake --home <dir> --json"},
-		})
-	}
-	_, _ = fmt.Fprintln(stdout, "assurance 도움말")
-	_, _ = fmt.Fprintln(stdout, "조회: provider, dashboard, sessions, baselines, campaigns, runs, invocations")
-	_, _ = fmt.Fprintln(stdout, "생성: session create, baseline create, campaign create")
-	_, _ = fmt.Fprintln(stdout, "실행: run, invocation run | 확인: invocation show")
-	_, _ = fmt.Fprintln(stdout, "공통 옵션: --json, --home <로컬 데이터 디렉터리>")
-	_, _ = fmt.Fprintln(stdout, "Quality Run: --campaign <id> --technique <static_security|mutation|property|fuzz|targeted_e2e>")
-	_, _ = fmt.Fprintln(stdout, "Agent: --session <id> --provider <fake|claude|gemini>; fixture 실행만 허용합니다. Codex 실제 실행은 명시적 bounded prompt 경로가 필요하며 이 lifecycle에서는 시작하지 않습니다.")
-	return int(contract.ExitSuccess)
+	return runCLIHelpPath([]string{"assurance"}, jsonOutput, stdout, stderr)
 }
 
 func runAssuranceSubcommandHelp(subcommand string, jsonOutput bool, stdout, stderr io.Writer) int {
-	known := map[string]string{
-		"session":    "session create --project <id> --repository <id> --worktree <id> [--provider <name>] [--model <name>]",
-		"baseline":   "baseline create --project <id> --repository <id> --worktree <id> --target-branch <branch>",
-		"campaign":   "campaign create --project <id> --repository <id> --worktree <id> --name <name> [--session <id>]",
-		"run":        "run --campaign <id> --technique <technique> [--provider <name>] [--model <name>]",
-		"invocation": "invocation show --id <id> | invocation run --session <id> --provider <fake|claude|gemini> [--profile <id>] [--model <name>] [--scenario <scenario>]",
-	}
-	usage, ok := known[subcommand]
-	if !ok {
-		return runAssuranceHelp(jsonOutput, stdout, stderr)
-	}
-	if jsonOutput {
-		return encodeSuccess(stdout, map[string]any{"command": "assurance " + subcommand, "usage": usage, "named_flags_only": true})
-	}
-	_, _ = fmt.Fprintf(stdout, "assurance %s 도움말\n\n", subcommand)
-	_, _ = fmt.Fprintln(stdout, usage)
-	_, _ = fmt.Fprintln(stdout, "공통 옵션: --json, --home <로컬 데이터 디렉터리>")
-	return int(contract.ExitSuccess)
+	return runCLIHelpPath(append([]string{"assurance"}, strings.Fields(subcommand)...), jsonOutput, stdout, stderr)
 }
 
 func runAssuranceSessionCommand(service *app.App, ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) int {
@@ -453,6 +582,7 @@ func runAssuranceInvocationCommand(service *app.App, ctx context.Context, args [
 		provider := flags.String("provider", "", "provider name")
 		profile := flags.String("profile", "", "agent profile id")
 		model := flags.String("model", "", "requested model")
+		prompt := flags.String("prompt", "", "Codex one-line prompt (max 2000 UTF-8 bytes)")
 		scenario := flags.String("scenario", "", "fixture scenario")
 		if err := flags.Parse(args[1:]); err != nil {
 			return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
@@ -466,10 +596,24 @@ func runAssuranceInvocationCommand(service *app.App, ctx context.Context, args [
 		if err := validateAssuranceProvider(*provider); err != nil {
 			return writeCLIErrorTo(stderr, err)
 		}
+		promptValue := strings.TrimSpace(*prompt)
+		if strings.EqualFold(strings.TrimSpace(*provider), "codex") {
+			var promptErr error
+			promptValue, promptErr = assurance.ValidateCodexPrompt(*prompt)
+			if promptErr != nil {
+				if strings.TrimSpace(*prompt) == "" {
+					return writeCLIErrorTo(stderr, contract.InvalidInput("provider.prompt_required: --prompt is required for codex"))
+				}
+				return writeCLIErrorTo(stderr, contract.InvalidInput("provider.prompt_invalid: "+promptErr.Error()))
+			}
+			if strings.TrimSpace(*scenario) != "" {
+				return writeCLIErrorTo(stderr, contract.InvalidInput("--scenario is only supported for fake, claude, and gemini fixtures"))
+			}
+		}
 		if err := validateAssuranceScenario(*scenario); err != nil {
 			return writeCLIErrorTo(stderr, err)
 		}
-		item, err := service.RunAgentInvocation(ctx, app.AgentInvocationInput{SessionID: strings.TrimSpace(*session), Provider: strings.TrimSpace(*provider), ProfileID: strings.TrimSpace(*profile), RequestedModel: strings.TrimSpace(*model), Scenario: strings.TrimSpace(*scenario)})
+		item, err := service.RunAgentInvocation(ctx, app.AgentInvocationInput{SessionID: strings.TrimSpace(*session), Provider: strings.TrimSpace(*provider), ProfileID: strings.TrimSpace(*profile), RequestedModel: strings.TrimSpace(*model), Prompt: promptValue, Scenario: strings.TrimSpace(*scenario)})
 		if err != nil {
 			return writeCLIErrorTo(stderr, err)
 		}
@@ -514,9 +658,9 @@ func validateAssuranceProvider(value string) error {
 	case "fake", "claude", "gemini":
 		return nil
 	case "codex":
-		return contract.InvalidInput("provider.prompt_required: Codex requires an explicit bounded prompt path and cannot run from this invocation lifecycle")
+		return nil
 	default:
-		return contract.InvalidInput("--provider must be one of fake, claude, gemini")
+		return contract.InvalidInput("--provider must be one of fake, claude, gemini, codex")
 	}
 }
 
@@ -551,8 +695,8 @@ func assuranceJSONRequested(args []string) bool {
 }
 
 func runProject(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
-		return runHelp([]string{"project"}, stdout, stderr)
+	if jsonOutput, helpArgs, help := parseCLIHelpArgs(args); help {
+		return runCLIHelpPath(append([]string{"project"}, helpArgs...), jsonOutput, stdout, stderr)
 	}
 	if len(args) == 0 {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("project requires list, show, add, update, remove, repository, worktree, discover, sync, export, import, or scan"))
@@ -1406,8 +1550,8 @@ func runEvent(args []string, stdout, stderr io.Writer) int {
 }
 
 func runEnvironment(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
-		return runHelp([]string{"env"}, stdout, stderr)
+	if jsonOutput, helpArgs, help := parseCLIHelpArgs(args); help {
+		return runCLIHelpPath(append([]string{"env"}, helpArgs...), jsonOutput, stdout, stderr)
 	}
 	if len(args) == 0 || (args[0] != "doctor" && args[0] != "status") {
 		return writeCLIErrorTo(stderr, contract.InvalidInput("env requires doctor or status"))
@@ -1709,6 +1853,33 @@ func parseJSONFlag(args []string) (bool, []string, error) {
 		remaining = append(remaining, arg)
 	}
 	return jsonOutput, remaining, nil
+}
+
+func parseCLIHelpArgs(args []string) (bool, []string, bool) {
+	jsonOutput := false
+	helpRequested := false
+	remaining := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--json":
+			jsonOutput = true
+		case "--help", "-h", "help":
+			helpRequested = true
+		case "--home":
+			if index+1 < len(args) {
+				index++
+			}
+		case "":
+			// Empty arguments do not add a help path segment.
+		default:
+			if strings.HasPrefix(arg, "--home=") {
+				continue
+			}
+			remaining = append(remaining, arg)
+		}
+	}
+	return jsonOutput, remaining, helpRequested
 }
 
 func parseHome(args []string) ([]string, string, error) {

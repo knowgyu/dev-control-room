@@ -36,22 +36,24 @@ import (
 var safeID = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 type App struct {
-	home          string
-	listen        string
-	config        Config
-	configMu      sync.Mutex
-	mutationToken string
-	masker        *masking.Masker
-	store         *store.Store
-	broker        *action.Broker
-	collector     collector.GitCollector
-	doctor        environment.Doctor
-	launcher      environment.Launcher
-	scheduler     scheduler.Adapter
-	scanNow       chan string
-	scanMu        sync.Mutex
-	environmentMu sync.Mutex
-	safeguardMu   sync.Mutex
+	home                   string
+	listen                 string
+	config                 Config
+	configMu               sync.Mutex
+	mutationToken          string
+	masker                 *masking.Masker
+	store                  *store.Store
+	broker                 *action.Broker
+	collector              collector.GitCollector
+	doctor                 environment.Doctor
+	launcher               environment.Launcher
+	githubBaselinePath     func() (string, error)
+	githubBaselineExecutor githubBaselineExecutor
+	scheduler              scheduler.Adapter
+	scanNow                chan string
+	scanMu                 sync.Mutex
+	environmentMu          sync.Mutex
+	safeguardMu            sync.Mutex
 }
 
 func New(home, listen string) (*App, error) {
@@ -104,7 +106,7 @@ func New(home, listen string) (*App, error) {
 	}
 	service := &App{
 		home: home, listen: listen, config: config, mutationToken: randomToken(), masker: masker,
-		store: persistence, broker: broker, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), launcher: environment.ProcessLauncher{}, scheduler: scheduler.NewAdapter(), scanNow: make(chan string, 1),
+		store: persistence, broker: broker, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), launcher: environment.ProcessLauncher{}, githubBaselinePath: trustedGitHubCLIPath, githubBaselineExecutor: executeGitHubBaseline, scheduler: scheduler.NewAdapter(), scanNow: make(chan string, 1),
 	}
 	var scheduled scheduler.Result
 	if found, err := persistence.LoadSingleton(context.Background(), "scheduler_state", &scheduled); err != nil {
@@ -126,6 +128,15 @@ func New(home, listen string) (*App, error) {
 			_ = persistence.Close()
 			return nil, fmt.Errorf("finalize default agent profile initialization: %w", err)
 		}
+	}
+	if profile, err := persistence.GetAgentProfile(context.Background(), "codex"); err == nil {
+		if _, err := service.migrateLegacyDefaultCodexProfile(context.Background(), profile); err != nil {
+			_ = persistence.Close()
+			return nil, fmt.Errorf("migrate default Codex profile: %w", err)
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		_ = persistence.Close()
+		return nil, fmt.Errorf("inspect default Codex profile: %w", err)
 	}
 	return service, nil
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/environment"
+	"github.com/knowgyu/dev-control-room/internal/masking"
 )
 
 func (a *App) AssuranceSessions(ctx context.Context) ([]domain.AssuranceSession, error) {
@@ -361,6 +362,7 @@ func (a *App) CreatePRCIBaseline(ctx context.Context, input BaselineInput) (doma
 		return domain.PRCIBaseline{}, contract.CodedError{Code: contract.ErrorUnavailable, Message: "PR CI baseline discovery is unavailable"}
 	}
 	now := time.Now().UTC()
+	entries, digest, sources = a.enrichPRCIBaseline(ctx, input, worktree, entries, digest, sources, now)
 	item := domain.PRCIBaseline{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.PRCIBaselineKind}, Metadata: domain.ObjectMeta{ID: assuranceID("baseline", input.ProjectID, input.RepositoryID, input.WorktreeID, now), Name: "PR CI baseline"}, Spec: domain.PRCIBaselineSpec{ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, TargetBranch: strings.TrimSpace(input.TargetBranch), Head: worktree.Spec.Head, SourceDigest: digest, CapturedAt: now, FreshUntil: now.Add(24 * time.Hour), State: "fresh", Entries: entries, Sources: sources}}
 	if err := a.store.SaveBaseline(ctx, item); err != nil {
 		return domain.PRCIBaseline{}, err
@@ -408,8 +410,39 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	if !validTechnique(input.Technique) {
 		return domain.QualityRun{}, contract.InvalidInput("quality technique is not enabled in v1")
 	}
+	executionRoot, revalidationErr := a.revalidateAssuranceWorktree(ctx, worktree)
+	var selection assurance.QualityRunnerSelection
+	var selectionErr error
+	if revalidationErr == nil {
+		selection, selectionErr = assurance.NewQualityRunnerRegistry().Select(assurance.QualityRunnerSelectionRequest{
+			TechniqueID:  input.Technique,
+			WorktreeRoot: executionRoot,
+		})
+	} else {
+		selectionErr = revalidationErr
+	}
 	now := time.Now().UTC()
-	run := domain.QualityRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityRunKind}, Metadata: domain.ObjectMeta{ID: assuranceID("run", campaign.Metadata.ID, input.Technique, now.String()), Name: "Quality Run"}, Spec: domain.QualityRunSpec{CampaignID: campaign.Metadata.ID, ProjectID: campaign.Spec.ProjectID, RepositoryID: campaign.Spec.RepositoryID, WorktreeID: campaign.Spec.WorktreeID, Head: worktree.Spec.Head, Technique: input.Technique, Runner: "typed-git-diff-check", Command: domain.CheckCommand{Executable: "git", Arguments: []string{"diff", "--check"}, TimeoutSeconds: 60}, ConfigDigest: digestText(input.Technique, input.Provider, input.Model), State: domain.AssuranceStateQueued, StartedAt: now, Evidence: map[string]any{"provider": input.Provider, "model": input.Model}}}
+	runnerID := "quality.registry"
+	configDigest := digestText(input.Technique)
+	selectionState := string(assurance.QualityRunnerSelectionUnavailable)
+	var unavailable *assurance.QualityRunnerUnavailableReason
+	if selectionErr == nil {
+		runnerID = selection.Definition.RunnerID
+		configDigest = selection.Metadata.ConfigDigest
+		selectionState = string(selection.State)
+		unavailable = selection.Unavailable
+	}
+	run := domain.QualityRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityRunKind}, Metadata: domain.ObjectMeta{ID: assuranceID("run", campaign.Metadata.ID, input.Technique, now.String()), Name: "Quality Run"}, Spec: domain.QualityRunSpec{CampaignID: campaign.Metadata.ID, ProjectID: campaign.Spec.ProjectID, RepositoryID: campaign.Spec.RepositoryID, WorktreeID: campaign.Spec.WorktreeID, Head: worktree.Spec.Head, Technique: input.Technique, Runner: runnerID, ConfigDigest: configDigest, State: domain.AssuranceStateQueued, StartedAt: now, Evidence: map[string]any{"provider": strings.TrimSpace(input.Provider), "model": strings.TrimSpace(input.Model), "selectionState": selectionState, "configDigest": configDigest}}}
+	if revalidationErr != nil {
+		run.Spec.Evidence["unavailable"] = &assurance.QualityRunnerUnavailableReason{Code: "worktree.revalidation_failed", Detail: "selected Worktree could not be revalidated"}
+	} else if selectionErr == nil {
+		run.Spec.Evidence["runnerMetadata"] = selection.Metadata
+		if unavailable != nil {
+			run.Spec.Evidence["unavailable"] = unavailable
+		}
+	} else {
+		run.Spec.Evidence["unavailable"] = &assurance.QualityRunnerUnavailableReason{Code: "runner.selection_unavailable", Detail: "registered Quality Runner selection could not be completed"}
+	}
 	if err := a.store.SaveQualityRun(ctx, run); err != nil {
 		return domain.QualityRun{}, err
 	}
@@ -417,40 +450,139 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	if err := a.store.UpdateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, 2, run.Spec.State, now, run); err != nil {
 		return domain.QualityRun{}, err
 	}
-	techniqueReport, techniqueErr := assurance.RunFixtureTechnique(ctx, input.Technique, worktree.Spec.CanonicalPath)
-	if techniqueErr != nil {
+	var processResult environment.Result
+	var processErr error
+	executed := false
+	if revalidationErr != nil {
 		run.Spec.State = domain.AssuranceStateFailed
-		run.Spec.Summary = "quality technique adapter가 실행되지 않았습니다."
-		run.Spec.StaleReason = "technique adapter failed"
+		run.Spec.Summary = "선택한 Worktree를 다시 확인할 수 없습니다."
+		run.Spec.StaleReason = "worktree.revalidation_failed"
+	} else if selectionErr != nil {
+		run.Spec.State = domain.AssuranceStateFailed
+		run.Spec.Summary = "Quality Runner를 사용할 수 없습니다."
+		run.Spec.StaleReason = "runner.selection_unavailable"
+	} else if selection.State != assurance.QualityRunnerSelectionAvailable {
+		run.Spec.State = domain.AssuranceStateFailed
+		run.Spec.Summary = "선택한 Quality Runner를 사용할 수 없습니다."
+		if unavailable != nil {
+			run.Spec.StaleReason = unavailable.Code + ": " + unavailable.Detail
+		} else {
+			run.Spec.StaleReason = "runner.unavailable"
+		}
+	} else {
+		run.Spec.Command = qualityCheckCommand(selection.Command, selection.Definition.Timeout)
+		executed = true
+		processResult, processErr = (environment.ProcessRunner{OutputLimit: 128 << 10}).RunInDirectory(ctx, selection.Command.Executable, selection.Command.Arguments, qualityRunnerEnvironment(), selection.WorktreeRoot, selection.Definition.Timeout)
+		if processErr != nil {
+			run.Spec.State = domain.AssuranceStateFailed
+			run.Spec.Summary = "선택한 Quality Runner가 실패했습니다."
+			run.Spec.StaleReason = "runner.execution_failed"
+		} else {
+			run.Spec.State = domain.AssuranceStateSucceeded
+			run.Spec.Summary = "선택한 Quality Runner가 완료되었습니다."
+		}
 	}
-	result, processErr := (environment.ProcessRunner{OutputLimit: 128 << 10}).RunInDirectory(ctx, "git", []string{"diff", "--check"}, environment.AllowlistedEnvironment(nil), worktree.Spec.CanonicalPath, time.Minute)
 	completed := time.Now().UTC()
 	run.Spec.CompletedAt = &completed
-	run.Spec.ExitCode = result.ExitCode
-	run.Spec.State = domain.AssuranceStateSucceeded
-	run.Spec.Summary = "정적 diff 점검이 완료되었습니다."
-	run.Spec.Evidence["techniqueReport"] = techniqueReport
-	if techniqueErr != nil {
-		run.Spec.State = domain.AssuranceStateFailed
-		run.Spec.Summary = "quality technique adapter가 실행되지 않았습니다."
+	if executed {
+		run.Spec.ExitCode = processResult.ExitCode
 	}
-	if processErr != nil {
-		run.Spec.State = domain.AssuranceStateFailed
-		run.Spec.Summary = "정적 diff 점검이 실패했습니다."
-		run.Spec.StaleReason = "typed runner failed"
+	run.Spec.Evidence["result"] = qualityRunResultEvidence(a.masker, run.Spec.State, processResult, processErr, executed)
+	report, marshalErr := json.Marshal(qualityRunArtifact(run, executed))
+	if marshalErr != nil {
+		return domain.QualityRun{}, marshalErr
 	}
-	report, _ := json.Marshal(map[string]any{"runId": run.Metadata.ID, "technique": input.Technique, "state": run.Spec.State, "exitCode": run.Spec.ExitCode, "stderr": a.masker.Mask(result.Stderr), "techniqueReport": techniqueReport})
 	artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".json", MIME: "application/json", Content: report})
-	if artifactErr == nil {
-		run.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
+	if artifactErr != nil {
+		return domain.QualityRun{}, artifactErr
 	}
+	run.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
 	if err := a.store.UpdateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, 3, run.Spec.State, completed, run); err != nil {
 		return domain.QualityRun{}, err
+	}
+	if selectionErr != nil || (selectionErr == nil && selection.State != assurance.QualityRunnerSelectionAvailable) {
+		return run, contract.Unavailable("selected Quality Runner is unavailable")
 	}
 	if processErr != nil {
 		return run, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "quality run did not succeed"}
 	}
 	return run, nil
+}
+
+func qualityCheckCommand(command assurance.TypedCommand, timeout time.Duration) domain.CheckCommand {
+	return domain.CheckCommand{Executable: command.Executable, Arguments: append([]string(nil), command.Arguments...), TimeoutSeconds: int(timeout / time.Second)}
+}
+
+func qualityRunnerEnvironment() []string {
+	env := environment.AllowlistedEnvironment([]string{"GOCACHE"})
+	filtered := make([]string, 0, len(env)+5)
+	cacheSet := false
+	for _, value := range env {
+		name, _, _ := strings.Cut(value, "=")
+		switch strings.ToUpper(name) {
+		case "GOPROXY", "GOSUMDB", "GOTOOLCHAIN", "GOWORK":
+			continue
+		case "GOCACHE":
+			cacheSet = true
+		}
+		filtered = append(filtered, value)
+	}
+	if !cacheSet {
+		filtered = append(filtered, "GOCACHE="+filepath.Join(os.TempDir(), "dev-control-room-go-cache"))
+	}
+	return append(filtered, "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off")
+}
+
+const qualityRunOutputLimit = 16 << 10
+
+func boundedQualityOutput(masker *masking.Masker, value string) string {
+	if masker != nil {
+		value = masker.Mask(value)
+	}
+	value = strings.ToValidUTF8(value, "�")
+	if len(value) > qualityRunOutputLimit {
+		return value[:qualityRunOutputLimit] + "…[truncated]"
+	}
+	return value
+}
+
+func qualityRunResultEvidence(masker *masking.Masker, state string, result environment.Result, processErr error, executed bool) map[string]any {
+	evidence := map[string]any{"state": state, "executed": executed}
+	if executed {
+		evidence["exitCode"] = result.ExitCode
+		evidence["stdout"] = boundedQualityOutput(masker, result.Stdout)
+		evidence["stderr"] = boundedQualityOutput(masker, result.Stderr)
+		if processErr != nil {
+			evidence["error"] = "runner execution failed"
+		}
+	} else {
+		evidence["exitCode"] = nil
+		evidence["stdout"] = ""
+		evidence["stderr"] = ""
+	}
+	return evidence
+}
+
+func qualityRunArtifact(run domain.QualityRun, executed bool) map[string]any {
+	report := map[string]any{
+		"runId":          run.Metadata.ID,
+		"technique":      run.Spec.Technique,
+		"runner":         run.Spec.Runner,
+		"selectionState": run.Spec.Evidence["selectionState"],
+		"configDigest":   run.Spec.ConfigDigest,
+		"state":          run.Spec.State,
+		"result":         run.Spec.Evidence["result"],
+	}
+	if metadata, ok := run.Spec.Evidence["runnerMetadata"]; ok {
+		report["runnerMetadata"] = metadata
+	}
+	if unavailable, ok := run.Spec.Evidence["unavailable"]; ok {
+		report["unavailable"] = unavailable
+	}
+	if executed {
+		report["command"] = run.Spec.Command
+	}
+	return report
 }
 
 func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput) (domain.AgentInvocation, error) {
@@ -483,20 +615,26 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 	if scenario == "" {
 		scenario = assurance.FakeSuccess
 	}
+	executionRoot, revalidationErr := a.revalidateAssuranceWorktree(ctx, worktree)
 	var result assurance.RunResult
-	switch provider {
-	case "fake", "claude", "gemini":
-		result = (assurance.FakeAdapter{Provider: provider, Scenario: scenario}).Run(ctx, assurance.RunRequest{Provider: provider, Model: input.RequestedModel, Worktree: worktree.Spec.CanonicalPath})
-	case "codex":
-		result = a.runCodexInvocation(ctx, invocation.Spec.ProfileID, input.RequestedModel, worktree.Spec.CanonicalPath)
-	default:
-		result = assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.unknown"}
+	if revalidationErr != nil {
+		result = assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "worktree.revalidation_failed"}
+	} else {
+		switch provider {
+		case "fake", "claude", "gemini":
+			result = (assurance.FakeAdapter{Provider: provider, Scenario: scenario}).Run(ctx, assurance.RunRequest{Provider: provider, Model: input.RequestedModel, Worktree: executionRoot})
+		case "codex":
+			result = a.runCodexInvocation(ctx, invocation.Spec.ProfileID, input.RequestedModel, executionRoot, input.Prompt)
+		default:
+			result = assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.unknown"}
+		}
 	}
 	completed := time.Now().UTC()
 	invocation.Spec.State = result.State
 	invocation.Spec.CompletedAt = &completed
 	if result.Structured != nil {
-		invocation.Spec.Structured, _ = a.masker.MaskValue(result.Structured).(map[string]any)
+		masked := a.masker.MaskValue(result.Structured)
+		invocation.Spec.Structured, _ = redactInvocationPrompt(masked, input.Prompt).(map[string]any)
 	}
 	invocation.Spec.FailureCode = result.FailureCode
 	invocation.Spec.ArtifactIDs = nil
@@ -512,12 +650,27 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 		}
 	}
 	if result.Summary != "" {
-		invocation.Spec.Structured = map[string]any{"summary": a.masker.Mask(result.Summary), "result": invocation.Spec.Structured}
+		invocation.Spec.Structured = map[string]any{"summary": redactInvocationPrompt(a.masker.Mask(result.Summary), input.Prompt), "result": invocation.Spec.Structured}
 	}
-	if report, marshalErr := json.Marshal(map[string]any{"provider": provider, "state": result.State, "failureCode": result.FailureCode, "structured": invocation.Spec.Structured, "rawTranscript": false}); marshalErr == nil {
-		if artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "agent_invocation", SourceID: id, Name: id + ".json", MIME: "application/json", Content: report}); artifactErr == nil {
+	artifactPersisted := false
+	report, marshalErr := json.Marshal(map[string]any{"provider": provider, "state": result.State, "failureCode": result.FailureCode, "structured": invocation.Spec.Structured, "rawTranscript": false})
+	if marshalErr == nil {
+		artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "agent_invocation", SourceID: id, Name: id + ".json", MIME: "application/json", Content: report})
+		if artifactErr == nil {
 			invocation.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
+			artifactPersisted = true
 		}
+	}
+	if !artifactPersisted {
+		// A completed provider result without its durable evidence must never be
+		// presented as a completed invocation. Keep the failure code generic so
+		// filesystem/store details cannot cross the presentation boundary.
+		invocation.Spec.State = domain.AssuranceStateFailed
+		invocation.Spec.FailureCode = "artifact.persistence_failed"
+		invocation.Spec.Structured = nil
+		invocation.Spec.ArtifactIDs = nil
+		result.State = domain.AssuranceStateFailed
+		result.FailureCode = invocation.Spec.FailureCode
 	}
 	if err := a.store.UpdateAssuranceRevision(ctx, domain.AgentInvocationKind, id, 3, invocation.Spec.State, completed, invocation); err != nil {
 		return domain.AgentInvocation{}, err
@@ -531,10 +684,43 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 		session.Spec.ResumeBrief.NextSafeAction = "실패 원인과 재시도 범위를 검토합니다."
 	}
 	_ = a.updateAssuranceSession(ctx, session)
+	if !artifactPersisted {
+		return invocation, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "agent invocation evidence could not be persisted"}
+	}
 	return invocation, nil
 }
 
-func (a *App) runCodexInvocation(ctx context.Context, profileID, model, worktree string) assurance.RunResult {
+// revalidateAssuranceWorktree replays the persisted Git association proof at
+// the last possible point before an assurance runner receives a directory.
+// It deliberately returns the freshly collected canonical path, never the
+// previously persisted path, so a changed association cannot be spawned.
+func (a *App) revalidateAssuranceWorktree(ctx context.Context, stored domain.Worktree) (string, error) {
+	if stored.Metadata.ID == "" || stored.Spec.ProjectID == "" || stored.Spec.RepositoryID == "" ||
+		stored.Spec.Trust != domain.WorktreeTrustVerifiedReadOnly || stored.Spec.TombstonedAt != nil ||
+		stored.Spec.Prunable || stored.Spec.CanonicalPath == "" || stored.Spec.PathFingerprint == "" ||
+		stored.Spec.AssociationFingerprint == "" || stored.Spec.Head == "" {
+		return "", errors.New("stored assurance Worktree is not executable")
+	}
+	current, changed, err := a.discoveryWorktree(ctx, stored.Spec.ProjectID, stored.Spec.RepositoryID, stored.Metadata.ID)
+	if err != nil || changed {
+		return "", errors.New("assurance Worktree revalidation failed")
+	}
+	if current.ID != stored.Metadata.ID || current.Path == "" || current.Path != stored.Spec.CanonicalPath ||
+		current.Head != stored.Spec.Head || current.Trust != string(domain.WorktreeTrustVerifiedReadOnly) ||
+		current.Prunable || current.AssociationFingerprint != stored.Spec.AssociationFingerprint ||
+		worktreePathFingerprint(current.Path) != stored.Spec.PathFingerprint {
+		return "", errors.New("assurance Worktree identity changed")
+	}
+	return current.Path, nil
+}
+
+func (a *App) runCodexInvocation(ctx context.Context, profileID, model, worktree, prompt string) assurance.RunResult {
+	if strings.TrimSpace(prompt) == "" {
+		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.prompt_required"}
+	}
+	if _, err := assurance.ValidateCodexPrompt(prompt); err != nil {
+		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.prompt_invalid"}
+	}
 	profile, err := a.AgentProfile(ctx, profileID)
 	if err != nil {
 		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.profile_required"}
@@ -547,18 +733,48 @@ func (a *App) runCodexInvocation(ctx context.Context, profileID, model, worktree
 	if status.Provider == "" {
 		status.Provider = "codex"
 	}
-	_, err = assurance.BuildCodexInvocationCommand(status, model)
+	schemaPath, err := assurance.WriteCodexOutputSchema(a.home)
+	if err != nil {
+		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.schema_unavailable"}
+	}
+	if err := assurance.VerifyCodexOutputSchema(schemaPath); err != nil {
+		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.schema_unavailable"}
+	}
+	command, err := assurance.BuildCodexInvocationCommand(status, model, assurance.CodexInvocationOptions{Worktree: worktree, SchemaPath: schemaPath, Prompt: prompt})
 	if err != nil {
 		failureCode := status.ReasonCode
 		if failureCode == "" {
-			failureCode = "provider.launch_untrusted"
+			failureCode = "provider.invalid_command"
 		}
 		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: failureCode}
 	}
-	// AgentInvocationInput intentionally has no prompt/task field yet. Do not
-	// start Codex with an empty exec request: the CLI may consume stdin or wait
-	// for an interactive task. A future bounded prompt path must be explicit.
-	return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.prompt_required"}
+	timeout := time.Duration(profile.Spec.TimeoutSeconds) * time.Second
+	return assurance.CodexExecutionFromContext(ctx).Runner(ctx, assurance.RunRequest{Provider: "codex", Model: strings.TrimSpace(model), Command: command, Worktree: worktree, Timeout: timeout}, a.masker)
+}
+
+func redactInvocationPrompt(value any, prompt string) any {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return value
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.ReplaceAll(typed, prompt, masking.Replacement)
+	case map[string]any:
+		redacted := make(map[string]any, len(typed))
+		for key, item := range typed {
+			redacted[strings.ReplaceAll(key, prompt, masking.Replacement)] = redactInvocationPrompt(item, prompt)
+		}
+		return redacted
+	case []any:
+		redacted := make([]any, len(typed))
+		for index, item := range typed {
+			redacted[index] = redactInvocationPrompt(item, prompt)
+		}
+		return redacted
+	default:
+		return value
+	}
 }
 
 func trustedCodexProfile(profile domain.AgentProfile) error {
@@ -775,14 +991,6 @@ func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, er
 				entries = append(entries, domain.BaselineEntry{ID: fmt.Sprintf("workflow-%d", index), Name: "GitHub Actions run", Classification: domain.BaselineObserved, SourcePath: rel, Command: command, Observed: true})
 			}
 		}
-	}
-	if len(entries) == 0 {
-		entries = append(entries, domain.BaselineEntry{ID: "unknown", Name: "PR check baseline", Classification: domain.BaselineUnknown})
-	} else {
-		// Provider-enforced rules and current check history are not inferred from
-		// local files. Keep that unresolved part explicit instead of presenting a
-		// local equivalent as the required PR contract.
-		entries = append(entries, domain.BaselineEntry{ID: "provider-rules-unknown", Name: "provider-enforced PR rules", Classification: domain.BaselineUnknown})
 	}
 	sum := hash.Sum(nil)
 	return entries, "sha256:" + hex.EncodeToString(sum), files, nil

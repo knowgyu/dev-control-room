@@ -1,8 +1,11 @@
 package assurance
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -59,11 +62,11 @@ func TestCodexResolverUsesAdjacentPackageAndNeverTrustsNativeOrBatchLauncher(t *
 				return nil, errors.New("unexpected path")
 			}
 		},
-		StatFile: func(name string) error {
-			if name != `C:\Users\fixture\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.js` {
+		StatFile: func(name string) (os.FileMode, error) {
+			if name != `C:\Program Files\nodejs\node.exe` && name != `C:\Users\fixture\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.js` {
 				t.Fatalf("unexpected entry path %q", name)
 			}
-			return nil
+			return 0o600, nil
 		},
 	}
 	status := resolver.Resolve()
@@ -121,7 +124,7 @@ func TestCodexResolverProbesCmdThenPs1WithoutBareCodex(t *testing.T) {
 					}
 					return []byte("export {}"), nil
 				},
-				StatFile: func(string) error { return nil },
+				StatFile: func(string) (os.FileMode, error) { return 0o600, nil },
 			}
 			status := resolver.Resolve()
 			if status.State != ProviderReady {
@@ -154,7 +157,12 @@ func TestCodexResolverFailsClosedWhenPackageEntryIsMissing(t *testing.T) {
 		ReadFile: func(string) ([]byte, error) {
 			return []byte(`{"name":"@openai/codex","bin":"bin/codex.js"}`), nil
 		},
-		StatFile: func(string) error { return errors.New("missing") },
+		StatFile: func(name string) (os.FileMode, error) {
+			if name == `C:\Program Files\nodejs\node.exe` {
+				return 0o600, nil
+			}
+			return 0, errors.New("missing")
+		},
 	}).Resolve()
 	if status.State == ProviderReady || status.LaunchTrusted || status.ReasonCode != "provider.package_entry_missing" {
 		t.Fatalf("missing package entry was trusted: %#v", status)
@@ -179,10 +187,72 @@ func TestCodexResolverFailsClosedWhenPackageEntryCannotBeRead(t *testing.T) {
 			}
 			return nil, errors.New("unreadable")
 		},
-		StatFile: func(string) error { return nil },
+		StatFile: func(string) (os.FileMode, error) { return 0o600, nil },
 	}).Resolve()
 	if status.State == ProviderReady || status.LaunchTrusted || status.ReasonCode != "provider.package_entry_unreadable" {
 		t.Fatalf("unreadable package entry was trusted: %#v", status)
+	}
+}
+
+func TestCodexResolverRequiresRegularNonSymlinkNodeAndScript(t *testing.T) {
+	const (
+		nodePath   = `C:\Program Files\nodejs\node.exe`
+		scriptPath = `C:\Users\fixture\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.js`
+	)
+	regular := os.FileMode(0o600)
+	for _, testCase := range []struct {
+		name       string
+		nodeMode   os.FileMode
+		nodeErr    error
+		scriptMode os.FileMode
+		scriptErr  error
+		wantReason string
+	}{
+		{name: "missing node", nodeErr: errors.New("missing"), scriptMode: regular, wantReason: "provider.node_missing"},
+		{name: "node symlink", nodeMode: os.ModeSymlink | 0o777, scriptMode: regular, wantReason: "provider.node_not_regular"},
+		{name: "node directory", nodeMode: os.ModeDir | 0o700, scriptMode: regular, wantReason: "provider.node_not_regular"},
+		{name: "missing script", nodeMode: regular, scriptErr: errors.New("missing"), wantReason: "provider.package_entry_missing"},
+		{name: "script symlink", nodeMode: regular, scriptMode: os.ModeSymlink | 0o777, wantReason: "provider.package_entry_not_regular"},
+		{name: "script directory", nodeMode: regular, scriptMode: os.ModeDir | 0o700, wantReason: "provider.package_entry_not_regular"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resolver := CodexResolver{
+				LookPath: func(name string) (string, error) {
+					switch name {
+					case "codex.cmd":
+						return `C:\Users\fixture\AppData\Roaming\npm\codex.cmd`, nil
+					case "node":
+						return nodePath, nil
+					default:
+						return "", errors.New("not found")
+					}
+				},
+				ReadFile: func(name string) ([]byte, error) {
+					if strings.HasSuffix(name, `\package.json`) {
+						return []byte(`{"name":"@openai/codex","bin":"bin/codex.js"}`), nil
+					}
+					if name != scriptPath {
+						t.Fatalf("unexpected read path %q", name)
+					}
+					return []byte("export {}"), nil
+				},
+				StatFile: func(name string) (os.FileMode, error) {
+					switch name {
+					case nodePath:
+						return testCase.nodeMode, testCase.nodeErr
+					case scriptPath:
+						return testCase.scriptMode, testCase.scriptErr
+					default:
+						t.Fatalf("unexpected stat path %q", name)
+						return 0, errors.New("unexpected path")
+					}
+				},
+			}
+			status := resolver.Resolve()
+			if status.State == ProviderReady || status.LaunchTrusted || status.ProfileReady || status.ReasonCode != testCase.wantReason {
+				t.Fatalf("unsafe file was trusted: %#v", status)
+			}
+		})
 	}
 }
 
@@ -195,9 +265,41 @@ func TestBuildCodexInvocationCommandRejectsUntrustedResolvedCommand(t *testing.T
 		{`C:\Program Files\nodejs\node.exe`},
 	} {
 		base.ResolvedCommand = resolved
-		if _, err := BuildCodexInvocationCommand(base, "fixture-model"); err == nil {
+		if _, err := BuildCodexInvocationCommand(base, "fixture-model", CodexInvocationOptions{Worktree: `C:\fixture`, SchemaPath: `C:\app\runtime\codex\output-schema.json`, Prompt: "inspect"}); err == nil {
 			t.Fatalf("accepted untrusted resolved command %#v", resolved)
 		}
+	}
+}
+
+func TestBuildCodexInvocationCommandRejectsUnsafeInvocationInputs(t *testing.T) {
+	status := ProviderStatus{Provider: "codex", State: ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}
+	base := CodexInvocationOptions{Worktree: `C:\fixture`, SchemaPath: `C:\app\runtime\codex\output-schema.json`, Prompt: "inspect"}
+	if _, err := BuildCodexInvocationCommand(status, "--ignore-rules", base); err == nil {
+		t.Fatal("accepted a model that could be parsed as a control flag")
+	}
+	base.Worktree = `relative\fixture`
+	if _, err := BuildCodexInvocationCommand(status, "fixture", base); err == nil {
+		t.Fatal("accepted a relative worktree")
+	}
+	base = CodexInvocationOptions{Worktree: `C:\fixture`, SchemaPath: `C:\tmp\schema.json`, Prompt: "inspect"}
+	if _, err := BuildCodexInvocationCommand(status, "fixture", base); err == nil {
+		t.Fatal("accepted an arbitrary schema path")
+	}
+	base = CodexInvocationOptions{Worktree: `C:\fixture`, SchemaPath: `C:\app\runtime\codex\output-schema.json`, Prompt: "inspect\nfixture"}
+	if _, err := BuildCodexInvocationCommand(status, "fixture", base); err == nil {
+		t.Fatal("accepted a multiline prompt")
+	}
+	command, err := BuildCodexInvocationCommand(status, "fixture", CodexInvocationOptions{
+		Worktree:   `C:\fixture`,
+		SchemaPath: `C:\app\runtime\codex\output-schema.json`,
+		Prompt:     "--help",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	separatorIndex := len(command.Arguments) - 2
+	if command.Arguments[separatorIndex] != "--" || command.Arguments[separatorIndex+1] != "--help" {
+		t.Fatalf("leading-hyphen prompt was not separated: %#v", command.Arguments)
 	}
 }
 
@@ -213,7 +315,7 @@ func TestCodexExecutionContextSeamPreservesTypedArgv(t *testing.T) {
 		},
 	})
 	execution := CodexExecutionFromContext(ctx)
-	command, err := BuildCodexInvocationCommand(execution.Resolver(), "fixture model")
+	command, err := BuildCodexInvocationCommand(execution.Resolver(), "fixture model", CodexInvocationOptions{Worktree: `C:\worktree`, SchemaPath: `C:\app\runtime\codex\output-schema.json`, Prompt: "inspect fixture"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +323,7 @@ func TestCodexExecutionContextSeamPreservesTypedArgv(t *testing.T) {
 	if result.State != "succeeded" || captured.Command.Executable != `C:\Program Files\nodejs\node.exe` {
 		t.Fatalf("result=%#v command=%#v", result, captured.Command)
 	}
-	want := []string{`C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`, "exec", "--json", "--model", "fixture model"}
+	want := []string{`C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`, "exec", "--json", "--sandbox", "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--cd", `C:\worktree`, "--output-schema", `C:\app\runtime\codex\output-schema.json`, "--model", "fixture model", "--", "inspect fixture"}
 	if len(captured.Command.Arguments) != len(want) {
 		t.Fatalf("arguments = %#v", captured.Command.Arguments)
 	}
@@ -232,21 +334,139 @@ func TestCodexExecutionContextSeamPreservesTypedArgv(t *testing.T) {
 	}
 }
 
+func TestValidateCodexInvocationCommandRequiresCompleteFixedArgv(t *testing.T) {
+	status := ProviderStatus{Provider: "codex", State: ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}
+	command, err := BuildCodexInvocationCommand(status, "fixture-model", CodexInvocationOptions{
+		Worktree:   `C:\fixture`,
+		SchemaPath: `C:\app\runtime\codex\output-schema.json`,
+		Prompt:     "inspect fixture",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCodexInvocationCommand(command); err != nil {
+		t.Fatalf("valid command rejected: %v", err)
+	}
+
+	mutate := func(change func([]string) []string) TypedCommand {
+		args := append([]string(nil), command.Arguments...)
+		return TypedCommand{Executable: command.Executable, Arguments: change(args)}
+	}
+	for _, testCase := range []struct {
+		name    string
+		command TypedCommand
+	}{
+		{name: "missing separator", command: mutate(func(args []string) []string {
+			return append(args[:codexPromptSeparatorIndex+2], args[codexPromptSeparatorIndex+3:]...)
+		})},
+		{name: "wrong separator", command: mutate(func(args []string) []string {
+			args[codexPromptSeparatorIndex+2] = "--help"
+			return args
+		})},
+		{name: "extra argument", command: mutate(func(args []string) []string {
+			return append(args, "unexpected")
+		})},
+		{name: "control reordered", command: mutate(func(args []string) []string {
+			args[1] = "--"
+			return args
+		})},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if err := ValidateCodexInvocationCommand(testCase.command); err == nil {
+				t.Fatalf("accepted malformed fixed argv: %#v", testCase.command.Arguments)
+			}
+		})
+	}
+}
+
+func TestCodexPromptValidationAndPrivateFixedSchema(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		prompt string
+		valid  bool
+	}{
+		{name: "trims", prompt: "  inspect fixture  ", valid: true},
+		{name: "empty", prompt: " \t ", valid: false},
+		{name: "nul", prompt: "inspect\x00fixture", valid: false},
+		{name: "cr", prompt: "inspect\rfixture", valid: false},
+		{name: "lf", prompt: "inspect\nfixture", valid: false},
+		{name: "byte bound", prompt: strings.Repeat("가", (CodexPromptMaxBytes/3)+1), valid: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := ValidateCodexPrompt(testCase.prompt)
+			if testCase.valid {
+				if err != nil || got != "inspect fixture" {
+					t.Fatalf("prompt = %q, err = %v", got, err)
+				}
+			} else if err == nil || got != "" {
+				t.Fatalf("invalid prompt accepted: %q, err=%v", got, err)
+			}
+		})
+	}
+
+	home := t.TempDir()
+	path, err := WriteCodexOutputSchema(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(content, CodexOutputSchema()) {
+		t.Fatalf("schema content = %q, err=%v", content, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0) {
+		t.Fatalf("schema permissions/type = %v, err=%v", info.Mode(), err)
+	}
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyCodexOutputSchema(path); err == nil {
+		t.Fatal("accepted a schema-shaped path with non-fixed content")
+	}
+}
+
+func TestRunTypedRejectsWorktreeMismatchAndUncontrolledSchemaBeforeProcess(t *testing.T) {
+	home := t.TempDir()
+	schemaPath, err := WriteCodexOutputSchema(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree := t.TempDir()
+	command, err := BuildCodexInvocationCommand(ProviderStatus{Provider: "codex", State: ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}, "fixture", CodexInvocationOptions{Worktree: worktree, SchemaPath: schemaPath, Prompt: "inspect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := RunTyped(context.Background(), RunRequest{Provider: "codex", Command: command, Worktree: t.TempDir()}, masking.New(nil, nil))
+	if result.FailureCode != "provider.invalid_command" {
+		t.Fatalf("worktree mismatch result = %#v", result)
+	}
+	if err := os.WriteFile(schemaPath, []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result = RunTyped(context.Background(), RunRequest{Provider: "codex", Command: command, Worktree: worktree}, masking.New(nil, nil))
+	if result.FailureCode != "provider.invalid_command" {
+		t.Fatalf("tampered schema result = %#v", result)
+	}
+}
+
 func TestParseCodexOutputMasksAndRejectsUnsupportedShape(t *testing.T) {
 	masker := masking.New(nil, []string{"AUTHORIZATION"})
 	fixture := strings.Join([]string{
 		`{"type":"thread.started","thread_id":"thread-fixture"}`,
 		`{"type":"turn.started"}`,
-		`{"type":"item.completed","item":{"type":"agent_message","text":"Authorization: Bearer fixture-token"}}`,
+		`{"type":"item.completed","item":{"type":"agent_message","text":"{\"summary\":\"Authorization: Bearer fixture-token\",\"findings\":[\"safe finding\"],\"nextAction\":\"review\"}"}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":2,"output_tokens":5,"total_tokens":15}}`,
 	}, "\n")
 	structured, usage, err := ParseCodexOutputWithUsage(fixture, masker)
 	if err != nil {
 		t.Fatal(err)
 	}
-	message, _ := structured["result"].(string)
+	message, _ := structured["summary"].(string)
 	if !strings.Contains(message, masking.Replacement) || strings.Contains(message, "fixture-token") {
 		t.Fatalf("structured=%#v", structured)
+	}
+	if _, ok := structured["result"]; ok {
+		t.Fatalf("structured result must be reduced schema data: %#v", structured)
 	}
 	if usage["input"] != 10 || usage["cached"] != 2 || usage["output"] != 5 || usage["total"] != 15 {
 		t.Fatalf("usage=%#v", usage)
@@ -254,6 +474,17 @@ func TestParseCodexOutputMasksAndRejectsUnsupportedShape(t *testing.T) {
 	for _, output := range []string{"", "not json", "[1,2]", `{"type":"turn.started"}`, `{"type":"unknown"}`} {
 		if _, err := ParseCodexOutput(output, masker); err == nil {
 			t.Fatalf("accepted unsupported Codex output %q", output)
+		}
+	}
+	for _, output := range []string{
+		`{"type":"turn.completed","result":{"summary":"ok","findings":[],"nextAction":"review","extra":"reject"}}`,
+		`{"type":"turn.completed","result":{"summary":"ok","findings":[1],"nextAction":"review"}}`,
+		`{"type":"turn.completed","result":"{not schema json}"}`,
+		`{"type":"item.completed","item":{"type":"agent_message","text":"plain text"}}
+{"type":"turn.completed"}`,
+	} {
+		if _, err := ParseCodexOutput(output, masker); err == nil {
+			t.Fatalf("accepted malformed schema output %q", output)
 		}
 	}
 }

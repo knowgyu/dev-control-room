@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 	"strings"
 	"time"
 
@@ -166,6 +167,28 @@ func (a *App) ensureDefaultAgentProfiles(ctx context.Context) error {
 	return nil
 }
 
+const (
+	defaultCodexTimeoutSeconds  = 120
+	legacyDefaultProfileTimeout = 8
+)
+
 func newDefaultProfile(id, name, command string, mode domain.AgentLaunchMode) domain.AgentProfile {
-	return domain.AgentProfile{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentProfileKind}, Metadata: domain.ObjectMeta{ID: id, Name: name}, Spec: domain.AgentProfileSpec{Command: command, LaunchMode: mode, DataBoundary: domain.AgentBoundaryLocal, TimeoutSeconds: 8}}
+	timeout := legacyDefaultProfileTimeout
+	if id == "codex" {
+		timeout = defaultCodexTimeoutSeconds
+	}
+	return domain.AgentProfile{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentProfileKind}, Metadata: domain.ObjectMeta{ID: id, Name: name}, Spec: domain.AgentProfileSpec{Command: command, LaunchMode: mode, DataBoundary: domain.AgentBoundaryLocal, TimeoutSeconds: timeout}}
+}
+
+func (a *App) migrateLegacyDefaultCodexProfile(ctx context.Context, profile domain.AgentProfile) (domain.AgentProfile, error) {
+	legacy := newDefaultProfile("codex", "Codex", "codex", domain.AgentLaunchDirect)
+	legacy.Spec.TimeoutSeconds = legacyDefaultProfileTimeout
+	if !reflect.DeepEqual(profile, legacy) {
+		return profile, nil
+	}
+	profile.Spec.TimeoutSeconds = defaultCodexTimeoutSeconds
+	if err := a.store.SaveAgentProfile(ctx, profile); err != nil {
+		return domain.AgentProfile{}, err
+	}
+	return profile, nil
 }

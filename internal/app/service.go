@@ -423,7 +423,10 @@ type AgentInvocationInput struct {
 	Provider       string `json:"provider"`
 	ProfileID      string `json:"profileId"`
 	RequestedModel string `json:"requestedModel"`
-	Scenario       string `json:"scenario,omitempty"`
+	// Prompt is transient execution input. It is never copied to an
+	// AgentInvocation, artifact, log, result, or UI-facing object.
+	Prompt   string `json:"prompt,omitempty"`
+	Scenario string `json:"scenario,omitempty"`
 }
 
 type AssuranceQuestionInput struct {

@@ -51,6 +51,96 @@ func TestAgentProfileCRUDPersistsAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestFreshDefaultProfilesUseCodexCompatibilityTimeout(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	profiles, err := service.AgentProfiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]domain.AgentProfile, len(profiles))
+	for _, profile := range profiles {
+		byID[profile.Metadata.ID] = profile
+	}
+	if got := byID["codex"].Spec.TimeoutSeconds; got != 120 {
+		t.Fatalf("fresh Codex default timeout = %d, want 120", got)
+	}
+	if got := byID["claude"].Spec.TimeoutSeconds; got != 8 {
+		t.Fatalf("Claude default timeout changed = %d, want 8", got)
+	}
+	if got := byID["gemini"].Spec.TimeoutSeconds; got != 8 {
+		t.Fatalf("Gemini default timeout changed = %d, want 8", got)
+	}
+}
+
+func TestUntouchedLegacyCodexDefaultMigratesToCompatibilityTimeout(t *testing.T) {
+	home := t.TempDir()
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := newDefaultProfile("codex", "Codex", "codex", domain.AgentLaunchDirect)
+	legacy.Spec.TimeoutSeconds = 8
+	if err := service.store.SaveAgentProfile(context.Background(), legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	service, err = New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	got, err := service.AgentProfile(context.Background(), "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.TimeoutSeconds != 120 {
+		t.Fatalf("legacy Codex timeout = %d, want 120", got.Spec.TimeoutSeconds)
+	}
+	persisted, err := service.store.GetAgentProfile(context.Background(), "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Spec.TimeoutSeconds != 120 {
+		t.Fatalf("migrated Codex timeout was not persisted: %d", persisted.Spec.TimeoutSeconds)
+	}
+}
+
+func TestCustomizedCodexProfilePreservesTimeout(t *testing.T) {
+	home := t.TempDir()
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	customized := newDefaultProfile("codex", "Codex", "codex", domain.AgentLaunchDirect)
+	customized.Spec.TimeoutSeconds = 45
+	if err := service.store.SaveAgentProfile(context.Background(), customized); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	service, err = New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	got, err := service.AgentProfile(context.Background(), "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.TimeoutSeconds != 45 {
+		t.Fatalf("customized Codex timeout = %d, want 45", got.Spec.TimeoutSeconds)
+	}
+}
+
 func TestAgentProfileHTTPUpdateCanClearModelArgumentTemplate(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {

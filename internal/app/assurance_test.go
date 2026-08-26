@@ -3,16 +3,33 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/assurance"
+	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/masking"
 )
+
+func tempGoGitRepository(t *testing.T, name string) string {
+	t.Helper()
+	directory := tempGitRepository(t, name)
+	if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte("module fixture.example/quality\n\ngo 1.23\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, directory, "add", "go.mod", "main.go")
+	gitFixture(t, directory, "commit", "-m", "add minimal Go fixture")
+	return directory
+}
 
 func TestFakeProviderE2EProducesResumeEvidenceWithoutTranscript(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
@@ -84,6 +101,77 @@ func TestCodexInvocationRequiresExplicitPromptBeforeTrustedRunner(t *testing.T) 
 	}
 }
 
+func TestCodexInvocationUsesFixedArgvAndDoesNotPersistPrompt(t *testing.T) {
+	home := t.TempDir()
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Codex bounded", Path: tempGitRepository(t, "codex-bounded")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "codex", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := service.Worktree(context.Background(), project.Metadata.ID, "repo-1", "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prompt = "inspect private fixture"
+	var captured assurance.RunRequest
+	ctx := assurance.WithCodexExecution(context.Background(), assurance.CodexExecution{
+		Resolver: func() assurance.ProviderStatus {
+			return assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}
+		},
+		Runner: func(_ context.Context, request assurance.RunRequest, _ *masking.Masker) assurance.RunResult {
+			captured = request
+			return assurance.RunResult{State: domain.AssuranceStateSucceeded, Structured: map[string]any{
+				"summary":    "completed: " + prompt,
+				"findings":   []any{"finding mentions " + prompt},
+				"nextAction": "review " + prompt,
+			}, Summary: "completed: " + prompt, RawTranscript: true}
+		},
+	})
+	invocation, err := service.RunAgentInvocation(ctx, AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "codex", ProfileID: "codex", RequestedModel: "fixture-model", Prompt: "  " + prompt + "  "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.Spec.State != domain.AssuranceStateSucceeded || invocation.Spec.RawTranscript {
+		t.Fatalf("invocation = %#v", invocation)
+	}
+	want := []string{`C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`, "exec", "--json", "--sandbox", "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--cd", worktree.Spec.CanonicalPath, "--output-schema", filepath.Join(home, "runtime", "codex", "output-schema.json"), "--model", "fixture-model", "--", prompt}
+	if captured.Worktree != worktree.Spec.CanonicalPath || len(captured.Command.Arguments) != len(want) {
+		t.Fatalf("captured request = %#v, want argv %#v", captured, want)
+	}
+	for index := range want {
+		if captured.Command.Arguments[index] != want[index] {
+			t.Fatalf("captured argv = %#v, want %#v", captured.Command.Arguments, want)
+		}
+	}
+	schema, err := os.ReadFile(filepath.Join(home, "runtime", "codex", "output-schema.json"))
+	if err != nil || string(schema) != string(assurance.CodexOutputSchema()) {
+		t.Fatalf("schema = %q, err=%v", schema, err)
+	}
+	persisted, _ := json.Marshal(invocation)
+	if strings.Contains(string(persisted), prompt) {
+		t.Fatalf("prompt persisted in invocation: %s", persisted)
+	}
+	artifacts, err := service.AssuranceArtifacts(context.Background())
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v, err=%v", artifacts, err)
+	}
+	artifact, err := os.ReadFile(artifacts[0].Spec.Path)
+	if err != nil || strings.Contains(string(artifact), prompt) {
+		t.Fatalf("prompt persisted in artifact: %q, err=%v", artifact, err)
+	}
+}
+
 func TestCodexInvocationFailsClosedForProfileLauncherAndUnsupportedOutput(t *testing.T) {
 	testCases := []struct {
 		name       string
@@ -97,9 +185,6 @@ func TestCodexInvocationFailsClosedForProfileLauncherAndUnsupportedOutput(t *tes
 		{name: "untrusted profile", profileID: "claude", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}, wantCode: "provider.profile_untrusted"},
 		{name: "untrusted launcher", profileID: "codex", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderDetected, CommandFound: true, ReasonCode: "provider.untrusted_launcher"}, wantCode: "provider.untrusted_launcher"},
 		{name: "missing launcher", profileID: "codex", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderNotConfigured, ReasonCode: "provider.not_found"}, wantCode: "provider.not_found"},
-		{name: "prompt required", profileID: "codex", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}, runner: func(context.Context, assurance.RunRequest, *masking.Masker) assurance.RunResult {
-			return assurance.RunResult{State: domain.AssuranceStateSucceeded, Structured: map[string]any{"unexpected": true}}
-		}, wantCode: "provider.prompt_required"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -134,7 +219,7 @@ func TestCodexInvocationFailsClosedForProfileLauncherAndUnsupportedOutput(t *tes
 				}
 			}
 			ctx := assurance.WithCodexExecution(context.Background(), assurance.CodexExecution{Resolver: func() assurance.ProviderStatus { return testCase.status }, Runner: runner})
-			invocation, err := service.RunAgentInvocation(ctx, AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "codex", ProfileID: testCase.profileID, RequestedModel: "fixture-model"})
+			invocation, err := service.RunAgentInvocation(ctx, AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "codex", ProfileID: testCase.profileID, RequestedModel: "fixture-model", Prompt: "inspect this fixture"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -179,6 +264,41 @@ func TestFakeProviderFailureMatrixKeepsSessionRecoverable(t *testing.T) {
 	updated, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
 	if err != nil || updated.Spec.ResumeBrief.NextSafeAction == "" || len(updated.Spec.ResumeBrief.FailedEvidence) != 1 {
 		t.Fatalf("recoverable session = %#v, %v", updated, err)
+	}
+}
+
+func TestAgentInvocationFailsClosedWhenEvidenceArtifactCannotPersist(t *testing.T) {
+	home := t.TempDir()
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Artifact failure", Path: tempGitRepository(t, "artifact-failure")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "artifacts"), []byte("block artifact directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	invocation, invokeErr := service.RunAgentInvocation(context.Background(), AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "fake", ProfileID: "fake"})
+	var coded contract.CodedError
+	if !errors.As(invokeErr, &coded) || coded.Code != contract.ErrorExecutionFailed {
+		t.Fatalf("artifact persistence error = %v", invokeErr)
+	}
+	if invocation.Spec.State != domain.AssuranceStateFailed || invocation.Spec.FailureCode != "artifact.persistence_failed" || invocation.Spec.Structured != nil || len(invocation.Spec.ArtifactIDs) != 0 {
+		t.Fatalf("artifact persistence invocation = %#v", invocation)
+	}
+	persistedItems, err := service.AgentInvocations(context.Background())
+	if err != nil || len(persistedItems) != 1 || persistedItems[0].Spec.State != domain.AssuranceStateFailed || persistedItems[0].Spec.FailureCode != "artifact.persistence_failed" {
+		t.Fatalf("persisted artifact failure = %#v, %v", persistedItems, err)
 	}
 }
 
@@ -239,13 +359,13 @@ func TestBaselineDiscoversRequiredObservedLocalEquivalentUnknownAndTurnsStale(t 
 	}
 }
 
-func TestQualityRunUsesTypedRunnerAndPersistsBoundedReport(t *testing.T) {
+func TestQualityRunUsesRegisteredGoVetRunnerAndPersistsBoundedReport(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Quality", Path: tempGitRepository(t, "quality")})
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Quality", Path: tempGoGitRepository(t, "quality")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,12 +380,198 @@ func TestQualityRunUsesTypedRunnerAndPersistsBoundedReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.Spec.State != domain.AssuranceStateSucceeded || len(run.Spec.ArtifactIDs) != 1 || run.Spec.Command.Executable != "git" {
+	if run.Spec.State != domain.AssuranceStateSucceeded || len(run.Spec.ArtifactIDs) != 1 || !strings.HasSuffix(strings.ToLower(run.Spec.Command.Executable), "go.exe") {
 		t.Fatalf("quality run = %#v", run)
+	}
+	if run.Spec.Runner != assurance.QualityRunnerGoVetID || !reflectQualityGoVetArgs(run.Spec.Command.Arguments) || !strings.HasPrefix(run.Spec.ConfigDigest, "sha256:") || run.Spec.ExitCode != 0 {
+		t.Fatalf("registered runner = %#v", run)
+	}
+	if run.Spec.Evidence["selectionState"] != string(assurance.QualityRunnerSelectionAvailable) {
+		t.Fatalf("selection evidence = %#v", run.Spec.Evidence)
 	}
 	artifacts, err := service.AssuranceArtifacts(context.Background())
 	if err != nil || len(artifacts) != 1 {
 		t.Fatalf("artifacts = %#v, %v", artifacts, err)
+	}
+	artifact, err := os.ReadFile(artifacts[0].Spec.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactText := string(artifact)
+	for _, required := range []string{assurance.QualityRunnerGoVetID, "runnerMetadata", "configDigest", "exitCode", "result"} {
+		if !strings.Contains(artifactText, required) {
+			t.Fatalf("artifact missing %q: %s", required, artifactText)
+		}
+	}
+	if strings.Contains(artifactText, "git diff") || strings.Contains(artifactText, "techniqueReport") {
+		t.Fatalf("artifact retained the old fake runner: %s", artifactText)
+	}
+	if revision, err := service.store.AssuranceRevision(context.Background(), domain.QualityRunKind, run.Metadata.ID); err != nil || revision != 3 {
+		t.Fatalf("quality run revision = %d, err=%v", revision, err)
+	}
+}
+
+func TestQualityRunPersistsActualRunnerFailureAndReturnsExecutionError(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	root := tempGoGitRepository(t, "quality-failure")
+	if err := os.WriteFile(filepath.Join(root, "broken.go"), []byte("package main\nfunc broken( {\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Quality failure", Path: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	campaign, err := service.CreateQualityCampaign(context.Background(), QualityCampaignInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Name: "static failure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, runErr := service.RunQuality(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: domain.QualityTechniqueStaticSecurity})
+	var coded contract.CodedError
+	if !errors.As(runErr, &coded) || coded.Code != contract.ErrorExecutionFailed {
+		t.Fatalf("run error = %v", runErr)
+	}
+	if run.Spec.State != domain.AssuranceStateFailed || run.Spec.ExitCode == 0 || !reflectQualityGoVetArgs(run.Spec.Command.Arguments) || len(run.Spec.ArtifactIDs) != 1 {
+		t.Fatalf("failed quality run = %#v", run)
+	}
+	if result, ok := run.Spec.Evidence["result"].(map[string]any); !ok || result["executed"] != true || result["exitCode"].(int) == 0 {
+		t.Fatalf("failure result evidence = %#v", run.Spec.Evidence["result"])
+	}
+	if revision, err := service.store.AssuranceRevision(context.Background(), domain.QualityRunKind, run.Metadata.ID); err != nil || revision != 3 {
+		t.Fatalf("failed quality run revision = %d, err=%v", revision, err)
+	}
+}
+
+func TestQualityRunPersistsUnavailableWithoutProcessCommand(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Quality unavailable", Path: tempGitRepository(t, "quality-unavailable")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	campaign, err := service.CreateQualityCampaign(context.Background(), QualityCampaignInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Name: "static unavailable"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, runErr := service.RunQuality(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: domain.QualityTechniqueStaticSecurity})
+	var coded contract.CodedError
+	if !errors.As(runErr, &coded) || coded.Code != contract.ErrorUnavailable {
+		t.Fatalf("run error = %v", runErr)
+	}
+	if run.Spec.State != domain.AssuranceStateFailed || run.Spec.Runner != assurance.QualityRunnerGoVetID || run.Spec.Command.Executable != "" || len(run.Spec.Command.Arguments) != 0 || len(run.Spec.ArtifactIDs) != 1 {
+		t.Fatalf("unavailable quality run = %#v", run)
+	}
+	if reason, ok := run.Spec.Evidence["unavailable"].(*assurance.QualityRunnerUnavailableReason); !ok || reason.Code != assurance.QualityRunnerReasonGoModMissing {
+		t.Fatalf("unavailable evidence = %#v", run.Spec.Evidence)
+	}
+	artifact, err := os.ReadFile(func() string {
+		items, listErr := service.AssuranceArtifacts(context.Background())
+		if listErr != nil || len(items) != 1 {
+			t.Fatalf("artifacts = %#v, err=%v", items, listErr)
+		}
+		return items[0].Spec.Path
+	}())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(artifact), "\"command\"") || strings.Contains(string(artifact), "git diff") || strings.Contains(string(artifact), "techniqueReport") {
+		t.Fatalf("unavailable artifact contains a process command or fake report: %s", artifact)
+	}
+}
+
+func TestAssuranceRunnersRevalidateWorktreeImmediatelyBeforeExecution(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Revalidate assurance", Path: tempGoGitRepository(t, "revalidate-assurance")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	campaign, err := service.CreateQualityCampaign(context.Background(), QualityCampaignInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Name: "revalidate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.Worktree(context.Background(), project.Metadata.ID, "repo-1", "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Spec.Trust = domain.WorktreeTrustUnverified
+	stored.Spec.LastObserved = time.Now().UTC()
+	if err := service.store.ReplaceWorktrees(context.Background(), project.Metadata.ID, "repo-1", []domain.Worktree{stored}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	run, runErr := service.RunQuality(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: domain.QualityTechniqueStaticSecurity})
+	var unavailable contract.CodedError
+	if !errors.As(runErr, &unavailable) || unavailable.Code != contract.ErrorUnavailable {
+		t.Fatalf("quality revalidation error = %v", runErr)
+	}
+	if run.Spec.State != domain.AssuranceStateFailed || run.Spec.StaleReason != "worktree.revalidation_failed" || run.Spec.Command.Executable != "" {
+		t.Fatalf("quality revalidation run = %#v", run)
+	}
+	if reason, ok := run.Spec.Evidence["unavailable"].(*assurance.QualityRunnerUnavailableReason); !ok || reason.Code != "worktree.revalidation_failed" {
+		t.Fatalf("quality revalidation evidence = %#v", run.Spec.Evidence)
+	}
+
+	runnerCalls := 0
+	ctx := assurance.WithCodexExecution(context.Background(), assurance.CodexExecution{
+		Resolver: func() assurance.ProviderStatus {
+			return assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\\Program Files\\nodejs\\node.exe`, `C:\\Users\\fixture\\node_modules\\@openai\\codex\\bin\\codex.js`}}
+		},
+		Runner: func(context.Context, assurance.RunRequest, *masking.Masker) assurance.RunResult {
+			runnerCalls++
+			return assurance.RunResult{State: domain.AssuranceStateSucceeded}
+		},
+	})
+	invocation, err := service.RunAgentInvocation(ctx, AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "codex", ProfileID: "codex", Prompt: "inspect fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runnerCalls != 0 || invocation.Spec.State != domain.AssuranceStateFailed || invocation.Spec.FailureCode != "worktree.revalidation_failed" {
+		t.Fatalf("invocation revalidation = %#v, runner calls=%d", invocation, runnerCalls)
+	}
+}
+
+func reflectQualityGoVetArgs(args []string) bool {
+	return len(args) == 3 && args[0] == "vet" && args[1] == "-mod=readonly" && args[2] == "./..."
+}
+
+func TestQualityRunnerEnvironmentBlocksModuleNetworkAndWorkspaceInheritance(t *testing.T) {
+	values := map[string]string{}
+	for _, entry := range qualityRunnerEnvironment() {
+		name, value, found := strings.Cut(entry, "=")
+		if found {
+			values[strings.ToUpper(name)] = value
+		}
+	}
+	for name, want := range map[string]string{"GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local", "GOWORK": "off"} {
+		if values[name] != want {
+			t.Fatalf("quality environment %s = %q, want %q", name, values[name], want)
+		}
+	}
+	if values["GOCACHE"] == "" {
+		t.Fatalf("quality runner has no isolated Go cache: %#v", values)
 	}
 }
 
@@ -322,7 +628,36 @@ func TestAllV1TechniqueAdaptersCreateArtifactsAndArchiveDeleteWithWarning(t *tes
 		t.Fatal(err)
 	}
 	defer service.Close()
-	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Techniques", Path: tempGitRepository(t, "techniques")})
+	if _, err := exec.LookPath("go.exe"); err != nil {
+		t.Fatalf("native go.exe is required for this app integration test: %v", err)
+	}
+	root := tempGoGitRepository(t, "techniques")
+	if err := os.WriteFile(filepath.Join(root, "quality_targets_test.go"), []byte(`package main
+
+import "testing"
+
+func TestPropertyRoundTrip(t *testing.T) {
+	if got := "fixture"; got != "fixture" {
+		t.Fatalf("round trip = %q", got)
+	}
+}
+
+func FuzzInput(f *testing.F) {
+	f.Add("fixture")
+	f.Fuzz(func(t *testing.T, value string) {
+		if value != string([]byte(value)) {
+			t.Fatal("string normalization changed a value")
+		}
+	})
+}
+
+func TestE2EHealth(t *testing.T) {}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, root, "add", "quality_targets_test.go")
+	gitFixture(t, root, "commit", "-m", "add quality runner targets")
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Techniques", Path: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,15 +668,40 @@ func TestAllV1TechniqueAdaptersCreateArtifactsAndArchiveDeleteWithWarning(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	techniques := []string{domain.QualityTechniqueStaticSecurity, domain.QualityTechniqueMutation, domain.QualityTechniqueProperty, domain.QualityTechniqueFuzz, domain.QualityTechniqueTargetedE2E}
-	ids := make([]string, 0, len(techniques))
-	for _, technique := range techniques {
+	ids := make([]string, 0, 5)
+	staticRun, runErr := service.RunQuality(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: domain.QualityTechniqueStaticSecurity, Provider: "fake"})
+	if runErr != nil || staticRun.Spec.State != domain.AssuranceStateSucceeded || len(staticRun.Spec.ArtifactIDs) != 1 {
+		t.Fatalf("static run = %#v, err=%v", staticRun, runErr)
+	}
+	ids = append(ids, staticRun.Spec.ArtifactIDs[0])
+	mutationRun, runErr := service.RunQuality(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: domain.QualityTechniqueMutation, Provider: "fake"})
+	var mutationError contract.CodedError
+	if !errors.As(runErr, &mutationError) || mutationError.Code != contract.ErrorUnavailable {
+		t.Fatalf("mutation error = %v", runErr)
+	}
+	if mutationRun.Spec.State != domain.AssuranceStateFailed || mutationRun.Spec.Runner != assurance.QualityRunnerGoMutationID || mutationRun.Spec.Command.Executable != "" || len(mutationRun.Spec.Command.Arguments) != 0 || len(mutationRun.Spec.ArtifactIDs) != 1 {
+		t.Fatalf("mutation run = %#v", mutationRun)
+	}
+	if reason, ok := mutationRun.Spec.Evidence["unavailable"].(*assurance.QualityRunnerUnavailableReason); !ok || reason.Code != assurance.QualityRunnerReasonMutationMissing {
+		t.Fatalf("mutation unavailable evidence = %#v", mutationRun.Spec.Evidence)
+	}
+	ids = append(ids, mutationRun.Spec.ArtifactIDs[0])
+
+	expectedRunners := map[string]string{
+		domain.QualityTechniqueProperty:    assurance.QualityRunnerGoPropertyID,
+		domain.QualityTechniqueFuzz:        assurance.QualityRunnerGoFuzzID,
+		domain.QualityTechniqueTargetedE2E: assurance.QualityRunnerGoE2EID,
+	}
+	for technique, runner := range expectedRunners {
 		run, runErr := service.RunQuality(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: technique, Provider: "fake"})
 		if runErr != nil {
-			t.Fatal(technique, runErr)
+			t.Fatalf("%s error = %v", technique, runErr)
 		}
-		if len(run.Spec.ArtifactIDs) != 1 {
-			t.Fatalf("%s artifacts = %#v", technique, run.Spec.ArtifactIDs)
+		if run.Spec.State != domain.AssuranceStateSucceeded || run.Spec.Runner != runner || run.Spec.Command.Executable == "" || len(run.Spec.Command.Arguments) == 0 || len(run.Spec.ArtifactIDs) != 1 {
+			t.Fatalf("%s run = %#v", technique, run)
+		}
+		if run.Spec.Evidence["selectionState"] != string(assurance.QualityRunnerSelectionAvailable) {
+			t.Fatalf("%s selection evidence = %#v", technique, run.Spec.Evidence)
 		}
 		ids = append(ids, run.Spec.ArtifactIDs[0])
 	}

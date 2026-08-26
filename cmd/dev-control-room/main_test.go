@@ -83,6 +83,86 @@ func TestCLIHelpDescribesFirstUseAndJSON(t *testing.T) {
 	}
 }
 
+func TestPrimaryCommandHelpIsStructuredAndJSONCompatible(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		command string
+		want    []string
+	}{
+		{name: "project", args: []string{"project", "--help", "--json"}, command: "project", want: []string{"usage", "required", "example", "json_behavior"}},
+		{name: "environment", args: []string{"env", "--help", "--json"}, command: "env", want: []string{"usage", "required", "example", "json_behavior"}},
+		{name: "assurance", args: []string{"assurance", "--help", "--json"}, command: "assurance", want: []string{"usage", "required", "example", "json_behavior"}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run(test.args, &stdout, &stderr); code != int(contract.ExitSuccess) {
+				t.Fatalf("help exit code = %d, stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			var envelope contract.Envelope[map[string]any]
+			if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil {
+				t.Fatalf("invalid JSON help envelope: %s (%v)", stdout.String(), err)
+			}
+			data := *envelope.Data
+			if data["command"] != test.command {
+				t.Fatalf("help command = %#v, want %q", data["command"], test.command)
+			}
+			for _, field := range test.want {
+				if value, ok := data[field]; !ok || value == nil || value == "" {
+					t.Fatalf("help omitted %q: %s", field, stdout.String())
+				}
+			}
+			if commands, ok := data["commands"].([]any); !ok || len(commands) == 0 {
+				t.Fatalf("help commands are missing: %s", stdout.String())
+			}
+		})
+	}
+}
+
+func TestNestedCLIHelpIncludesUsageAndRequiredArguments(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "project add", args: []string{"project", "add", "--help"}, want: []string{"사용법:", "--name <name>", "--path <path>", "예시:", "JSON:"}},
+		{name: "project repository add JSON", args: []string{"project", "repository", "add", "--help", "--json"}, want: []string{"--project <project-id>", "--id <id>", "--name <name>", "--path <path>"}},
+		{name: "environment doctor", args: []string{"env", "doctor", "--help"}, want: []string{"env doctor", "사용법:", "예시:", "JSON:"}},
+		{name: "project help compatibility", args: []string{"project", "help", "--home", "ignored", "--json"}, want: []string{"project", "<command>", "표준 JSON envelope"}},
+		{name: "environment help compatibility", args: []string{"env", "help", "--home", "ignored", "--json"}, want: []string{"env", "doctor", "status", "표준 JSON envelope"}},
+		{name: "assurance session create", args: []string{"assurance", "session", "create", "--help", "--json"}, want: []string{"assurance session create", "--project <id>", "--repository <id>", "--worktree <id>", "표준 JSON envelope"}},
+		{name: "help path", args: []string{"help", "project", "add", "--json"}, want: []string{"project add", "--name <name>", "--path <path>"}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run(test.args, &stdout, &stderr); code != int(contract.ExitSuccess) {
+				t.Fatalf("help exit code = %d, stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			output := stdout.String()
+			if len(test.args) > 0 && test.args[len(test.args)-1] == "--json" {
+				var envelope contract.Envelope[cliHelpSpec]
+				if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil {
+					t.Fatalf("invalid JSON help envelope: %s (%v)", stdout.String(), err)
+				}
+				if envelope.Data.JSONBehavior == "" {
+					t.Fatalf("JSON behavior is missing: %s", stdout.String())
+				}
+				output = strings.Join([]string{envelope.Data.Command, envelope.Data.Summary, envelope.Data.Usage, strings.Join(envelope.Data.Required, " "), envelope.Data.Example, envelope.Data.JSONBehavior}, "\n")
+			}
+			for _, want := range test.want {
+				if !strings.Contains(output, want) {
+					t.Fatalf("help omitted %q: %s", want, stdout.String())
+				}
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("help wrote stderr: %s", stderr.String())
+			}
+		})
+	}
+}
+
 func TestAssuranceProviderCLIUsesStableEnvelope(t *testing.T) {
 	home := t.TempDir()
 	service, err := app.New(home, "127.0.0.1:38471")
@@ -234,6 +314,48 @@ func TestAssuranceCLIHelpListsLifecycleCommands(t *testing.T) {
 	if code := run([]string{"assurance", "--help", "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) || !strings.Contains(stdout.String(), `"command":"assurance"`) {
 		t.Fatalf("direct assurance JSON help failed: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
+	if !strings.Contains(stdout.String(), "--prompt") || !strings.Contains(stdout.String(), "codex") {
+		t.Fatalf("assurance JSON help omitted Codex prompt usage: %s", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"assurance", "invocation", "--help", "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) || !strings.Contains(stdout.String(), "--prompt") || !strings.Contains(stdout.String(), "codex") {
+		t.Fatalf("invocation help omitted Codex prompt usage: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestAssuranceCLICodexPromptValidationDoesNotStartProvider(t *testing.T) {
+	home := t.TempDir()
+	for _, testCase := range []struct {
+		name   string
+		prompt string
+		want   string
+	}{
+		{name: "missing", prompt: "", want: "provider.prompt_required"},
+		{name: "newline", prompt: "inspect\nfixture", want: "provider.prompt_invalid"},
+		{name: "too long", prompt: strings.Repeat("가", 667), want: "provider.prompt_invalid"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			args := []string{"assurance", "invocation", "run", "--session", "missing-session", "--provider", "codex", "--prompt", testCase.prompt, "--home", home, "--json"}
+			if testCase.prompt == "" {
+				args = []string{"assurance", "invocation", "run", "--session", "missing-session", "--provider", "codex", "--home", home, "--json"}
+			}
+			if code := run(args, &stdout, &stderr); code != int(contract.ExitInvalidInput) {
+				t.Fatalf("exit code = %d, stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			var envelope contract.Envelope[map[string]any]
+			if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil || envelope.Error == nil || !strings.Contains(envelope.Error.Message, testCase.want) {
+				t.Fatalf("error envelope = %s (%v)", stderr.String(), err)
+			}
+		})
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"assurance", "invocation", "run", "--session", "missing-session", "--provider", "codex", "--prompt", "inspect fixture", "--home", home, "--json"}, &stdout, &stderr)
+	if code == int(contract.ExitInvalidInput) || !strings.Contains(stderr.String(), "assurance session not found") {
+		t.Fatalf("valid prompt did not pass CLI validation without invoking a provider: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
 }
 
 func runAssuranceJSON[T any](t *testing.T, args ...string) T {
@@ -263,6 +385,12 @@ func setupAssuranceCLIFixture(t *testing.T) (string, string) {
 		t.Fatalf("git init: %v: %s", err, output)
 	}
 	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("assurance fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "go.mod"), []byte("module example.com/assurance-cli-fixture\n\ngo 1.23.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "fixture.go"), []byte("package fixture\n\nconst Ready = true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	git := func(args ...string) {
@@ -368,7 +496,7 @@ func TestEnvironmentDoctorJSONUsesStableEnvelopeAndHidesSecret(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"env", "doctor", "--home", home, "--json"}, &stdout, &stderr)
-	if code != int(contract.ExitUnavailable) {
+	if code != int(contract.ExitSuccess) {
 		t.Fatalf("env doctor exit code = %d, stderr=%s", code, stderr.String())
 	}
 	var envelope contract.Envelope[map[string]any]

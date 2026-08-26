@@ -13,12 +13,12 @@ func TestAssuranceDogfoodThreeRepositoryFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	frontend := tempGitRepository(t, "frontend")
+	frontend := tempGoGitRepository(t, "frontend")
 	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Dev Control Room Fixture", Path: frontend})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, item := range []struct{ name, path string }{{"backend", tempGitRepository(t, "backend")}, {"database", tempGitRepository(t, "database")}} {
+	for _, item := range []struct{ name, path string }{{"backend", tempGoGitRepository(t, "backend")}, {"database", tempGoGitRepository(t, "database")}} {
 		if _, err := service.AddRepository(context.Background(), AddRepositoryInput{ProjectID: project.Metadata.ID, ID: item.name, Name: item.name, Path: item.path}); err != nil {
 			t.Fatal(err)
 		}
