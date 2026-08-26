@@ -73,10 +73,11 @@ dev-control-room assurance dashboard --json --home $temp
 - 로컬 관찰 — 복귀: 임시 Git 저장소 한 개를 등록한 상태에서 `오늘의 개발 상태를 확인합니다`, 프로젝트·저장소·확인 항목 수, 다음 행동을 확인했습니다.
 - 로컬 관찰 — Provider 표면: `Codex 사용 가능`, `Claude 미설정`, `Gemini 미설정`을 한 Provider 그룹에서 확인했습니다. 기본 Agent Profile 경고는 중복 표시하지 않습니다. 이는 로컬 상태 표면 확인이며 실제 Provider 작업 호출이나 인증 검증이 아닙니다.
 - 로컬 관찰 — Assurance 빈 상태: Quality Run·Agent 실행·효과 기록이 없을 때 `아직 검증 결과가 없습니다`를 표시하는 화면을 확인했습니다.
+- 로컬 관찰 — 검증 대시보드: `검증` route에서 재실행·근거 연결·비용 경계·대화 경계, Provider/모델 필터, 빈 Quality Run/효과/Agent/artifact 영역을 확인했습니다. 390 px 폭에서도 필터와 지표가 보였고 Browser console error는 없었습니다.
 - 로컬 관찰 — 화면: 다음 스크린샷을 저장했습니다.
   - `artifacts/phase2-home-first-use.png`
   - `artifacts/phase2-home-established.png`
   - `artifacts/phase2-home-narrow.png`
   - `artifacts/phase2-diagnostics-providers.png`
-- 로컬 관찰 — 키보드: `Enter`로 상단 `지금 점검` 동작을 실행하고 실행 중 비활성화·완료 복귀를 확인했습니다. in-app Browser의 `Tab` 포커스 이동은 초기 `main` 포커스 뒤 안정적으로 관찰되지 않아 전체 순회는 미실행으로 기록합니다. 소스의 skip link, `:focus-visible`, 명시적 label/heading은 정적 검사를 통과했습니다.
+- 로컬 관찰 — 키보드: `Enter`로 상단 `지금 점검` 동작을 실행하고 실행 중 비활성화·완료 복귀를 확인했습니다. `검증` route 전환은 `main-content`로 `:focus-visible` 포커스를 옮겼고 `새로 고침`은 `Enter`를 받았습니다. in-app Browser의 `Tab` 포커스 이동은 초기 `main` 포커스 뒤 안정적으로 관찰되지 않아 전체 순회는 미실행으로 기록합니다. 소스의 skip link, `:focus-visible`, 명시적 label/heading은 정적 검사를 통과했습니다.
 - 미실행: 실제 Codex 작업 호출과 사용자 인증, 회사 Jenkins/GitHub/Kubernetes endpoint, 실제 Provider 복구, 별도 깨끗한 Windows 11 장치 수동 확인, 전체 Tab 순회, finding-to-evidence/Quality Run 상세 검토, blocked/approval-required UI 여정은 실행하지 않았습니다.

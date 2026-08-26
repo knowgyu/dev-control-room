@@ -15,8 +15,11 @@ The current `main` contains the v0.7.0 candidate after the pushed v0.6.0
 release. It adds an embedded Assurance dashboard, repeatable Phase 2
 CLI/loopback journey gate, lifecycle CLI, and a fail-closed Codex npm launcher
 foundation. The original two plan commits and all subsequent user-scoped
-implementation commits are preserved. The candidate must receive an exact-SHA
-full verification record and Windows package/release check before publication.
+implementation commits are preserved. Candidate source
+`8bcf1a7915d1e4997494ac7b6758ac51a7c794d7` passed the exact-SHA Full
+verification and the 65-assertion Phase 2 CLI/loopback journey gate; see
+`docs/VERIFICATION_v0.7.0.md`. Windows package/release asset checks remain
+before publication.
 Real Codex invocation, provider-authoritative PR CI evidence, real registered
 Quality Run executors, company endpoints, second-device acceptance, and full
 keyboard traversal remain explicit gaps. Read the applicable plan and

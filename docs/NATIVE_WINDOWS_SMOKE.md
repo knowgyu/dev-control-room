@@ -391,3 +391,32 @@ temporary root was removed after the successful run; no user data was touched.
 This is automated CLI/HTTP evidence only. It is not a native UI keyboard
 acceptance, a real Provider invocation, or a claim that full Tab traversal or
 the remaining interactive Quality Run/evidence journeys passed.
+
+## 2026-08-26 v0.7.0 release-candidate verification
+
+Source: `8bcf1a7915d1e4997494ac7b6758ac51a7c794d7` on native Windows.
+
+Passed:
+
+- `pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
+  -ArtifactDirectory artifacts\verification-v0.7.0-final`: PASS. This covers
+  Go tests, race, vet, module verification, build, UI syntax, Windows amd64/
+  arm64 builds, and diff check. The exact summary is
+  `artifacts/verification-v0.7.0-final/verification-summary.json`.
+- `pwsh -NoProfile -File .\scripts\verify-phase2-journeys.ps1`: PASS, 65
+  assertions in an isolated temporary app home and local Git fixture.
+- A fresh loopback instance of the exact amd64 candidate rendered the new
+  `검증` dashboard at desktop and 390 px widths. Browser console errors were
+  empty. Route focus moved to `main`, and `Enter` activated `새로 고침`.
+- Codex provider status resolved the verified local `node.exe` plus
+  `@openai/codex\bin\codex.js` package entry. No shell, `cmd.exe`, `.cmd`, or
+  `.bat` launcher was executed.
+
+Not run or not claimed:
+
+- Full Tab traversal remains unobserved because the in-app Browser did not
+  advance reliably after its initial `main` focus.
+- A real Codex task/authentication, provider-authoritative company CI,
+  configured credential, production, proxy, or second-device check was not
+  performed.
+- Fixture Quality Run reports do not prove a third-party quality tool ran.
