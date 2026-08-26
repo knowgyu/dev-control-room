@@ -498,7 +498,7 @@ function Assert-UIContract {
     Assert-Condition ($response.StatusCode -eq 200) "UI shell returns HTTP 200"
     $html = [string]$response.Content
     Assert-Condition (-not $html.Contains("__MUTATION_TOKEN__")) "UI shell replaces the mutation token placeholder"
-    Assert-Condition ($html -match 'id="main-content"[^>]*tabindex="0"[^>]*aria-labelledby="view-title"') "UI main region has a keyboard focus target and label"
+    Assert-Condition ($html -match 'class="skip-link"[^>]*href="#main-content"' -and $html -match 'id="main-content"[^>]*tabindex="-1"[^>]*aria-labelledby="view-title"') "UI skip link and programmatic main focus target are labelled"
     Assert-Condition ($html -match 'id="home-onboarding"' -and $html -match 'id="assurance-refresh"') "UI shell exposes first-use and Assurance controls"
     Assert-Condition ($html -match 'id="environment"[^>]*aria-live="polite"' -and $html -match 'id="provider-statuses"[^>]*aria-live="polite"') "UI diagnostic regions announce state changes"
 }

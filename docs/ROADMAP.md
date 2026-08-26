@@ -16,7 +16,7 @@ instructions to rerun completed work.
 | P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
 | P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |
 | AI-assisted Code Assurance | v0.10.0 release with full gate passed: durable Unattended Approval Scope lifecycle, Plan/Admit/Execute revalidation, fail-closed restart-boundary recovery, and effect-evidence separation/trace hardening are focused-verified; native process resilience, provider authority, mutation, patch adoption, and causal attribution remain partial | docs/AI_CODE_ASSURANCE_PLAN.md, docs/VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md, docs/ASSURANCE_EFFECT_DASHBOARD.md, and milestone verification documents |
-| Product usability and interface | v0.9.1 keeps first-use/return/recovery journeys and evidence-first impact cards; full Tab/Space, native dialog Esc, and second-device acceptance remain #7 | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md and DESIGN.md |
+| Product usability and interface | v0.10.1 adds non-stealing initial focus, opener focus restoration, and compact empty Assurance trends; full Tab/Space, native dialog Esc, and second-device acceptance remain #7 | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md and ../DESIGN.md |
 | AI 작업 harness | user-scoped frontend, Vercel UI review, Go reliability, browser, screenshot, and CLI skills are installed; routing and evidence rules are active, with no runtime dependency | docs/AI_WORK_HARNESS.md |
 
 ## P0: dependable local control plane

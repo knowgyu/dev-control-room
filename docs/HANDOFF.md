@@ -14,6 +14,20 @@ troubleshooting, security, and observability guidance; and CLI work through
 Action Broker, masking, Worktree trust, npm Codex launcher boundary, or human
 patch-adoption rule, and they are not runtime dependencies of the binary.
 
+## 2026-08-27 v0.10.1 UI polish
+
+The v0.10.1 slice keeps the Phase 2 first-use and Assurance flows intact while
+fixing two low-friction navigation problems found in a fresh packaged UI. The
+first page load no longer steals focus from the Skip link; route changes still
+move reading focus to `main`, which is now a programmatic-only
+`tabindex="-1"` target. Closing the inline project registration panel returns
+focus to its opener. An empty Assurance trend now shows one concise empty state
+instead of a row for every zero-activity day. The focused contract and Phase 2
+journey script were updated with this policy. Full keyboard traversal and
+native dialog Esc delivery remain unclaimed manual acceptance items. See
+[VERIFICATION_v0.10.1.md](VERIFICATION_v0.10.1.md) and
+[RELEASE_NOTES_v0.10.1.md](RELEASE_NOTES_v0.10.1.md).
+
 ## 2026-08-27 Milestone A approval-scope slice
 
 The durable Unattended Approval Scope slice is implemented on the current

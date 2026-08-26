@@ -68,6 +68,28 @@ dev-control-room assurance dashboard --json --home $temp
 - 홈, 진단, Provider 상태의 스크린샷을 저장합니다.
 - 색상을 끄거나 흑백으로 보아도 상태명과 다음 행동을 읽을 수 있어야 합니다.
 
+## 2026-08-27 v0.10.1 fresh packaged UI observation
+
+- fresh empty home: initial `activeElement` remains `body`; the route does not
+  steal focus. `main-content` has `tabindex="-1"`, and route navigation focuses
+  it only after the initial mount.
+- registration: `프로젝트 등록` focuses the first input; closing the inline
+  panel returns focus to the `프로젝트 등록` opener.
+- empty Assurance: the selected 30-day empty trend renders one
+  `추세를 만들 표본이 없습니다.` state and zero `.trend-row` elements.
+- screenshots, captured from the packaged-source local server at desktop and
+  narrow widths, are kept outside Git under
+  `artifacts/verification-v0.10.1-ui/`:
+  - `ui-first-use-desktop.png` —
+    `BC6F2BCC2A6E2E0716BAB3E171B64CE35E636797B75D464169C5900008A43046`
+  - `ui-first-use-narrow.png` —
+    `A26E72F81506828DFE008CE3AC64BA1F29EE35B6A25099EC88F5746013905182`
+  - `ui-assurance-empty.png` —
+    `12CE8325388078747B06ACBFE2E967444F2B194B1334147214682F4E880133E1`
+- Browser console errors: none observed. The in-app Browser driver still did
+  not reliably deliver full Tab/Space key traversal, so that criterion remains
+  `not run` rather than PASS.
+
 ## 2026-08-26 검증 기록
 
 - 자동 검증: `pwsh -NoProfile -File .\scripts\verify-phase2-journeys.ps1`가 239 assertions를 통과했습니다. fresh temporary app home과 두 local Git fixture에서 first-use/return, local npm Codex recovery, fake-provider Assurance, registered static Quality Run, blocked mutation/action, duplicate-warning grouping, secret canary non-persistence, restart를 확인했고 만든 임시 root만 정리했습니다.
