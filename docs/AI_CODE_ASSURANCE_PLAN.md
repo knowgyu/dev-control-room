@@ -1,6 +1,6 @@
 # Phase 1 — AI-assisted Code Assurance plan
 
-Status: v0.10.0 release candidate: Milestone A durable Unattended Approval Scope,
+Status: v0.10.0 release candidate with full gate passed: Milestone A durable Unattended Approval Scope,
 the B restart-boundary recovery slice, and the F effect-evidence hardening slice
 are focused-verified; native resilience, provider authority, mutation, adoption,
 causal attribution, and manual accessibility criteria remain tracked

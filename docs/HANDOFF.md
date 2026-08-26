@@ -46,9 +46,12 @@ tests cover these boundaries; the full verification record is
 
 The candidate combines the fail-closed Assurance restart-boundary recovery
 with the effect-evidence hardening above. The binary version is `0.10.0`.
-The final full verifier, Windows package smoke, and release publication are
-performed from the final release commit; remaining native, human-adoption,
-causal, and manual-accessibility gaps stay partial in the plan.
+The candidate full verifier passed; Windows package smoke and release
+publication are performed from the final documentation commit. Remaining
+native, human-adoption, causal, and manual-accessibility gaps stay partial in
+the plan. See [VERIFICATION_v0.10.0.md](VERIFICATION_v0.10.0.md) for the
+candidate evidence and the final generated summary asset for the release
+commit.
 
 ## 2026-08-27 v0.9.1 released package
 
