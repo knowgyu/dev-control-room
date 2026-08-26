@@ -149,6 +149,96 @@ func TestDoctorKeepsMissingOptionalToolsFromGlobalHealthFailure(t *testing.T) {
 	}
 }
 
+func TestDoctorKeepsUnconfiguredDefaultProviderProfilesNeutral(t *testing.T) {
+	doctor := providerProfileDoctor()
+	profiles := []domain.AgentProfile{
+		testDefaultProviderProfile("codex", domain.AgentLaunchDirect, 120),
+		testDefaultProviderProfile("claude", domain.AgentLaunchDirect, 8),
+		testDefaultProviderProfile("gemini", domain.AgentLaunchDirect, 8),
+	}
+
+	health := doctor.Run(context.Background(), profiles, nil, nil)
+	if !health.Available {
+		t.Fatalf("unconfigured default providers made environment unhealthy: %#v", health)
+	}
+	if len(health.Profiles) != len(profiles) {
+		t.Fatalf("provider rows were not preserved: %#v", health.Profiles)
+	}
+	for _, profile := range health.Profiles {
+		if profile.Required || profile.Available || profile.State != "optional" {
+			t.Fatalf("default provider was not neutral: %#v", profile)
+		}
+		if !hasFinding(health.Findings, "agent_profile."+profile.ID, "info") {
+			t.Fatalf("optional provider finding was not preserved as informational: %#v", health.Findings)
+		}
+	}
+}
+
+func TestDoctorKeepsExplicitProviderProfileRequired(t *testing.T) {
+	doctor := providerProfileDoctor()
+	profile := testDefaultProviderProfile("codex", domain.AgentLaunchDirect, 120)
+	profile.Metadata.Name = "Codex team"
+	profile.Spec.Command = "codex-team"
+	health := doctor.Run(context.Background(), []domain.AgentProfile{profile}, nil, nil)
+
+	if health.Available {
+		t.Fatalf("missing explicitly configured provider left environment available: %#v", health)
+	}
+	if len(health.Profiles) != 1 || !health.Profiles[0].Required || health.Profiles[0].State != "unavailable" {
+		t.Fatalf("explicit provider was not required: %#v", health.Profiles)
+	}
+	if !hasFinding(health.Findings, "agent_profile.codex", "attention") {
+		t.Fatalf("required provider finding was not preserved: %#v", health.Findings)
+	}
+}
+
+func TestDoctorPromotesReferencedDefaultProviderToRequired(t *testing.T) {
+	const selection = "DEVROOM_SELECTED_PROVIDER"
+	doctor := providerProfileDoctor()
+	profile := testDefaultProviderProfile("gemini", domain.AgentLaunchDirect, 8)
+	declarations := []domain.EnvironmentDeclaration{{Name: selection, Scope: "process", ProfileID: profile.Metadata.ID}}
+	t.Setenv(selection, "gemini")
+	health := doctor.Run(context.Background(), []domain.AgentProfile{profile}, declarations, nil)
+
+	if health.Available {
+		t.Fatalf("missing selected provider left environment available: %#v", health)
+	}
+	if len(health.Profiles) != 1 || !health.Profiles[0].Required || health.Profiles[0].State != "unavailable" {
+		t.Fatalf("selected default provider was not required: %#v", health.Profiles)
+	}
+}
+
+func providerProfileDoctor() Doctor {
+	doctor := NewDoctor(fakeRunner{results: map[string]Result{
+		`C:\tools\pwsh.exe`: {Stdout: "PowerShell 7.6.5", ExitCode: 0},
+		`C:\tools\git.exe`:  {Stdout: "git version 2.45.0", ExitCode: 0},
+	}}, masking.New(nil, nil))
+	doctor.LookPath = func(name string) (string, error) {
+		if name == "pwsh" || name == "git" {
+			return `C:\tools\` + name + `.exe`, nil
+		}
+		return "", errors.New("missing")
+	}
+	return doctor
+}
+
+func testDefaultProviderProfile(id string, mode domain.AgentLaunchMode, timeout int) domain.AgentProfile {
+	return domain.AgentProfile{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentProfileKind},
+		Metadata: domain.ObjectMeta{ID: id, Name: strings.ToUpper(id[:1]) + id[1:]},
+		Spec:     domain.AgentProfileSpec{Command: id, LaunchMode: mode, DataBoundary: domain.AgentBoundaryLocal, TimeoutSeconds: timeout},
+	}
+}
+
+func hasFinding(findings []Finding, target, severity string) bool {
+	for _, finding := range findings {
+		if (finding.Type == target || finding.Target == target) && finding.Severity == severity {
+			return true
+		}
+	}
+	return false
+}
+
 func TestDirectProbeRejectsNonNativeWindowsShimBeforeExecution(t *testing.T) {
 	runner := &recordingRunner{}
 	doctor := NewDoctor(runner, masking.New(nil, nil))

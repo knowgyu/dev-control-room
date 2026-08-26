@@ -25,7 +25,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	for _, value := range []string{
 		`<html lang="ko">`, "본문으로 건너뛰기", "홈", "프로젝트", "작업", "진단", "기록",
 		"지금 확인할 항목", "프로젝트별 상태", "최근 실행 결과",
-		"등록 → 관찰 → 계획 → 실행", "처음 사용하는 순서", "외부 작업과 릴리스", "Jenkins 대상 그룹",
+		"등록 → 관찰 → 검토 → 실행", "처음 사용하는 순서", "외부 작업과 릴리스", "Jenkins 대상 그룹",
 		"폴더 선택", "저장소 찾기",
 		"발견 및 제안 검토", "Agent Profile 관리",
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
@@ -122,6 +122,123 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded Assurance dashboard CSS missing %q", value)
 		}
+	}
+}
+
+func TestEmbeddedUIKeyboardRouteFocusContract(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	html := embeddedUIAsset(t, service, "/", "text/html")
+	for _, value := range []string{
+		`<a class="skip-link" href="#main-content">`,
+		`<h1 id="view-title">`,
+		`<main id="main-content" tabindex="0" aria-labelledby="view-title">`,
+		`data-home-established-only hidden`,
+	} {
+		if !strings.Contains(html, value) {
+			t.Errorf("embedded UI keyboard contract missing %q", value)
+		}
+	}
+
+	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
+	for _, value := range []string{
+		"let routeFocusTimer = 0",
+		`if (candidate === "main-content") return activeRoute`,
+		`document.querySelector(".skip-link").addEventListener("click"`,
+		"event.preventDefault()",
+		"window.clearTimeout(routeFocusTimer)",
+		"routeFocusTimer = window.setTimeout(() => {",
+		`document.getElementById("main-content").focus({ preventScroll: true })`,
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded UI route focus contract missing %q", value)
+		}
+	}
+}
+
+func TestEmbeddedUIProviderCapabilityGroupingContract(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	html := embeddedUIAsset(t, service, "/", "text/html")
+	for _, value := range []string{
+		`<div id="environment" class="loading" aria-live="polite">`,
+		"선택 Provider는 필요할 때만 설정합니다. 미설정 상태는 전체 환경 경고가 아닙니다.",
+		`<div id="provider-statuses" class="loading" tabindex="-1" aria-live="polite">`,
+	} {
+		if !strings.Contains(html, value) {
+			t.Errorf("embedded UI provider grouping HTML missing %q", value)
+		}
+	}
+
+	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
+	for _, value := range []string{
+		"const optionalProviderIDs = new Set",
+		"const requiredEnvironmentReady = environment =>",
+		"const providerStateSummaries =",
+		`detected: "실행 확인 필요"`,
+		`unavailable: "사용할 수 없음"`,
+		"const providerSummary = state =>",
+		"Provider 상태는 아래 카드에서 한 번에 확인합니다.",
+		"new Map((state.providerStatuses || []).map",
+		"data-provider-capability=",
+		"진단 세부 정보",
+		"data-provider-recovery",
+		`data-focus-target="provider-statuses"`,
+		"진단 열기",
+		"const providerIDs = new Set",
+		"return !providerFinding",
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded UI provider grouping JavaScript missing %q", value)
+		}
+	}
+	if strings.Contains(javascript, "state.environment.available") {
+		t.Error("optional Provider state must not determine the global environment summary")
+	}
+	if strings.Contains(javascript, "const detail = item.detail") {
+		t.Error("Provider detail must not be the default card summary")
+	}
+}
+
+func TestEmbeddedUIFirstUseAndFindingTargetContract(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	html := embeddedUIAsset(t, service, "/", "text/html")
+	for _, value := range []string{
+		`id="home-onboarding"`, `id="home-metrics"`, `id="home-providers"`, `id="home-assurance"`,
+		`data-home-established-only hidden`, "처음 사용하는 순서", "프로젝트 등록",
+	} {
+		if !strings.Contains(html, value) {
+			t.Errorf("embedded UI first-use HTML missing %q", value)
+		}
+	}
+
+	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
+	for _, value := range []string{
+		`document.querySelectorAll("[data-home-established-only]")`,
+		"function findingRoute(item)",
+		"new URLSearchParams({ finding: findingID })",
+		"data-finding-id=",
+		"pendingFindingID",
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded UI first-use/finding JavaScript missing %q", value)
+		}
+	}
+	if strings.Contains(javascript, `href="#projects">확인 항목 열기`) {
+		t.Error("finding CTA must retain its target instead of linking to a generic project list")
 	}
 }
 

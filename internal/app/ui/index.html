@@ -32,10 +32,10 @@
           <p class="eyebrow">DEV CONTROL ROOM</p>
           <h1 id="view-title">홈</h1>
         </div>
-        <button id="scan" class="button primary" type="button">지금 점검</button>
+        <button id="scan" class="button primary" type="button" data-home-established-only hidden>지금 점검</button>
       </header>
 
-      <main id="main-content" tabindex="-1">
+      <main id="main-content" tabindex="0" aria-labelledby="view-title">
         <section class="view" data-view="home">
           <div class="hero">
             <div>
@@ -43,10 +43,10 @@
               <h2 id="home-title">먼저 확인할 일만 모았습니다.</h2>
               <p id="home-subtitle">프로젝트 상태와 근거를 검토한 뒤 필요한 작업으로 이동하세요.</p>
             </div>
-            <div class="scan-time"><span>마지막 점검</span><strong id="m-scan">아직 없음</strong></div>
+            <div class="scan-time" data-home-established-only hidden><span>마지막 점검</span><strong id="m-scan">아직 없음</strong></div>
           </div>
           <section id="home-onboarding" class="workflow panel" aria-labelledby="workflow-title">
-            <div class="panel-heading"><div><p class="eyebrow">처음 사용하는 순서</p><h2 id="workflow-title">등록 → 관찰 → 계획 → 실행</h2></div><span class="chip ok">로컬 우선</span></div>
+            <div class="panel-heading"><div><p class="eyebrow">처음 사용하는 순서</p><h2 id="workflow-title">등록 → 관찰 → 검토 → 실행</h2></div><span class="chip ok">로컬 우선</span></div>
             <div class="workflow-steps">
               <a href="#projects"><span>01</span><strong>프로젝트 등록</strong><small>폴더와 Git 저장소를 선택합니다.</small></a>
               <a href="#diagnostics"><span>02</span><strong>연동·도구 설정</strong><small>주소와 credential reference만 저장합니다.</small></a>
@@ -54,34 +54,34 @@
               <a href="#work"><span>04</span><strong>승인 후 실행</strong><small>Worktree 신뢰와 명시적 승인이 필요합니다.</small></a>
             </div>
           </section>
-          <div class="metrics" aria-label="전체 상태 요약">
+          <div id="home-metrics" class="metrics" aria-label="전체 상태 요약" data-home-established-only hidden>
             <article class="metric-card"><span>프로젝트</span><strong id="m-projects">0</strong></article>
             <article class="metric-card"><span>저장소</span><strong id="m-repos">0</strong></article>
             <article class="metric-card accent"><span>열린 확인 항목</span><strong id="m-findings">0</strong></article>
             <article class="metric-card"><span>실행 기능</span><strong id="m-environment">미점검</strong></article>
           </div>
           <div class="dashboard-grid">
-            <section class="panel span-two">
+            <section class="panel span-two" data-home-established-only hidden>
               <div class="panel-heading"><div><p class="eyebrow">우선순위</p><h2>지금 확인할 항목</h2></div><a href="#projects">프로젝트에서 보기</a></div>
               <div id="home-findings" class="loading">확인할 항목을 불러오는 중입니다.</div>
             </section>
-            <section class="panel">
+            <section class="panel" data-home-established-only hidden>
               <div class="panel-heading"><div><p class="eyebrow">범위</p><h2>프로젝트별 상태</h2></div></div>
               <div id="home-projects" class="loading">프로젝트를 불러오는 중입니다.</div>
             </section>
-            <section class="panel">
+            <section class="panel" data-home-established-only hidden>
               <div class="panel-heading"><div><p class="eyebrow">실행</p><h2>최근 실행 결과</h2></div><a href="#activity">전체 기록</a></div>
               <div id="home-runs" class="loading">실행 결과를 불러오는 중입니다.</div>
             </section>
             <section class="panel span-two">
-              <div class="panel-heading"><div><p class="eyebrow">다음 행동</p><h2>지금 진행할 일</h2></div><a href="#diagnostics">진단 보기</a></div>
+              <div class="panel-heading"><div><p class="eyebrow">다음 행동</p><h2>지금 진행할 일</h2></div><a href="#diagnostics" data-home-established-only hidden>진단 보기</a></div>
               <div id="home-next-action" class="loading">다음 행동을 계산하는 중입니다.</div>
             </section>
-            <section class="panel span-two">
+            <section class="panel span-two" data-home-established-only hidden>
               <div class="panel-heading"><div><p class="eyebrow">Provider</p><h2>Provider 상태</h2></div><a href="#diagnostics">상세 진단</a></div>
               <div id="home-providers" class="loading">Provider 상태를 불러오는 중입니다.</div>
             </section>
-            <section class="panel span-two">
+            <section class="panel span-two" data-home-established-only hidden>
               <div class="panel-heading"><div><p class="eyebrow">Assurance</p><h2>검증 결과</h2></div><a href="#assurance">대시보드 보기</a></div>
               <div id="home-assurance" class="loading">검증 결과를 불러오는 중입니다.</div>
             </section>
@@ -143,12 +143,12 @@
           <div class="diagnostic-grid">
             <section class="panel span-two">
               <div class="panel-heading"><div><p class="eyebrow">도구와 설정</p><h2>개발 환경</h2></div><button id="env-doctor" class="button" type="button">환경 다시 점검</button></div>
-              <div id="environment" class="loading">개발 환경 상태를 불러오는 중입니다.</div>
+              <div id="environment" class="loading" aria-live="polite">개발 환경 상태를 불러오는 중입니다.</div>
             </section>
             <section class="panel span-two">
               <div class="panel-heading"><div><p class="eyebrow">Provider</p><h2>Provider 상태</h2></div><button id="provider-refresh" class="button" type="button">Provider 다시 점검</button></div>
-              <p class="panel-copy">선택 Provider가 없어도 전체 환경은 정상일 수 있습니다.</p>
-              <div id="provider-statuses" class="loading">Provider 상태를 불러오는 중입니다.</div>
+              <p class="panel-copy">선택 Provider는 필요할 때만 설정합니다. 미설정 상태는 전체 환경 경고가 아닙니다.</p>
+              <div id="provider-statuses" class="loading" tabindex="-1" aria-live="polite">Provider 상태를 불러오는 중입니다.</div>
             </section>
             <section class="panel span-two">
               <div class="panel-heading"><div><p class="eyebrow">작업 지침</p><h2>지침 점검</h2></div></div>

@@ -43,7 +43,7 @@ type ProfileStatus struct {
 	ID           string   `json:"id"`
 	Available    bool     `json:"available"`
 	Required     bool     `json:"required"`
-	State        string   `json:"state"` // available, unavailable
+	State        string   `json:"state"` // available, unavailable, optional
 	LaunchMode   string   `json:"launchMode"`
 	CommandType  string   `json:"commandType,omitempty"`
 	ResolvedPath string   `json:"resolvedPath,omitempty"`
@@ -306,19 +306,28 @@ func (d Doctor) Run(ctx context.Context, profiles []domain.AgentProfile, declara
 			health.Findings = append(health.Findings, finding)
 		}
 	}
+	requiredProfileIDs := referencedProfileIDs(declarations)
 	for _, profile := range profiles {
 		status := d.resolveProfile(ctx, profile)
-		status.Required = true
+		status.Required = !isOptionalDefaultAgentProfile(profile) || requiredProfileIDs[profile.Metadata.ID]
 		if status.Available {
 			status.State = "available"
-		} else {
+		} else if status.Required {
 			status.State = "unavailable"
+		} else {
+			status.State = "optional"
 		}
 		health.Profiles = append(health.Profiles, status)
 		if !status.Available {
-			health.Available = false
 			for _, finding := range status.Findings {
-				health.Findings = append(health.Findings, unavailableFinding("agent_profile."+profile.Metadata.ID, profile.Metadata.ID, finding))
+				profileFinding := unavailableFinding("agent_profile."+profile.Metadata.ID, profile.Metadata.ID, finding)
+				if !status.Required {
+					profileFinding.Severity = "info"
+					profileFinding.RecommendedNextAction = "필요한 경우 Provider를 설정한 뒤 다시 점검합니다."
+				} else {
+					health.Available = false
+				}
+				health.Findings = append(health.Findings, profileFinding)
 			}
 		}
 	}
@@ -346,6 +355,42 @@ func (d Doctor) Run(ctx context.Context, profiles []domain.AgentProfile, declara
 
 func requiredTool(name string) bool {
 	return name == "pwsh" || name == "git"
+}
+
+func referencedProfileIDs(declarations []domain.EnvironmentDeclaration) map[string]bool {
+	ids := make(map[string]bool)
+	for _, declaration := range declarations {
+		if id := strings.TrimSpace(declaration.ProfileID); id != "" {
+			ids[id] = true
+		}
+	}
+	return ids
+}
+
+// isOptionalDefaultAgentProfile identifies profiles seeded by the application
+// before the operator chooses a provider. A changed command or launch
+// configuration is an explicit profile configuration and remains required.
+func isOptionalDefaultAgentProfile(profile domain.AgentProfile) bool {
+	id := strings.ToLower(strings.TrimSpace(profile.Metadata.ID))
+	command := strings.ToLower(strings.TrimSpace(profile.Spec.Command))
+	expectedMode := domain.AgentLaunchDirect
+	expectedTimeout := 8
+	switch id {
+	case "codex":
+		expectedTimeout = 120
+	case "claude", "gemini":
+	case "claude-local":
+		expectedMode = domain.AgentLaunchPowerShellProfile
+	default:
+		return false
+	}
+	if command != id || profile.Spec.LaunchMode != expectedMode || profile.Spec.DataBoundary != domain.AgentBoundaryLocal {
+		return false
+	}
+	if profile.Spec.TimeoutSeconds != 0 && profile.Spec.TimeoutSeconds != expectedTimeout {
+		return false
+	}
+	return len(profile.Spec.VersionProbe) == 0 && strings.TrimSpace(profile.Spec.ModelArgumentTemplate) == "" && len(profile.Spec.EnvironmentAllowlist) == 0
 }
 
 func (d Doctor) resolveDirect(ctx context.Context, name string, probe []string, timeoutSeconds int) ToolStatus {

@@ -162,16 +162,46 @@
   const label = value => statusLabels[value] || value || "알 수 없음";
   const providerStateLabels = {
     ready: "사용 가능",
-    detected: "확인 필요",
-    unavailable: "확인 필요",
+    detected: "실행 확인 필요",
+    unavailable: "사용할 수 없음",
     auth_required: "인증 필요",
+    profile_needs_setup: "프로필 설정 필요",
     not_configured: "미설정",
   };
-  const providerStateClass = state => state === "ready" ? "ok" : state === "not_configured" ? "" : "bad";
+  const providerStateClass = state => state === "ready" ? "ok" : ["detected", "auth_required", "profile_needs_setup"].includes(state) ? "warn" : state === "not_configured" ? "" : "bad";
   const providerLabel = state => providerStateLabels[state] || "확인 필요";
+  const providerStateSummaries = {
+    ready: "실행 경로를 확인했습니다.",
+    detected: "실행 경로 확인이 필요합니다.",
+    unavailable: "현재 실행할 수 없습니다.",
+    auth_required: "인증 확인이 필요합니다.",
+    profile_needs_setup: "프로필 설정이 필요합니다.",
+    not_configured: "아직 설정하지 않았습니다.",
+  };
+  const providerSummary = state => providerStateSummaries[state] || "상태를 확인하세요.";
+  const providerDiagnosticTexts = {
+    "provider.not_found": "설치 경로를 찾지 못했습니다.",
+    "provider.untrusted_launcher": "검증되지 않은 launcher를 찾았습니다.",
+    "provider.node_required": "로컬 node.exe가 필요합니다.",
+    "provider.node_missing": "로컬 node.exe 파일을 찾지 못했습니다.",
+    "provider.node_not_regular": "node.exe 파일을 신뢰할 수 없습니다.",
+    "provider.package_metadata_missing": "Codex 패키지 정보를 찾지 못했습니다.",
+    "provider.package_not_trusted": "Codex 패키지 정보를 신뢰할 수 없습니다.",
+    "provider.package_entry_missing": "Codex 실행 파일을 찾지 못했습니다.",
+    "provider.package_entry_not_regular": "Codex 실행 파일을 신뢰할 수 없습니다.",
+    "provider.package_entry_unreadable": "Codex 실행 파일을 읽을 수 없습니다.",
+  };
+  const providerDiagnostic = item => providerDiagnosticTexts[item.reasonCode] || (item.state === "ready" ? "검증된 실행 경로를 사용합니다." : "진단 코드와 실행 경로를 확인합니다.");
+  const optionalProviderIDs = new Set(["codex", "claude", "gemini", "claude-local"]);
+  const requiredEnvironmentReady = environment => {
+    if (!environment?.generatedAt) return false;
+    if ((environment.tools || []).some(item => item.required && (item.state !== "available" || item.available !== true))) return false;
+    if ((environment.profiles || []).some(item => item.required && (item.state !== "available" || item.available !== true))) return false;
+    return !(environment.environment || []).some(item => item.state !== "declared");
+  };
   const assuranceTechniqueLabels = {
     static_security: "정적 보안",
-    mutation: "Mutation",
+    mutation: "변이",
     property: "Property",
     fuzz: "Fuzz",
     targeted_e2e: "Targeted E2E",
@@ -224,7 +254,30 @@
     value: `${repository.projectID}|${repository.id}|${worktree.metadata.id}`,
     label: `${repository.projectName} / ${repository.id} / ${worktree.metadata.id}`,
   })));
-  const currentRoute = () => routeTitles[location.hash.slice(1).split("/")[0]] ? location.hash.slice(1).split("/")[0] : "home";
+  const decodeURIComponentSafe = value => {
+    try { return decodeURIComponent(value); } catch (_) { return ""; }
+  };
+  const routeState = () => {
+    const [path, query = ""] = location.hash.slice(1).split("?", 2);
+    const [name, projectID = ""] = path.split("/", 2);
+    let findingID = "";
+    try {
+      findingID = new URLSearchParams(query).get("finding") || "";
+    } catch (_) {
+      findingID = "";
+    }
+    return { name, projectID: decodeURIComponentSafe(projectID), findingID };
+  };
+  let activeRoute = "home";
+  let pendingFindingID = "";
+  let pendingRouteFocus = "";
+  const currentRoute = () => {
+    const candidate = routeState().name;
+    if (routeTitles[candidate]) return candidate;
+    if (candidate === "main-content") return activeRoute;
+    return "home";
+  };
+  let routeFocusTimer = 0;
 
   async function request(path, options = {}) {
     const response = await fetch(path, options);
@@ -245,6 +298,10 @@
 
   function setRoute() {
     const active = currentRoute();
+    const target = routeState();
+    activeRoute = active;
+    pendingFindingID = active === "projects" ? target.findingID : "";
+    if (active === "projects" && target.projectID) state.activeProjectID = target.projectID;
     document.querySelectorAll("[data-view]").forEach(view => { view.hidden = view.dataset.view !== active; });
     document.querySelectorAll("[data-route]").forEach(link => {
       if (link.dataset.route === active) link.setAttribute("aria-current", "page");
@@ -253,18 +310,32 @@
     document.getElementById("view-title").textContent = routeTitles[active];
     document.title = `${routeTitles[active]} · Dev Control Room`;
     window.scrollTo({ top: 0 });
-    document.getElementById("main-content").focus({ preventScroll: true });
+    window.clearTimeout(routeFocusTimer);
+    const focusTarget = pendingRouteFocus;
+    pendingRouteFocus = "";
+    routeFocusTimer = window.setTimeout(() => {
+      const targetElement = focusTarget ? document.getElementById(focusTarget) : null;
+      (targetElement || document.getElementById("main-content")).focus({ preventScroll: true });
+    }, 0);
     if (initialized) void loadRouteData(active, false);
+  }
+
+  function focusPendingFinding() {
+    if (!pendingFindingID) return;
+    const finding = document.getElementById(`finding-${encode(pendingFindingID)}`);
+    if (!finding) return;
+    finding.focus({ preventScroll: true });
+    pendingFindingID = "";
   }
 
   function surfaceError(message, route) {
     return `<div class="list-item state-bad" role="alert"><strong>데이터를 불러오지 못했습니다.</strong><p>${escapeHTML(message)}</p><button class="button small" type="button" data-retry="${escapeHTML(route)}">다시 시도</button></div>`;
   }
 
-  function findingCard(item) {
+  function findingCard(item, idPrefix = "finding") {
     const severity = String(item.spec.severity || "info");
     const scope = [item.spec.projectId, item.spec.repositoryId].filter(Boolean).join(" / ");
-    return `<article class="finding ${escapeHTML(severity)}">
+    return `<article id="${idPrefix}-${escapeHTML(encode(item.metadata.id))}" class="finding ${escapeHTML(severity)}" data-finding-id="${escapeHTML(item.metadata.id)}" tabindex="-1">
       <div class="finding-header"><h3>${escapeHTML(localize(item.spec.summary))}</h3><span class="chip ${severity === "info" ? "" : severity === "attention" ? "warn" : "bad"}">${escapeHTML(severityLabels[severity] || severity)}</span></div>
       <p class="next">다음 단계: ${escapeHTML(localize(item.spec.recommendedNextAction))}</p>
       <details><summary>근거와 상태 보기</summary><dl class="detail-grid">
@@ -284,6 +355,9 @@
     const findings = openFindings();
     const established = projects.length > 0;
     const readyProviders = state.providerStatuses.filter(item => item.state === "ready").length;
+    const environmentReady = requiredEnvironmentReady(state.environment);
+    const environmentNeedsAttention = Boolean(state.environment.generatedAt) && !environmentReady;
+    document.querySelectorAll("[data-home-established-only]").forEach(element => { element.hidden = !established; });
     document.getElementById("home-title").textContent = established ? "오늘의 개발 상태를 확인합니다." : "첫 프로젝트를 등록합니다.";
     document.getElementById("home-subtitle").textContent = established ? "변경된 근거와 다음 행동을 짧게 확인합니다." : "폴더를 선택하면 저장소를 읽기 전용으로 확인합니다.";
     document.getElementById("home-onboarding").hidden = established;
@@ -291,14 +365,14 @@
     document.getElementById("m-repos").textContent = repositories.length;
     document.getElementById("m-findings").textContent = findings.length;
     document.getElementById("m-scan").textContent = formatDate(state.snapshot.generated_at);
-    document.getElementById("m-environment").textContent = state.environment.generatedAt ? (state.environment.available ? `${readyProviders}개 사용 가능` : "확인 필요") : "미점검";
+    document.getElementById("m-environment").textContent = state.environment.generatedAt ? (environmentReady ? `${readyProviders}개 Provider 사용 가능` : "필수 기능 확인 필요") : "미점검";
 
     const ordered = findings.slice().sort((left, right) => {
       const rank = { critical: 4, high: 3, attention: 2, info: 1 };
       return (rank[right.spec.severity] || 0) - (rank[left.spec.severity] || 0);
     });
     document.getElementById("home-findings").innerHTML = ordered.length
-      ? `<div class="finding-list">${ordered.slice(0, 5).map(findingCard).join("")}</div>`
+      ? `<div class="finding-list">${ordered.slice(0, 5).map(item => findingCard(item, "home-finding")).join("")}</div>`
       : '<div class="empty-state"><strong>지금 확인할 항목이 없습니다.</strong><span>새 상태를 확인하려면 ‘지금 점검’을 실행하세요.</span></div>';
 
     document.getElementById("home-projects").innerHTML = projects.length
@@ -313,17 +387,30 @@
     document.getElementById("home-runs").innerHTML = recentRuns.length
       ? `<div class="item-list">${recentRuns.slice(0, 5).map(item => `<article class="list-item"><div class="list-item-header"><h3>${escapeHTML(localize(item.spec.summary))}</h3><span class="chip">기록</span></div><p class="meta">${escapeHTML(formatDate(item.spec.occurredAt))}</p></article>`).join("")}</div>`
       : '<div class="empty-state"><strong>아직 실행 결과가 없습니다.</strong><span>작업 화면에서 검토된 점검이나 Action을 실행할 수 있습니다.</span></div>';
+    const findingTarget = ordered.length ? findingRoute(ordered[0]) : "";
     document.getElementById("home-next-action").innerHTML = !established
       ? '<div class="list-item state-ok"><strong>프로젝트 등록</strong><p>첫 저장소를 등록하면 읽기 전용 점검을 시작합니다.</p><div class="item-actions"><a class="button primary small" href="#projects">프로젝트 등록</a></div></div>'
       : ordered.length
-        ? `<div class="list-item state-warn"><strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong><p>다음 단계: ${escapeHTML(localize(ordered[0].spec.recommendedNextAction))}</p><div class="item-actions"><a class="button small" href="#projects">확인 항목 열기</a></div></div>`
+        ? `<div class="list-item state-warn"><strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong><p>다음 단계: ${escapeHTML(localize(ordered[0].spec.recommendedNextAction))}</p>${findingTarget ? `<div class="item-actions"><a class="button small" href="${escapeHTML(findingTarget)}">확인 항목 열기</a></div>` : ""}</div>`
+        : environmentNeedsAttention
+          ? '<div class="list-item state-warn"><strong>필수 실행 기능 확인</strong><p>진단에서 차단된 기능과 안전한 복구 방법을 확인합니다.</p><div class="item-actions"><a class="button small" href="#diagnostics">진단 열기</a></div></div>'
         : '<div class="list-item state-ok"><strong>다음 점검</strong><p>열린 확인 항목이 없습니다. 최신 상태를 확인합니다.</p><div class="item-actions"><button class="button small" type="button" data-home-scan>지금 점검</button></div></div>';
     renderProviderStatuses("home-providers", true);
     const assurance = state.assuranceDashboard || {};
     const runs = state.assuranceRuns || [];
     document.getElementById("home-assurance").innerHTML = runs.length || assurance.invocations?.length || assurance.effects?.length
       ? `<div class="assurance-summary"><article><span>Quality Run</span><strong>${escapeHTML(runs.length)}</strong></article><article><span>Agent 실행</span><strong>${escapeHTML(assurance.invocations?.length || 0)}</strong></article><article><span>효과 기록</span><strong>${escapeHTML(assurance.effects?.length || 0)}</strong></article><article><span>비용 상태</span><strong>${escapeHTML(assurance.costState === "estimated" ? "추정" : "미확인")}</strong></article></div><p class="meta">비용은 사용량과 저장된 가격 snapshot이 모두 있을 때만 추정합니다.</p>`
-      : '<div class="empty-state"><strong>아직 검증 결과가 없습니다.</strong><span>Quality Run을 실행하면 근거와 효과 기록이 여기에 나타납니다.</span></div>';
+       : '<div class="empty-state"><strong>아직 검증 결과가 없습니다.</strong><span>Quality Run을 실행하면 근거와 효과 기록이 여기에 나타납니다.</span></div>';
+  }
+
+  function findingRoute(item) {
+    const projectID = item?.spec?.projectId;
+    const findingID = item?.metadata?.id;
+    if (!projectID || !findingID) return "";
+    const query = new URLSearchParams({ finding: findingID });
+    if (item.spec.repositoryId) query.set("repository", item.spec.repositoryId);
+    if (item.spec.worktreeId) query.set("worktree", item.spec.worktreeId);
+    return `#projects/${encode(projectID)}?${query.toString()}`;
   }
 
   function renderAssuranceFilters() {
@@ -440,9 +527,14 @@
   function renderProviderStatuses(containerID, compact = false) {
     const container = document.getElementById(containerID);
     if (!container) return;
-    const providers = state.providerStatuses || [];
+    const providers = [...new Map((state.providerStatuses || []).map(item => [item.provider, item])).values()];
     container.innerHTML = providers.length
-      ? `<div class="provider-list">${providers.map(item => `<article class="provider-card"><div class="list-item-header"><div><h3>${escapeHTML(item.provider)}</h3><p class="meta">${escapeHTML(item.detail || item.reasonCode || "상태를 확인했습니다.")}</p></div><span class="chip ${providerStateClass(item.state)}">${escapeHTML(providerLabel(item.state))}</span></div>${!compact && item.resolvedCommand?.length ? `<details><summary>검증된 실행 경로</summary><p class="meta"><code>${escapeHTML(item.resolvedCommand.join(" "))}</code></p></details>` : ""}${item.state !== "ready" ? `<p class="next">다음 단계: ${escapeHTML(item.state === "not_configured" ? "필요할 때 Provider를 설정합니다." : "설정과 실행 경로를 확인한 뒤 다시 점검합니다.")}</p>` : ""}</article>`).join("")}</div>`
+      ? `<div class="provider-list">${providers.map(item => {
+        const diagnostics = !compact && (item.detail || item.reasonCode || item.resolvedCommand?.length)
+          ? `<details><summary>진단 세부 정보</summary><dl class="detail-grid"><div class="wide"><dt>추가 진단</dt><dd>${escapeHTML(providerDiagnostic(item))}</dd></div>${item.reasonCode ? `<div><dt>진단 코드</dt><dd><code>${escapeHTML(item.reasonCode)}</code></dd></div>` : ""}${item.resolvedCommand?.length ? `<div class="wide"><dt>확인된 실행 경로</dt><dd><code>${escapeHTML(item.resolvedCommand.join(" "))}</code></dd></div>` : ""}</dl></details>`
+          : "";
+        return `<article class="provider-card" data-provider-capability="${escapeHTML(item.provider)}"><div class="list-item-header"><div><h3>${escapeHTML(item.provider)}</h3><p class="meta">${escapeHTML(providerSummary(item.state))}</p></div><span class="chip ${providerStateClass(item.state)}">${escapeHTML(providerLabel(item.state))}</span></div>${diagnostics}${item.state !== "ready" ? '<div class="item-actions"><a class="button small" data-provider-recovery data-focus-target="provider-statuses" href="#diagnostics">진단 열기</a></div>' : ""}</article>`;
+      }).join("")}</div>`
       : '<div class="empty-state"><strong>Provider 상태가 없습니다.</strong><span>진단을 실행하면 선택 가능한 Provider를 확인합니다.</span></div>';
   }
 
@@ -647,16 +739,22 @@
 
   function renderDiagnostics() {
     const environment = state.environment;
-    const optionalProfileIDs = new Set(["codex", "claude", "gemini", "claude-local"]);
+    const environmentReady = requiredEnvironmentReady(environment);
+    const providerIDs = new Set((state.providerStatuses || []).map(item => item.provider).filter(Boolean));
     const visibleEnvironmentFindings = (environment.findings || []).filter(item => {
       if (!item.type?.startsWith("tool.")) return true;
       const tool = (environment.tools || []).find(candidate => candidate.name === item.target);
       return !tool || tool.required;
     }).filter(item => {
       if (!item.type?.startsWith("agent_profile.")) return true;
-      return !optionalProfileIDs.has(item.target);
+      return !optionalProviderIDs.has(item.target);
+    }).filter(item => {
+      const type = String(item.type || "");
+      const target = String(item.target || "");
+      const providerFinding = (type.startsWith("tool.") || type.startsWith("agent_profile.")) && providerIDs.has(target);
+      return !providerFinding;
     }).filter((item, index, all) => all.findIndex(candidate => candidate.type === item.type && candidate.target === item.target) === index);
-    document.getElementById("environment").innerHTML = `<div class="list-item ${environment.generatedAt && environment.available ? "state-ok" : "state-warn"}"><strong>${!environment.generatedAt ? "아직 환경을 점검하지 않았습니다." : environment.available ? "필수 기능을 사용할 수 있습니다." : "필수 기능을 확인하세요."}</strong><p class="meta">선택 Provider는 아래 상태에서 따로 확인합니다.</p></div>${visibleEnvironmentFindings.length ? `<div class="finding-list" style="margin-top:10px">${visibleEnvironmentFindings.map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><span class="chip ${item.severity === "high" ? "bad" : "warn"}">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>` : ""}`;
+    document.getElementById("environment").innerHTML = `<div class="list-item ${environment.generatedAt && environmentReady ? "state-ok" : "state-warn"}"><strong>${!environment.generatedAt ? "아직 환경을 점검하지 않았습니다." : environmentReady ? "필수 기능을 사용할 수 있습니다." : "필수 기능을 확인하세요."}</strong><p class="meta">Provider 상태는 아래 카드에서 한 번에 확인합니다.</p></div>${visibleEnvironmentFindings.length ? `<div class="finding-list" style="margin-top:10px">${visibleEnvironmentFindings.map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><span class="chip ${item.severity === "high" ? "bad" : "warn"}">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>` : ""}`;
     renderProviderStatuses("provider-statuses");
 
     const targets = targetOptions();
@@ -733,6 +831,7 @@
     renderAssuranceDashboard();
     renderDiagnostics();
     renderActivity();
+    focusPendingFinding();
   }
 
   async function loadSurface(key, loader, assign) {
@@ -1506,6 +1605,16 @@
       }
       return;
     }
+  });
+
+  document.querySelector(".skip-link").addEventListener("click", event => {
+    event.preventDefault();
+    document.getElementById("main-content").focus({ preventScroll: true });
+  });
+
+  document.addEventListener("click", event => {
+    const recoveryLink = event.target.closest("a[data-provider-recovery]");
+    if (recoveryLink) pendingRouteFocus = recoveryLink.dataset.focusTarget || "";
   });
 
   document.getElementById("scan").addEventListener("click", async event => {
