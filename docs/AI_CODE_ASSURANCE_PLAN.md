@@ -1,7 +1,8 @@
 # Phase 1 — AI-assisted Code Assurance plan
 
 Status: v0.10.0 development: Milestone A durable Unattended Approval Scope
-vertical slice is implemented and focused-verified; native resilience,
+vertical slice and the B restart-boundary recovery slice are implemented and
+focused-verified; native resilience,
 provider authority, mutation, adoption, causal attribution, and manual
 accessibility criteria remain tracked
 Updated: 2026-08-27
@@ -178,12 +179,21 @@ surface, and Plan/Admit/Execute revalidation. Its focused evidence is in
 and its boundary is fixed by
 [ADR-003](decisions/ADR-003-unattended-approval-scope.md).
 
+The B restart-boundary slice now persists a two-hour invocation lease,
+transitions queued/running/cancelling invocations to `interrupted` on service
+startup, clears the lease, records `provider.interrupted`, updates the owning
+Resume Brief, and never relaunches a provider automatically. Its focused
+evidence is recorded in [MILESTONE_B_VERIFICATION.md](MILESTONE_B_VERIFICATION.md).
+Native process-tree inspection after crash/reboot and user-directed resume
+remain open under issue #3.
+
 Sessions and runs have a fail-closed state machine: draft, awaiting answer,
 ready, queued, running, cancelling, interrupted, succeeded, failed, timed out,
 cancelled, stale, or expired. A persisted lease and idempotency key identify
-each invocation. On service restart, logout, reboot, or expired lease, an active
-run becomes interrupted after checking its owned process state; it is never
-silently retried. Read-only work can be explicitly resumed or retried as a new
+each invocation. On service startup, an active persisted invocation becomes
+interrupted at the restart boundary and is never silently retried. Native
+process-state inspection after crash/reboot and user-directed resume remain
+open work. Read-only work can be explicitly resumed or retried as a new
 invocation. Any write requires fresh Worktree observation, exact plan/scope
 validation, and the normal Broker boundary. Artifact writes use a staging
 directory, hash/validation, then an atomic local manifest transition so partial

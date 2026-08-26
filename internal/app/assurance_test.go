@@ -267,6 +267,97 @@ func TestFakeProviderFailureMatrixKeepsSessionRecoverable(t *testing.T) {
 	}
 }
 
+func TestStartupRecoveryMarksActiveInvocationInterruptedWithoutRelaunch(t *testing.T) {
+	home := t.TempDir()
+	repository := tempGitRepository(t, "startup-recovery")
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Startup recovery", Path: repository})
+	if err != nil {
+		_ = service.Close()
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		_ = service.Close()
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "fake", RequestedModel: "fixture-model"})
+	if err != nil {
+		_ = service.Close()
+		t.Fatal(err)
+	}
+	worktree, err := service.Worktree(context.Background(), project.Metadata.ID, "repo-1", "primary")
+	if err != nil {
+		_ = service.Close()
+		t.Fatal(err)
+	}
+	started := time.Now().UTC().Add(-time.Minute)
+	lease := started.Add(2 * time.Hour)
+	invocation := domain.AgentInvocation{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind},
+		Metadata: domain.ObjectMeta{ID: "interrupted-invocation", Name: "Interrupted invocation"},
+		Spec: domain.AgentInvocationSpec{
+			SessionID: session.Metadata.ID, ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary",
+			Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Provider: "fake", ProfileID: "fake", RequestedModel: "fixture-model",
+			SelectionSource: "user", State: domain.AssuranceStateRunning, IdempotencyKey: "interrupted-invocation", StartedAt: started,
+			LeaseExpiresAt: &lease, TraceID: "trace-interrupted-invocation", RawTranscript: false,
+		},
+	}
+	if err := service.store.SaveAgentInvocation(context.Background(), invocation); err != nil {
+		_ = service.Close()
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocations, err := restarted.AgentInvocations(context.Background())
+	if err != nil || len(invocations) != 1 {
+		t.Fatalf("recovered invocations = %#v, err=%v", invocations, err)
+	}
+	recovered := invocations[0]
+	if recovered.Metadata.ID != invocation.Metadata.ID || recovered.Spec.State != domain.AssuranceStateInterrupted || recovered.Spec.FailureCode != "provider.interrupted" || recovered.Spec.LeaseExpiresAt != nil {
+		t.Fatalf("recovered invocation = %#v", recovered)
+	}
+	updated, err := restarted.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Spec.State != domain.AssuranceStateInterrupted || !hasAssuranceValue(updated.Spec.ResumeBrief.Pending, invocation.Metadata.ID) || !hasAssuranceValue(updated.Spec.ResumeBrief.FailedEvidence, "provider.interrupted") || updated.Spec.ResumeBrief.NextSafeAction == "" {
+		t.Fatalf("recovery brief = %#v", updated.Spec.ResumeBrief)
+	}
+	revision, err := restarted.store.AssuranceRevision(context.Background(), domain.AgentInvocationKind, invocation.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if again, err := reopened.store.AssuranceRevision(context.Background(), domain.AgentInvocationKind, invocation.Metadata.ID); err != nil || again != revision {
+		t.Fatalf("recovery was not idempotent: revision=%d want=%d err=%v", again, revision, err)
+	}
+}
+
+func hasAssuranceValue(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAgentInvocationFailsClosedWhenEvidenceArtifactCannotPersist(t *testing.T) {
 	home := t.TempDir()
 	service, err := New(home, "127.0.0.1:38471")

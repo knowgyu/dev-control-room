@@ -1,7 +1,7 @@
 # Milestone B verification
 
-Status: partial; automated/fake scope and real local Codex acceptance are verified, resilience remains active work
-Updated: 2026-08-26
+Status: partial; automated/fake scope, restart-boundary recovery, and real local Codex acceptance are verified, native resilience remains active work
+Updated: 2026-08-27
 
 ## Delivered
 
@@ -15,6 +15,10 @@ Updated: 2026-08-26
   nested launch, and provider failure.
 - Agent invocations persist structured output, usage where reported, failure
   codes, bounded artifacts, and a Resume Brief. Raw transcripts remain false.
+- A service restart treats queued/running/cancelling invocations as an explicit
+  interruption boundary. It clears the lease, records
+  `provider.interrupted`, updates the owning session's Resume Brief, and never
+  relaunches a provider automatically.
 
 ## Evidence
 
@@ -23,7 +27,13 @@ scope: WSL; fake provider and typed launcher contract
 commands:
   go test ./internal/assurance ./internal/store ./cmd/dev-control-room -run 'Test(Codex|FakeProvider|AssuranceLifecycle|ProjectWorktreeListJSON)' -count=1  PASS
   go test ./internal/app ./internal/assurance -run 'Test(FakeProvider|Codex)' -count=1  PASS
+  go test ./internal/app -run 'TestStartupRecoveryMarksActiveInvocationInterruptedWithoutRelaunch' -count=1  PASS
 ```
+
+The restart test seeds a durable running invocation, closes the service, and
+reopens the same local state. It verifies the interrupted state, failure code,
+cleared lease, pending invocation ID, and actionable Resume Brief. Reopening
+the service a second time does not create another transition or provider run.
 
 ## v0.8.0 status update
 
@@ -35,5 +45,7 @@ prompt non-persistence. No company repository was contacted.
 
 The remaining [#3](https://github.com/knowgyu/dev-control-room/issues/3) scope
 is non-TTY/closed stdin, expired auth/approval prompt, explicit process-tree
-cancellation/timeout, crash/reboot interruption, and idempotent resume. Those
-are not inferred from this successful read-only fixture invocation.
+cancellation/timeout, native crash/reboot process inspection, and user-directed
+idempotent resume. The restart boundary is now fail-closed, but it does not
+claim to inspect or resume a provider process that may have survived outside
+the service.

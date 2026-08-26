@@ -108,6 +108,10 @@ func New(home, listen string) (*App, error) {
 		home: home, listen: listen, config: config, mutationToken: randomToken(), masker: masker,
 		store: persistence, broker: broker, collector: collector.NewGitCollector(nil), doctor: environment.NewDoctor(nil, masker), launcher: environment.ProcessLauncher{}, githubBaselinePath: trustedGitHubCLIPath, githubBaselineExecutor: executeGitHubBaseline, scheduler: scheduler.NewAdapter(), scanNow: make(chan string, 1),
 	}
+	if err := service.recoverInterruptedInvocations(context.Background()); err != nil {
+		_ = persistence.Close()
+		return nil, fmt.Errorf("recover interrupted assurance invocations: %w", err)
+	}
 	var scheduled scheduler.Result
 	if found, err := persistence.LoadSingleton(context.Background(), "scheduler_state", &scheduled); err != nil {
 		_ = persistence.Close()

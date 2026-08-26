@@ -22,6 +22,8 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/masking"
 )
 
+const agentInvocationLease = 2 * time.Hour
+
 func (a *App) AssuranceSessions(ctx context.Context) ([]domain.AssuranceSession, error) {
 	return a.store.ListAssuranceSessions(ctx)
 }
@@ -614,7 +616,9 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 	}
 	now := time.Now().UTC()
 	id := assuranceID("invocation", session.Metadata.ID, provider, now)
+	leaseExpiresAt := now.Add(agentInvocationLease)
 	invocation := domain.AgentInvocation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Agent invocation"}, Spec: domain.AgentInvocationSpec{SessionID: session.Metadata.ID, ProjectID: session.Spec.ProjectID, RepositoryID: session.Spec.RepositoryID, WorktreeID: worktree.Metadata.ID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Provider: provider, ProfileID: strings.TrimSpace(input.ProfileID), RequestedModel: strings.TrimSpace(input.RequestedModel), SelectionSource: "user", State: domain.AssuranceStateQueued, IdempotencyKey: id, InputDigest: digestText(strings.TrimSpace(input.Prompt)), TraceID: assuranceID("trace", id), StartedAt: now, RawTranscript: false}}
+	invocation.Spec.LeaseExpiresAt = &leaseExpiresAt
 	if invocation.Spec.ProfileID == "" {
 		invocation.Spec.ProfileID = provider
 	}
@@ -646,6 +650,7 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 	completed := time.Now().UTC()
 	invocation.Spec.State = result.State
 	invocation.Spec.CompletedAt = &completed
+	invocation.Spec.LeaseExpiresAt = nil
 	if result.Structured != nil {
 		masked := a.masker.MaskValue(result.Structured)
 		invocation.Spec.Structured, _ = redactInvocationPrompt(masked, input.Prompt).(map[string]any)
@@ -712,6 +717,68 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 		return invocation, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "agent invocation evidence could not be persisted"}
 	}
 	return invocation, nil
+}
+
+// recoverInterruptedInvocations makes a restart an explicit boundary. The
+// previous process is not assumed to be alive or safe to resume, and no
+// provider is relaunched automatically. An active invocation becomes an
+// interrupted record with a durable Resume Brief for a later user-directed
+// retry.
+func (a *App) recoverInterruptedInvocations(ctx context.Context) error {
+	invocations, err := a.store.ListAgentInvocations(ctx)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, invocation := range invocations {
+		if !recoverableInvocationState(invocation.Spec.State) {
+			continue
+		}
+		invocation.Spec.State = domain.AssuranceStateInterrupted
+		invocation.Spec.FailureCode = "provider.interrupted"
+		invocation.Spec.LeaseExpiresAt = nil
+		revision, err := a.store.AssuranceRevision(ctx, domain.AgentInvocationKind, invocation.Metadata.ID)
+		if err != nil {
+			return err
+		}
+		if err := a.store.UpdateAssuranceRevision(ctx, domain.AgentInvocationKind, invocation.Metadata.ID, revision+1, invocation.Spec.State, now, invocation); err != nil {
+			var current domain.AgentInvocation
+			if readErr := a.store.GetAssurance(ctx, domain.AgentInvocationKind, invocation.Metadata.ID, &current); readErr != nil {
+				return err
+			}
+			if current.Spec.State != domain.AssuranceStateInterrupted || current.Spec.FailureCode != "provider.interrupted" {
+				return err
+			}
+		}
+
+		var session domain.AssuranceSession
+		if err := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, invocation.Spec.SessionID, &session); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return err
+		}
+		session.Spec.State = domain.AssuranceStateInterrupted
+		session.Spec.UpdatedAt = now
+		session.Spec.ResumeBrief.CurrentHead = invocation.Spec.Head
+		session.Spec.ResumeBrief.Pending = appendUniqueStrings(session.Spec.ResumeBrief.Pending, invocation.Metadata.ID)
+		session.Spec.ResumeBrief.FailedEvidence = appendUniqueStrings(session.Spec.ResumeBrief.FailedEvidence, invocation.Spec.FailureCode)
+		session.Spec.ResumeBrief.NextSafeAction = "중단된 실행의 상태와 재시도 범위를 검토합니다."
+		if err := a.updateAssuranceSession(ctx, session); err != nil {
+			var current domain.AssuranceSession
+			if readErr := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, session.Metadata.ID, &current); readErr != nil {
+				return err
+			}
+			if current.Spec.State != domain.AssuranceStateInterrupted || !containsText(current.Spec.ResumeBrief.Pending, invocation.Metadata.ID) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func recoverableInvocationState(state string) bool {
+	return state == domain.AssuranceStateQueued || state == domain.AssuranceStateRunning || state == domain.AssuranceStateCancelling
 }
 
 // revalidateAssuranceWorktree replays the persisted Git association proof at
@@ -916,6 +983,15 @@ func appendUniqueStrings(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
+}
+
+func containsText(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) SavePricingSnapshot(ctx context.Context, item domain.ProviderPricingSnapshot) (domain.ProviderPricingSnapshot, error) {
