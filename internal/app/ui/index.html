@@ -19,6 +19,7 @@
         <a href="#home" data-route="home">홈</a>
         <a href="#projects" data-route="projects">프로젝트</a>
         <a href="#work" data-route="work">작업</a>
+        <a href="#assurance" data-route="assurance">검증</a>
         <a href="#diagnostics" data-route="diagnostics">진단</a>
         <a href="#activity" data-route="activity">기록</a>
       </nav>
@@ -81,7 +82,7 @@
               <div id="home-providers" class="loading">Provider 상태를 불러오는 중입니다.</div>
             </section>
             <section class="panel span-two">
-              <div class="panel-heading"><div><p class="eyebrow">Assurance</p><h2>검증 결과</h2></div><a href="#activity">기록 보기</a></div>
+              <div class="panel-heading"><div><p class="eyebrow">Assurance</p><h2>검증 결과</h2></div><a href="#assurance">대시보드 보기</a></div>
               <div id="home-assurance" class="loading">검증 결과를 불러오는 중입니다.</div>
             </section>
           </div>
@@ -183,6 +184,52 @@
               <div class="panel-heading"><div><p class="eyebrow">재발 방지</p><h2>반복된 실패</h2></div></div>
               <p class="panel-copy">반복 실패를 담당자가 모의 적용으로 검토하고, 일치·오탐 근거를 확인한 뒤 활성화하거나 되돌립니다.</p>
               <div id="safeguards" class="loading">반복된 실패를 불러오는 중입니다.</div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" data-view="assurance" hidden>
+          <div class="page-heading">
+            <div><p class="eyebrow">AI CODE ASSURANCE</p><h2>검증 대시보드</h2><p>무엇을 확인했고, 어떤 근거와 효과가 남았는지 봅니다.</p></div>
+            <button id="assurance-refresh" class="button" type="button">새로 고침</button>
+          </div>
+          <section class="panel assurance-hero">
+            <div><p class="eyebrow">검증의 가치</p><h2>검증을 반복하고, 효과를 근거로 남깁니다.</h2><p>같은 기준의 재실행과 사용량 경계를 한 화면에서 확인합니다.</p></div>
+            <div id="assurance-benefits" class="assurance-benefits"></div>
+          </section>
+          <section class="panel assurance-filter-panel">
+            <div class="panel-heading"><div><p class="eyebrow">범위 선택</p><h2>Provider와 모델</h2></div><span class="chip">실행·비용 집계</span></div>
+            <div class="toolbar assurance-filters">
+              <label class="filter-field"><span>Provider</span><select id="assurance-provider-filter" aria-label="검증 Provider 필터"><option value="">전체 Provider</option></select></label>
+              <label class="filter-field"><span>모델</span><select id="assurance-model-filter" aria-label="검증 모델 필터"><option value="">전체 모델</option></select></label>
+              <button id="assurance-filter-reset" class="button" type="button">필터 초기화</button>
+            </div>
+            <p id="assurance-filter-note" class="meta">Quality Run, 효과, artifact는 전체 기록입니다. Provider와 모델은 Agent 실행·비용 집계에 적용합니다.</p>
+          </section>
+          <div id="assurance-metrics" class="metrics assurance-metrics" aria-label="검증 요약">
+            <article class="metric-card"><span>Quality Run</span><strong>0</strong></article>
+            <article class="metric-card"><span>통과</span><strong>0</strong></article>
+            <article class="metric-card"><span>Agent 실행</span><strong>0</strong></article>
+            <article class="metric-card"><span>효과 기록</span><strong>0</strong></article>
+            <article class="metric-card"><span>사용량</span><strong>0</strong></article>
+            <article class="metric-card"><span>비용 상태</span><strong>미확인</strong></article>
+          </div>
+          <div class="dashboard-grid assurance-grid">
+            <section class="panel span-two">
+              <div class="panel-heading"><div><p class="eyebrow">REPRODUCIBILITY</p><h2>Quality Run 결과</h2></div><span class="chip">다시 실행 가능한 기준</span></div>
+              <div id="assurance-runs" class="loading">Quality Run을 불러오는 중입니다.</div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">IMPACT</p><h2>효과 기록</h2></div><span class="chip ok">근거 연결</span></div>
+              <div id="assurance-effects" class="loading">효과 기록을 불러오는 중입니다.</div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">PROVIDER TRACE</p><h2>Agent 실행</h2></div><span class="chip">원문 미수집</span></div>
+              <div id="assurance-invocations" class="loading">Agent 실행을 불러오는 중입니다.</div>
+            </section>
+            <section class="panel span-two">
+              <div class="panel-heading"><div><p class="eyebrow">EVIDENCE RETENTION</p><h2>근거 보관</h2></div><span class="chip">보관 상태</span></div>
+              <div id="assurance-artifacts" class="loading">근거 artifact를 불러오는 중입니다.</div>
             </section>
           </div>
         </section>

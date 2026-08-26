@@ -82,6 +82,49 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	}
 }
 
+func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	html := embeddedUIAsset(t, service, "/", "text/html")
+	for _, value := range []string{
+		`data-route="assurance"`, `data-view="assurance" hidden`, "검증 대시보드", "검증의 가치",
+		"Provider와 모델", `id="assurance-provider-filter"`, `id="assurance-model-filter"`,
+		`id="assurance-runs"`, `id="assurance-invocations"`, `id="assurance-effects"`, `id="assurance-artifacts"`,
+		"대시보드 보기", "원문 미수집", "보관 상태",
+	} {
+		if !strings.Contains(html, value) {
+			t.Errorf("embedded Assurance dashboard HTML missing %q", value)
+		}
+	}
+
+	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
+	for _, value := range []string{
+		"assuranceDashboardPath", "renderAssuranceDashboard", "renderAssuranceBenefits", "refreshAssuranceFilter",
+		"/api/assurance/dashboard", "/api/assurance/runs", "/api/assurance/invocations",
+		"/api/assurance/artifacts", "/api/assurance/effects", "assurance-provider-filter", "assurance-model-filter",
+		"Agent 실행", "효과 기록", "재실행", "근거 연결", "비용 경계",
+		"rawTranscript", "usageComplete", "estimatedCost", "configDigest", "artifactIds", "evidenceIds",
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded Assurance dashboard JavaScript missing %q", value)
+		}
+	}
+	if strings.Contains(javascript, "JSON.stringify(spec.structured)") || strings.Contains(javascript, "spec.transcript") {
+		t.Error("embedded Assurance dashboard must not expose raw transcript or structured provider output")
+	}
+
+	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
+	for _, value := range []string{".assurance-hero", ".assurance-benefits", ".assurance-filters", ".assurance-metrics", ".assurance-record"} {
+		if !strings.Contains(css, value) {
+			t.Errorf("embedded Assurance dashboard CSS missing %q", value)
+		}
+	}
+}
+
 func embeddedUIAsset(t *testing.T, service *App, path, contentType string) string {
 	t.Helper()
 	recorder := httptest.NewRecorder()

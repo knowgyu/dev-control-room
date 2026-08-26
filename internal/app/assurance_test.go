@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/knowgyu/dev-control-room/internal/assurance"
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/masking"
 )
 
 func TestFakeProviderE2EProducesResumeEvidenceWithoutTranscript(t *testing.T) {
@@ -43,6 +45,111 @@ func TestFakeProviderE2EProducesResumeEvidenceWithoutTranscript(t *testing.T) {
 	if updated.Spec.ResumeBrief.NextSafeAction == "" || len(updated.Spec.ResumeBrief.Completed) != 1 {
 		t.Fatalf("resume brief = %#v", updated.Spec.ResumeBrief)
 	}
+}
+
+func TestCodexInvocationRequiresExplicitPromptBeforeTrustedRunner(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	repository := tempGitRepository(t, "codex-typed")
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Codex typed", Path: repository})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "codex", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runnerCalls := 0
+	ctx := assurance.WithCodexExecution(context.Background(), assurance.CodexExecution{
+		Resolver: func() assurance.ProviderStatus {
+			return assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}
+		},
+		Runner: func(_ context.Context, _ assurance.RunRequest, _ *masking.Masker) assurance.RunResult {
+			runnerCalls++
+			return assurance.RunResult{State: domain.AssuranceStateSucceeded, Structured: map[string]any{"unexpected": true}, RawTranscript: true}
+		},
+	})
+	invocation, err := service.RunAgentInvocation(ctx, AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "codex", ProfileID: "codex", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runnerCalls != 0 || invocation.Spec.State != domain.AssuranceStateFailed || invocation.Spec.FailureCode != "provider.prompt_required" || invocation.Spec.RawTranscript {
+		t.Fatalf("calls=%d invocation=%#v", runnerCalls, invocation)
+	}
+}
+
+func TestCodexInvocationFailsClosedForProfileLauncherAndUnsupportedOutput(t *testing.T) {
+	testCases := []struct {
+		name       string
+		profileID  string
+		status     assurance.ProviderStatus
+		runner     assurance.TypedRunner
+		wantCode   string
+		wantCalled bool
+	}{
+		{name: "missing profile", profileID: "missing", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}, wantCode: "provider.profile_required"},
+		{name: "untrusted profile", profileID: "claude", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}, wantCode: "provider.profile_untrusted"},
+		{name: "untrusted launcher", profileID: "codex", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderDetected, CommandFound: true, ReasonCode: "provider.untrusted_launcher"}, wantCode: "provider.untrusted_launcher"},
+		{name: "missing launcher", profileID: "codex", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderNotConfigured, ReasonCode: "provider.not_found"}, wantCode: "provider.not_found"},
+		{name: "prompt required", profileID: "codex", status: assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}, runner: func(context.Context, assurance.RunRequest, *masking.Masker) assurance.RunResult {
+			return assurance.RunResult{State: domain.AssuranceStateSucceeded, Structured: map[string]any{"unexpected": true}}
+		}, wantCode: "provider.prompt_required"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			service, err := New(t.TempDir(), "127.0.0.1:38471")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer service.Close()
+			project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Codex fail closed", Path: tempGitRepository(t, "codex-fail-"+testCase.name)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := service.RunScan(context.Background(), "manual"); err != nil {
+				t.Fatal(err)
+			}
+			session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runnerCalls := 0
+			runner := testCase.runner
+			if runner == nil {
+				runner = func(context.Context, assurance.RunRequest, *masking.Masker) assurance.RunResult {
+					runnerCalls++
+					return assurance.RunResult{State: domain.AssuranceStateSucceeded, Structured: map[string]any{"unexpected": true}}
+				}
+			} else {
+				original := runner
+				runner = func(ctx context.Context, request assurance.RunRequest, masker *masking.Masker) assurance.RunResult {
+					runnerCalls++
+					return original(ctx, request, masker)
+				}
+			}
+			ctx := assurance.WithCodexExecution(context.Background(), assurance.CodexExecution{Resolver: func() assurance.ProviderStatus { return testCase.status }, Runner: runner})
+			invocation, err := service.RunAgentInvocation(ctx, AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "codex", ProfileID: testCase.profileID, RequestedModel: "fixture-model"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if invocation.Spec.State != domain.AssuranceStateFailed || invocation.Spec.FailureCode != testCase.wantCode || runnerCalls != boolToInt(testCase.wantCalled) {
+				t.Fatalf("invocation=%#v runnerCalls=%d", invocation, runnerCalls)
+			}
+		})
+	}
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func TestFakeProviderFailureMatrixKeepsSessionRecoverable(t *testing.T) {

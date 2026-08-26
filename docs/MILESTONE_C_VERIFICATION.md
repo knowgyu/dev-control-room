@@ -1,6 +1,6 @@
 # Milestone C verification
 
-Status: accepted for local fixture and typed-runner scope
+Status: partial; local discovery fixture is accepted, while provider-authoritative baseline and registered runners are active work
 Updated: 2026-08-26
 
 The baseline reader inspects package scripts, GitHub Actions `run:` entries,
@@ -17,7 +17,9 @@ commands:
   go test ./internal/app -run 'TestQualityRun|TestBaselineDiscovers' -count=1  PASS
 ```
 
-gaps: installed `gh`, Jenkins, and native Windows runner acceptance were not
-available in this WSL check. Provider API/credential calls and production CI
-were not contacted.
-
+gaps: the current runner is one typed `git diff --check` execution and fixture
+reports; it is not a real technique executor. Installed `gh`, Jenkins,
+provider-authoritative branch rules/checks, and native Windows runner
+acceptance remain [#4](https://github.com/knowgyu/dev-control-room/issues/4)
+and [#5](https://github.com/knowgyu/dev-control-room/issues/5). Provider
+API/credential calls and production CI were not contacted.

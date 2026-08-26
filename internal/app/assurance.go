@@ -488,14 +488,16 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 	case "fake", "claude", "gemini":
 		result = (assurance.FakeAdapter{Provider: provider, Scenario: scenario}).Run(ctx, assurance.RunRequest{Provider: provider, Model: input.RequestedModel, Worktree: worktree.Spec.CanonicalPath})
 	case "codex":
-		result = assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.native_acceptance_required"}
+		result = a.runCodexInvocation(ctx, invocation.Spec.ProfileID, input.RequestedModel, worktree.Spec.CanonicalPath)
 	default:
 		result = assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.unknown"}
 	}
 	completed := time.Now().UTC()
 	invocation.Spec.State = result.State
 	invocation.Spec.CompletedAt = &completed
-	invocation.Spec.Structured = result.Structured
+	if result.Structured != nil {
+		invocation.Spec.Structured, _ = a.masker.MaskValue(result.Structured).(map[string]any)
+	}
 	invocation.Spec.FailureCode = result.FailureCode
 	invocation.Spec.ArtifactIDs = nil
 	if result.Usage != nil {
@@ -510,9 +512,9 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 		}
 	}
 	if result.Summary != "" {
-		invocation.Spec.Structured = map[string]any{"summary": result.Summary, "result": result.Structured}
+		invocation.Spec.Structured = map[string]any{"summary": a.masker.Mask(result.Summary), "result": invocation.Spec.Structured}
 	}
-	if report, marshalErr := json.Marshal(map[string]any{"provider": provider, "state": result.State, "failureCode": result.FailureCode, "structured": result.Structured, "rawTranscript": false}); marshalErr == nil {
+	if report, marshalErr := json.Marshal(map[string]any{"provider": provider, "state": result.State, "failureCode": result.FailureCode, "structured": invocation.Spec.Structured, "rawTranscript": false}); marshalErr == nil {
 		if artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "agent_invocation", SourceID: id, Name: id + ".json", MIME: "application/json", Content: report}); artifactErr == nil {
 			invocation.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
 		}
@@ -530,6 +532,43 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 	}
 	_ = a.updateAssuranceSession(ctx, session)
 	return invocation, nil
+}
+
+func (a *App) runCodexInvocation(ctx context.Context, profileID, model, worktree string) assurance.RunResult {
+	profile, err := a.AgentProfile(ctx, profileID)
+	if err != nil {
+		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.profile_required"}
+	}
+	if err := trustedCodexProfile(profile); err != nil {
+		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.profile_untrusted"}
+	}
+	execution := assurance.CodexExecutionFromContext(ctx)
+	status := execution.Resolver()
+	if status.Provider == "" {
+		status.Provider = "codex"
+	}
+	_, err = assurance.BuildCodexInvocationCommand(status, model)
+	if err != nil {
+		failureCode := status.ReasonCode
+		if failureCode == "" {
+			failureCode = "provider.launch_untrusted"
+		}
+		return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: failureCode}
+	}
+	// AgentInvocationInput intentionally has no prompt/task field yet. Do not
+	// start Codex with an empty exec request: the CLI may consume stdin or wait
+	// for an interactive task. A future bounded prompt path must be explicit.
+	return assurance.RunResult{State: domain.AssuranceStateFailed, FailureCode: "provider.prompt_required"}
+}
+
+func trustedCodexProfile(profile domain.AgentProfile) error {
+	if profile.Metadata.ID != "codex" || profile.Spec.LaunchMode != domain.AgentLaunchDirect || !strings.EqualFold(strings.TrimSpace(profile.Spec.Command), "codex") {
+		return errors.New("Codex requires the reviewed codex direct profile")
+	}
+	if err := profile.Validate(); err != nil {
+		return fmt.Errorf("Codex profile is invalid: %w", err)
+	}
+	return nil
 }
 
 func (a *App) SaveAssuranceArtifact(ctx context.Context, input ArtifactInput) (domain.Artifact, error) {

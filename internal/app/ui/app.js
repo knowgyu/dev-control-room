@@ -15,6 +15,10 @@
     providerStatuses: [],
     assuranceDashboard: { invocations: [], effects: [], usageComplete: true, costState: "unknown" },
     assuranceRuns: [],
+    assuranceInvocations: [],
+    assuranceArtifacts: [],
+    assuranceEffects: [],
+    assuranceFilters: { provider: "", model: "" },
     workItems: [],
     actionDetails: [],
     repositorySyncPlan: null,
@@ -46,6 +50,7 @@
     home: "홈",
     projects: "프로젝트",
     work: "작업",
+    assurance: "검증",
     diagnostics: "진단",
     activity: "기록",
   };
@@ -106,6 +111,9 @@
     in_progress: "진행 중",
     requested: "요청됨",
     waiting: "대기",
+    awaiting_answer: "답변 대기",
+    cancelling: "취소 중",
+    interrupted: "중단됨",
   };
   const conclusionLabels = { success: "성공", failure: "실패", cancelled: "취소됨", skipped: "건너뜀", neutral: "중립" };
   const buildResultLabels = { SUCCESS: "성공", FAILURE: "실패", ABORTED: "중단됨", UNSTABLE: "불안정", NOT_BUILT: "빌드 안 됨" };
@@ -161,6 +169,27 @@
   };
   const providerStateClass = state => state === "ready" ? "ok" : state === "not_configured" ? "" : "bad";
   const providerLabel = state => providerStateLabels[state] || "확인 필요";
+  const assuranceTechniqueLabels = {
+    static_security: "정적 보안",
+    mutation: "Mutation",
+    property: "Property",
+    fuzz: "Fuzz",
+    targeted_e2e: "Targeted E2E",
+  };
+  const assuranceEffectLabels = {
+    measured: "측정됨",
+    prevented_regression: "회귀 방지",
+    user_estimated: "사용자 추정",
+    ai_inference: "AI 추론",
+    unavailable: "확인 불가",
+  };
+  const assuranceRetentionLabels = {
+    active: "활성",
+    pinned: "고정",
+    archived: "보관됨",
+    deleted: "삭제됨",
+  };
+  const numberFormatter = new Intl.NumberFormat("ko-KR");
   const localize = value => {
     const text = String(value ?? "");
     if (messageTranslations.has(text)) return messageTranslations.get(text);
@@ -176,6 +205,17 @@
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value)) : "아직 없음";
+  const formatCount = value => numberFormatter.format(Number(value) || 0);
+  const formatOptionalCount = value => value === null || value === undefined ? "미상" : numberFormatter.format(Number(value) || 0);
+  const assuranceStateClass = value => ["succeeded", "passed"].includes(value) ? "ok" : ["failed", "timed_out", "cancelled", "interrupted", "stale"].includes(value) ? "bad" : "warn";
+  const assuranceScope = spec => [spec.projectId, spec.repositoryId, spec.worktreeId].filter(Boolean).join(" / ") || "전체 범위";
+  const assuranceDashboardPath = () => {
+    const query = new URLSearchParams();
+    if (state.assuranceFilters.provider) query.set("provider", state.assuranceFilters.provider);
+    if (state.assuranceFilters.model) query.set("model", state.assuranceFilters.model);
+    const suffix = query.toString();
+    return `/api/assurance/dashboard${suffix ? `?${suffix}` : ""}`;
+  };
   const projectRepositories = () => (state.snapshot.projects || []).flatMap(project =>
     (project.repos || []).map(repository => ({ ...repository, projectID: project.id, projectName: project.name })));
   const openFindings = () => state.findings.filter(item => ["open", "acknowledged"].includes(item.spec.state));
@@ -284,6 +324,117 @@
     document.getElementById("home-assurance").innerHTML = runs.length || assurance.invocations?.length || assurance.effects?.length
       ? `<div class="assurance-summary"><article><span>Quality Run</span><strong>${escapeHTML(runs.length)}</strong></article><article><span>Agent 실행</span><strong>${escapeHTML(assurance.invocations?.length || 0)}</strong></article><article><span>효과 기록</span><strong>${escapeHTML(assurance.effects?.length || 0)}</strong></article><article><span>비용 상태</span><strong>${escapeHTML(assurance.costState === "estimated" ? "추정" : "미확인")}</strong></article></div><p class="meta">비용은 사용량과 저장된 가격 snapshot이 모두 있을 때만 추정합니다.</p>`
       : '<div class="empty-state"><strong>아직 검증 결과가 없습니다.</strong><span>Quality Run을 실행하면 근거와 효과 기록이 여기에 나타납니다.</span></div>';
+  }
+
+  function renderAssuranceFilters() {
+    const providerSelect = document.getElementById("assurance-provider-filter");
+    const modelSelect = document.getElementById("assurance-model-filter");
+    if (!providerSelect || !modelSelect) return;
+    const providers = [...new Set([
+      ...(state.providerStatuses || []).map(item => item.provider),
+      ...(state.assuranceInvocations || []).map(item => item.spec?.provider),
+    ].filter(Boolean))].sort();
+    const models = [...new Set((state.assuranceInvocations || []).map(item => item.spec?.requestedModel).filter(Boolean))].sort();
+    const optionMarkup = (value, selected, fallback) => `<option value="${escapeHTML(value)}" ${value === selected ? "selected" : ""}>${escapeHTML(fallback || value)}</option>`;
+    providerSelect.innerHTML = optionMarkup("", state.assuranceFilters.provider, "전체 Provider") + providers.map(value => optionMarkup(value, state.assuranceFilters.provider)).join("");
+    modelSelect.innerHTML = optionMarkup("", state.assuranceFilters.model, "전체 모델") + models.map(value => optionMarkup(value, state.assuranceFilters.model)).join("");
+    if (state.assuranceFilters.provider && !providers.includes(state.assuranceFilters.provider)) {
+      providerSelect.insertAdjacentHTML("beforeend", optionMarkup(state.assuranceFilters.provider, state.assuranceFilters.provider));
+    }
+    if (state.assuranceFilters.model && !models.includes(state.assuranceFilters.model)) {
+      modelSelect.insertAdjacentHTML("beforeend", optionMarkup(state.assuranceFilters.model, state.assuranceFilters.model));
+    }
+    providerSelect.value = state.assuranceFilters.provider;
+    modelSelect.value = state.assuranceFilters.model;
+  }
+
+  function renderAssuranceBenefits() {
+    const container = document.getElementById("assurance-benefits");
+    if (!container) return;
+    container.innerHTML = [
+      ["재실행", "같은 기준으로 다시 확인합니다."],
+      ["근거 연결", "실행·결과·효과를 연결합니다."],
+      ["비용 경계", "모르는 사용량은 비용으로 추정하지 않습니다."],
+      ["대화 경계", "원문은 화면에 표시하지 않습니다."],
+    ].map(([title, text]) => `<article><strong>${escapeHTML(title)}</strong><span>${escapeHTML(text)}</span></article>`).join("");
+  }
+
+  function renderAssuranceRun(item) {
+    const spec = item.spec || {};
+    const evidenceKeys = Object.keys(spec.evidence || {});
+    const command = [spec.command?.executable, ...(spec.command?.arguments || [])].filter(Boolean).join(" ");
+    const stateClass = assuranceStateClass(spec.state);
+    return `<article class="list-item assurance-record ${stateClass}">
+      <div class="list-item-header"><div><h3>${escapeHTML(assuranceTechniqueLabels[spec.technique] || spec.technique || "Quality Run")}</h3><p class="meta">${escapeHTML(assuranceScope(spec))} · ${escapeHTML(formatDate(spec.startedAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(label(spec.state))}</span></div>
+      <p>${escapeHTML(spec.summary || "결과 요약이 없습니다.")}</p>
+      <details><summary>실행 기준과 근거 보기</summary><dl class="detail-grid">
+        <div><dt>Runner</dt><dd>${escapeHTML(spec.runner || "알 수 없음")}</dd></div>
+        <div><dt>종료 코드</dt><dd>${escapeHTML(spec.exitCode ?? "기록 없음")}</dd></div>
+        <div><dt>HEAD</dt><dd><code>${escapeHTML(spec.head || "기록 없음")}</code></dd></div>
+        <div><dt>근거 항목</dt><dd>${escapeHTML(evidenceKeys.length ? `${evidenceKeys.length}개` : "없음")}</dd></div>
+        <div><dt>artifact</dt><dd>${escapeHTML((spec.artifactIds || []).length ? `${spec.artifactIds.length}개` : "없음")}</dd></div>
+        <div><dt>Agent 실행</dt><dd>${escapeHTML((spec.invocationIds || []).length ? `${spec.invocationIds.length}개` : "없음")}</dd></div>
+        <div class="wide"><dt>검증 명령</dt><dd><code>${escapeHTML(command || "기록 없음")}</code></dd></div>
+        <div class="wide"><dt>Config digest</dt><dd><code>${escapeHTML(spec.configDigest || "기록 없음")}</code></dd></div>
+      </dl></details>
+    </article>`;
+  }
+
+  function renderAssuranceEffect(item) {
+    const spec = item.spec || {};
+    const status = spec.reverified ? "재검증됨" : spec.adopted ? "채택됨" : "검토 대기";
+    const value = spec.value ? ` · ${escapeHTML(spec.value)}${spec.unit ? ` ${escapeHTML(spec.unit)}` : ""}` : "";
+    return `<article class="list-item assurance-record"><div class="list-item-header"><div><h3>${escapeHTML(spec.label || "효과 기록")}</h3><p class="meta">${escapeHTML(assuranceEffectLabels[spec.kind] || spec.kind || "효과")}${value}</p></div><span class="chip ${spec.reverified || spec.adopted ? "ok" : "warn"}">${escapeHTML(status)}</span></div><details><summary>효과 근거 보기</summary><dl class="detail-grid"><div><dt>범위</dt><dd>${escapeHTML(assuranceScope(spec))}</dd></div><div><dt>생성 시각</dt><dd>${escapeHTML(formatDate(spec.createdAt))}</dd></div><div><dt>원본 Quality Run</dt><dd><code>${escapeHTML(spec.sourceRunId || "연결 없음")}</code></dd></div><div><dt>증거 artifact</dt><dd>${escapeHTML((spec.evidenceIds || []).length ? `${spec.evidenceIds.length}개` : "없음")}</dd></div><div class="wide"><dt>Fingerprint</dt><dd><code>${escapeHTML(spec.fingerprint || "기록 없음")}</code></dd></div></dl></details></article>`;
+  }
+
+  function renderAssuranceInvocation(item) {
+    const spec = item.spec || {};
+    const usage = spec.usage || {};
+    const model = spec.requestedModel || spec.resolvedModel || "모델 미상";
+    const stateClass = assuranceStateClass(spec.state);
+    return `<article class="list-item assurance-record ${stateClass}"><div class="list-item-header"><div><h3>${escapeHTML(spec.provider || "Provider 미상")}</h3><p class="meta">${escapeHTML(model)} · ${escapeHTML(formatDate(spec.startedAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(label(spec.state))}</span></div><dl class="detail-grid"><div><dt>입력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.inputTokens))}</dd></div><div><dt>출력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.outputTokens))}</dd></div><div><dt>전체 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.totalTokens))}</dd></div><div><dt>원문 상태</dt><dd>${spec.rawTranscript ? "정책 확인 필요" : "수집하지 않음"}</dd></div>${spec.failureCode ? `<div class="wide"><dt>실패 코드</dt><dd><code>${escapeHTML(spec.failureCode)}</code></dd></div>` : ""}</dl><details><summary>선택 근거 보기</summary><dl class="detail-grid"><div><dt>요청 모델</dt><dd>${escapeHTML(spec.requestedModel || "없음")}</dd></div><div><dt>확정 모델</dt><dd>${escapeHTML(spec.resolvedModel || "없음")}</dd></div><div><dt>선택 출처</dt><dd>${escapeHTML(spec.selectionSource || "알 수 없음")}</dd></div><div><dt>artifact</dt><dd>${escapeHTML((spec.artifactIds || []).length ? `${spec.artifactIds.length}개` : "없음")}</dd></div></dl></details></article>`;
+  }
+
+  function renderAssuranceArtifact(item) {
+    const spec = item.spec || {};
+    const retention = assuranceRetentionLabels[spec.retention] || spec.retention || "알 수 없음";
+    const stateClass = spec.retention === "deleted" ? "bad" : spec.retention === "archived" ? "warn" : "ok";
+    return `<article class="list-item assurance-record"><div class="list-item-header"><div><h3>${escapeHTML(spec.sourceType || "근거 artifact")}</h3><p class="meta">${escapeHTML(spec.sourceId || "출처 미상")} · ${escapeHTML(formatDate(spec.createdAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(retention)}</span></div><p>${escapeHTML(spec.path || "경로가 기록되지 않았습니다.")}</p><details><summary>artifact manifest 보기</summary><dl class="detail-grid"><div><dt>크기</dt><dd>${escapeHTML(formatCount(spec.size))} bytes</dd></div><div><dt>MIME</dt><dd>${escapeHTML(spec.mime || "알 수 없음")}</dd></div><div><dt>보관 상태</dt><dd>${escapeHTML(retention)}</dd></div><div><dt>원본 참조</dt><dd>${escapeHTML(spec.sourceRef || "없음")}</dd></div><div class="wide"><dt>SHA-256</dt><dd><code>${escapeHTML(spec.sha256 || "기록 없음")}</code></dd></div></dl></details></article>`;
+  }
+
+  function renderAssuranceDashboard() {
+    const dashboard = state.assuranceDashboard || {};
+    const runs = state.assuranceRuns || [];
+    const invocations = dashboard.invocations || [];
+    const effects = state.assuranceEffects?.length ? state.assuranceEffects : dashboard.effects || [];
+    const artifacts = state.assuranceArtifacts || [];
+    const passed = runs.filter(item => ["succeeded", "passed"].includes(item.spec?.state)).length;
+    const estimatedCost = dashboard.costState === "estimated" && dashboard.estimatedCost !== null && dashboard.estimatedCost !== undefined
+      ? `${Number(dashboard.estimatedCost).toFixed(4)} · 추정`
+      : "미확인";
+    const usageValue = dashboard.usageComplete === false && !Number(dashboard.totalTokens)
+      ? "미상 · 일부"
+      : `${formatCount(dashboard.totalTokens)}${dashboard.usageComplete === false ? " · 일부" : ""}`;
+    const metrics = [
+      ["Quality Run", formatCount(runs.length)],
+      ["통과", formatCount(passed)],
+      ["Agent 실행", formatCount(invocations.length)],
+      ["효과 기록", formatCount(effects.length)],
+      ["사용량", usageValue],
+      ["비용 상태", estimatedCost],
+    ];
+    const metricsContainer = document.getElementById("assurance-metrics");
+    if (!metricsContainer) return;
+    metricsContainer.innerHTML = metrics.map(([title, value]) => `<article class="metric-card"><span>${escapeHTML(title)}</span><strong>${escapeHTML(value)}</strong></article>`).join("");
+    renderAssuranceFilters();
+    renderAssuranceBenefits();
+    document.getElementById("assurance-filter-note").textContent = state.assuranceFilters.provider || state.assuranceFilters.model
+      ? `Agent 실행 ${formatCount(invocations.length)}건을 표시합니다. Quality Run·효과·artifact는 전체 기록입니다.`
+      : "Quality Run, 효과, artifact는 전체 기록입니다. Provider와 모델은 Agent 실행·비용 집계에 적용합니다.";
+    document.getElementById("assurance-runs").innerHTML = runs.length ? `<div class="item-list">${runs.map(renderAssuranceRun).join("")}</div>` : '<div class="empty-state"><strong>아직 Quality Run이 없습니다.</strong><span>검증 기준을 실행하면 반복 가능한 결과와 근거가 남습니다.</span></div>';
+    document.getElementById("assurance-effects").innerHTML = effects.length ? `<div class="item-list">${effects.map(renderAssuranceEffect).join("")}</div>` : '<div class="empty-state"><strong>아직 효과 기록이 없습니다.</strong><span>검증 결과를 실제 변화와 연결하면 여기에 남습니다.</span></div>';
+    document.getElementById("assurance-invocations").innerHTML = invocations.length ? `<div class="item-list">${invocations.map(renderAssuranceInvocation).join("")}</div>` : '<div class="empty-state"><strong>아직 Agent 실행이 없습니다.</strong><span>Provider 실행 후 모델·사용량·상태를 확인합니다.</span></div>';
+    document.getElementById("assurance-artifacts").innerHTML = artifacts.length ? `<div class="item-list">${artifacts.map(renderAssuranceArtifact).join("")}</div>` : '<div class="empty-state"><strong>아직 보관된 근거가 없습니다.</strong><span>검증 결과의 manifest가 생성되면 보관 상태를 확인합니다.</span></div>';
   }
 
   function renderProviderStatuses(containerID, compact = false) {
@@ -579,6 +730,7 @@
     renderHome();
     renderProjects();
     renderWork();
+    renderAssuranceDashboard();
     renderDiagnostics();
     renderActivity();
   }
@@ -656,21 +808,45 @@
     if (route === "diagnostics") await loadDiagnosticsData(force);
   }
 
+  let assuranceFiltering = false;
+  async function refreshAssuranceFilter() {
+    if (assuranceFiltering) return;
+    assuranceFiltering = true;
+    const providerSelect = document.getElementById("assurance-provider-filter");
+    const modelSelect = document.getElementById("assurance-model-filter");
+    if (providerSelect) providerSelect.disabled = true;
+    if (modelSelect) modelSelect.disabled = true;
+    try {
+      state.assuranceDashboard = await request(assuranceDashboardPath());
+      renderHome();
+      renderAssuranceDashboard();
+    } catch (error) {
+      showNotice(`검증 필터를 적용하지 못했습니다. ${error.message}`, true);
+    } finally {
+      assuranceFiltering = false;
+      if (providerSelect) providerSelect.disabled = false;
+      if (modelSelect) modelSelect.disabled = false;
+    }
+  }
+
   let refreshing = false;
   let initialized = false;
   async function refreshAll() {
     if (refreshing) return;
     refreshing = true;
     try {
-      const [snapshot, registryProjects, findings, events, environment, providerStatuses, assuranceDashboard, assuranceRuns] = await Promise.all([
+      const [snapshot, registryProjects, findings, events, environment, providerStatuses, assuranceDashboard, assuranceRuns, assuranceInvocations, assuranceArtifacts, assuranceEffects] = await Promise.all([
         request("/api/state"),
         request("/api/projects"),
         request("/api/findings"),
         request("/api/events"),
         request("/api/environment"),
         request("/api/assurance/providers"),
-        request("/api/assurance/dashboard"),
+        request(assuranceDashboardPath()),
         request("/api/assurance/runs"),
+        request("/api/assurance/invocations"),
+        request("/api/assurance/artifacts"),
+        request("/api/assurance/effects"),
       ]);
       state.snapshot = snapshot;
       state.registryProjects = registryProjects || [];
@@ -680,6 +856,9 @@
       state.providerStatuses = providerStatuses || [];
       state.assuranceDashboard = assuranceDashboard || state.assuranceDashboard;
       state.assuranceRuns = assuranceRuns || [];
+      state.assuranceInvocations = assuranceInvocations || [];
+      state.assuranceArtifacts = assuranceArtifacts || [];
+      state.assuranceEffects = assuranceEffects || [];
       initialized = true;
       await loadRouteData(currentRoute(), true);
       renderAll();
@@ -1373,6 +1552,23 @@
     }
   });
 
+  document.getElementById("assurance-refresh").addEventListener("click", async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await refreshAll();
+      showNotice("검증 대시보드를 새로 고쳤습니다.");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById("assurance-filter-reset").addEventListener("click", () => {
+    state.assuranceFilters.provider = "";
+    state.assuranceFilters.model = "";
+    void refreshAssuranceFilter();
+  });
+
   const candidates = document.getElementById("repository-candidates");
   const pathInput = document.getElementById("path");
   async function discoverRepositories() {
@@ -1464,6 +1660,11 @@
     if (event.target.id === "finding-state") {
       state.findingFilters.state = event.target.value;
       renderProjects();
+    }
+    if (event.target.id === "assurance-provider-filter" || event.target.id === "assurance-model-filter") {
+      state.assuranceFilters.provider = document.getElementById("assurance-provider-filter").value;
+      state.assuranceFilters.model = document.getElementById("assurance-model-filter").value;
+      void refreshAssuranceFilter();
     }
   });
 

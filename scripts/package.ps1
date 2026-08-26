@@ -1,15 +1,28 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.6.0",
-    [string]$OutputDirectory = "artifacts\0.6.0"
+    [string]$Version = "0.7.0",
+    [string]$OutputDirectory
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).ProviderPath
+if ([string]::IsNullOrWhiteSpace($Version) -or $Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$') {
+    throw "-Version must be a numeric semantic version, for example 0.7.0."
+}
+$releaseNotesPath = Join-Path $repositoryRoot ("docs\RELEASE_NOTES_v{0}.md" -f $Version)
+$verificationPath = Join-Path $repositoryRoot ("docs\VERIFICATION_v{0}.md" -f $Version)
+foreach ($expectedDocument in @($releaseNotesPath, $verificationPath)) {
+    if (-not (Test-Path -LiteralPath $expectedDocument -PathType Leaf)) {
+        throw ("Expected release document for version {0} was not found: {1}" -f $Version, $expectedDocument)
+    }
+}
 $outputRoot = if ([IO.Path]::IsPathRooted($OutputDirectory)) {
     [IO.Path]::GetFullPath($OutputDirectory)
+}
+elseif ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    [IO.Path]::GetFullPath((Join-Path $repositoryRoot ("artifacts\{0}" -f $Version)))
 }
 else {
     [IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
@@ -36,7 +49,7 @@ try {
         }
         Copy-Item (Join-Path $repositoryRoot "README.md"), (Join-Path $repositoryRoot "LICENSE"), (Join-Path $repositoryRoot "THIRD_PARTY_POLICY.md") -Destination $stage
         New-Item -ItemType Directory -Path (Join-Path $stage "docs") -Force | Out-Null
-        Copy-Item (Join-Path $repositoryRoot "docs\NATIVE_WINDOWS_SMOKE.md"), (Join-Path $repositoryRoot "docs\VERIFICATION_PLAYBOOK.md"), (Join-Path $repositoryRoot "docs\RELEASE_NOTES_v0.6.0.md"), (Join-Path $repositoryRoot "docs\VERIFICATION_v0.6.0.md") -Destination (Join-Path $stage "docs")
+        Copy-Item (Join-Path $repositoryRoot "docs\NATIVE_WINDOWS_SMOKE.md"), (Join-Path $repositoryRoot "docs\VERIFICATION_PLAYBOOK.md"), $releaseNotesPath, $verificationPath -Destination (Join-Path $stage "docs")
         $zipPath = Join-Path $outputRoot ($name + ".zip")
         if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
         Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath

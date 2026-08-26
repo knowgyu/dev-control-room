@@ -23,7 +23,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
-const version = "0.6.0"
+const version = "0.7.0"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -85,6 +85,9 @@ func runHelp(args []string, stdout, stderr io.Writer) int {
 	command := ""
 	if len(remaining) == 1 {
 		command = remaining[0]
+	}
+	if command == "assurance" {
+		return runAssuranceHelp(jsonOutput, stdout, stderr)
 	}
 	if jsonOutput {
 		return encodeSuccess(stdout, map[string]any{"command": command, "first_use": []string{"serve", "project add", "env doctor"}, "commands": []string{"serve", "project", "env", "assurance", "proposal", "check", "action", "finding", "guidance", "agent", "schedule", "mcp"}, "examples": []string{"dev-control-room serve --home <dir>", "dev-control-room project add --name sample --path C:\\work\\sample --home <dir>", "dev-control-room assurance provider --json --home <dir>"}})
@@ -153,9 +156,13 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 
 func runAssurance(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
-		return runHelp([]string{"assurance"}, stdout, stderr)
+		return runAssuranceHelp(assuranceJSONRequested(args), stdout, stderr)
 	}
 	subcommand := args[0]
+	if assuranceHelpRequested(args[1:]) {
+		jsonOutput := assuranceJSONRequested(args[1:])
+		return runAssuranceSubcommandHelp(subcommand, jsonOutput, stdout, stderr)
+	}
 	jsonOutput, remaining, err := parseJSONFlag(args[1:])
 	if err != nil {
 		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
@@ -164,13 +171,24 @@ func runAssurance(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
 	}
+	ctx, stop := newAssuranceCommandContext(context.Background())
+	defer stop()
 	service, err := openCLIService(home)
 	if err != nil {
 		return writeCLIErrorTo(stderr, err)
 	}
 	defer service.Close()
-	ctx := context.Background()
 	switch subcommand {
+	case "session":
+		return runAssuranceSessionCommand(service, ctx, remaining, jsonOutput, stdout, stderr)
+	case "baseline":
+		return runAssuranceBaselineCommand(service, ctx, remaining, jsonOutput, stdout, stderr)
+	case "campaign":
+		return runAssuranceCampaignCommand(service, ctx, remaining, jsonOutput, stdout, stderr)
+	case "run":
+		return runAssuranceQualityRunCommand(service, ctx, remaining, jsonOutput, stdout, stderr)
+	case "invocation":
+		return runAssuranceInvocationCommand(service, ctx, remaining, jsonOutput, stdout, stderr)
 	case "provider":
 		if len(remaining) != 0 {
 			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance provider takes no positional arguments"))
@@ -247,6 +265,289 @@ func runAssurance(args []string, stdout, stderr io.Writer) int {
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown assurance command: "+subcommand))
 	}
+}
+
+func newAssuranceCommandContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+}
+
+func runAssuranceHelp(jsonOutput bool, stdout, stderr io.Writer) int {
+	commands := []string{"provider", "dashboard", "sessions", "baselines", "campaigns", "runs", "invocations", "session create", "baseline create", "campaign create", "run", "invocation show", "invocation run"}
+	if jsonOutput {
+		return encodeSuccess(stdout, map[string]any{
+			"command":  "assurance",
+			"commands": commands,
+			"safety":   []string{"named flags only", "local application service only", "no shell or network execution"},
+			"examples": []string{"dev-control-room assurance session create --project <id> --repository <id> --worktree <id> --home <dir> --json", "dev-control-room assurance baseline create --project <id> --repository <id> --worktree <id> --target-branch main --home <dir> --json", "dev-control-room assurance campaign create --project <id> --repository <id> --worktree <id> --name smoke --home <dir> --json", "dev-control-room assurance run --campaign <id> --technique static_security --home <dir> --json", "dev-control-room assurance invocation run --session <id> --provider fake --home <dir> --json"},
+		})
+	}
+	_, _ = fmt.Fprintln(stdout, "assurance 도움말")
+	_, _ = fmt.Fprintln(stdout, "조회: provider, dashboard, sessions, baselines, campaigns, runs, invocations")
+	_, _ = fmt.Fprintln(stdout, "생성: session create, baseline create, campaign create")
+	_, _ = fmt.Fprintln(stdout, "실행: run, invocation run | 확인: invocation show")
+	_, _ = fmt.Fprintln(stdout, "공통 옵션: --json, --home <로컬 데이터 디렉터리>")
+	_, _ = fmt.Fprintln(stdout, "Quality Run: --campaign <id> --technique <static_security|mutation|property|fuzz|targeted_e2e>")
+	_, _ = fmt.Fprintln(stdout, "Agent: --session <id> --provider <fake|claude|gemini>; fixture 실행만 허용합니다. Codex 실제 실행은 명시적 bounded prompt 경로가 필요하며 이 lifecycle에서는 시작하지 않습니다.")
+	return int(contract.ExitSuccess)
+}
+
+func runAssuranceSubcommandHelp(subcommand string, jsonOutput bool, stdout, stderr io.Writer) int {
+	known := map[string]string{
+		"session":    "session create --project <id> --repository <id> --worktree <id> [--provider <name>] [--model <name>]",
+		"baseline":   "baseline create --project <id> --repository <id> --worktree <id> --target-branch <branch>",
+		"campaign":   "campaign create --project <id> --repository <id> --worktree <id> --name <name> [--session <id>]",
+		"run":        "run --campaign <id> --technique <technique> [--provider <name>] [--model <name>]",
+		"invocation": "invocation show --id <id> | invocation run --session <id> --provider <fake|claude|gemini> [--profile <id>] [--model <name>] [--scenario <scenario>]",
+	}
+	usage, ok := known[subcommand]
+	if !ok {
+		return runAssuranceHelp(jsonOutput, stdout, stderr)
+	}
+	if jsonOutput {
+		return encodeSuccess(stdout, map[string]any{"command": "assurance " + subcommand, "usage": usage, "named_flags_only": true})
+	}
+	_, _ = fmt.Fprintf(stdout, "assurance %s 도움말\n\n", subcommand)
+	_, _ = fmt.Fprintln(stdout, usage)
+	_, _ = fmt.Fprintln(stdout, "공통 옵션: --json, --home <로컬 데이터 디렉터리>")
+	return int(contract.ExitSuccess)
+}
+
+func runAssuranceSessionCommand(service *app.App, ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "create" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance session requires create"))
+	}
+	flags := flag.NewFlagSet("assurance session create", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	project := flags.String("project", "", "project id")
+	repository := flags.String("repository", "", "repository id")
+	worktree := flags.String("worktree", "", "worktree id")
+	provider := flags.String("provider", "", "provider name")
+	model := flags.String("model", "", "requested model")
+	if err := flags.Parse(args[1:]); err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if err := requireAssurancePositionless(flags, "assurance session create"); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if err := requireAssuranceFlags(assuranceFlag{"project", *project}, assuranceFlag{"repository", *repository}, assuranceFlag{"worktree", *worktree}); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	item, err := service.CreateAssuranceSession(ctx, app.AssuranceSessionInput{ProjectID: strings.TrimSpace(*project), RepositoryID: strings.TrimSpace(*repository), WorktreeID: strings.TrimSpace(*worktree), Provider: strings.TrimSpace(*provider), RequestedModel: strings.TrimSpace(*model)})
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, item, jsonOutput)
+}
+
+func runAssuranceBaselineCommand(service *app.App, ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "create" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance baseline requires create"))
+	}
+	flags := flag.NewFlagSet("assurance baseline create", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	project := flags.String("project", "", "project id")
+	repository := flags.String("repository", "", "repository id")
+	worktree := flags.String("worktree", "", "worktree id")
+	targetBranch := flags.String("target-branch", "", "target branch")
+	if err := flags.Parse(args[1:]); err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if err := requireAssurancePositionless(flags, "assurance baseline create"); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if err := requireAssuranceFlags(assuranceFlag{"project", *project}, assuranceFlag{"repository", *repository}, assuranceFlag{"worktree", *worktree}, assuranceFlag{"target-branch", *targetBranch}); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	item, err := service.CreatePRCIBaseline(ctx, app.BaselineInput{ProjectID: strings.TrimSpace(*project), RepositoryID: strings.TrimSpace(*repository), WorktreeID: strings.TrimSpace(*worktree), TargetBranch: strings.TrimSpace(*targetBranch)})
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, item, jsonOutput)
+}
+
+func runAssuranceCampaignCommand(service *app.App, ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "create" {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance campaign requires create"))
+	}
+	flags := flag.NewFlagSet("assurance campaign create", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	project := flags.String("project", "", "project id")
+	repository := flags.String("repository", "", "repository id")
+	worktree := flags.String("worktree", "", "worktree id")
+	name := flags.String("name", "", "campaign name")
+	session := flags.String("session", "", "assurance session id")
+	if err := flags.Parse(args[1:]); err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if err := requireAssurancePositionless(flags, "assurance campaign create"); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if err := requireAssuranceFlags(assuranceFlag{"project", *project}, assuranceFlag{"repository", *repository}, assuranceFlag{"worktree", *worktree}, assuranceFlag{"name", *name}); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	item, err := service.CreateQualityCampaign(ctx, app.QualityCampaignInput{ProjectID: strings.TrimSpace(*project), RepositoryID: strings.TrimSpace(*repository), WorktreeID: strings.TrimSpace(*worktree), Name: strings.TrimSpace(*name), SessionID: strings.TrimSpace(*session)})
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, item, jsonOutput)
+}
+
+func runAssuranceQualityRunCommand(service *app.App, ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("assurance run", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	campaign := flags.String("campaign", "", "quality campaign id")
+	technique := flags.String("technique", "", "quality technique")
+	provider := flags.String("provider", "", "evidence provider label")
+	model := flags.String("model", "", "evidence model label")
+	if err := flags.Parse(args); err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if err := requireAssurancePositionless(flags, "assurance run"); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if err := requireAssuranceFlags(assuranceFlag{"campaign", *campaign}, assuranceFlag{"technique", *technique}); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	if err := validateAssuranceTechnique(*technique); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	item, err := service.RunQuality(ctx, app.QualityRunInput{CampaignID: strings.TrimSpace(*campaign), Technique: strings.TrimSpace(*technique), Provider: strings.TrimSpace(*provider), Model: strings.TrimSpace(*model)})
+	if err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	return emitObject(stdout, item, jsonOutput)
+}
+
+func runAssuranceInvocationCommand(service *app.App, ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance invocation requires show or run"))
+	}
+	switch args[0] {
+	case "show", "inspect":
+		flags := flag.NewFlagSet("assurance invocation show", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		id := flags.String("id", "", "agent invocation id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+		}
+		if err := requireAssurancePositionless(flags, "assurance invocation show"); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		if err := requireAssuranceFlags(assuranceFlag{"id", *id}); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		items, err := service.AgentInvocations(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		for _, item := range items {
+			if item.Metadata.ID == strings.TrimSpace(*id) {
+				return emitObject(stdout, item, jsonOutput)
+			}
+		}
+		return writeCLIErrorTo(stderr, contract.NotFound("agent invocation not found"))
+	case "run":
+		flags := flag.NewFlagSet("assurance invocation run", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		session := flags.String("session", "", "assurance session id")
+		provider := flags.String("provider", "", "provider name")
+		profile := flags.String("profile", "", "agent profile id")
+		model := flags.String("model", "", "requested model")
+		scenario := flags.String("scenario", "", "fixture scenario")
+		if err := flags.Parse(args[1:]); err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+		}
+		if err := requireAssurancePositionless(flags, "assurance invocation run"); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		if err := requireAssuranceFlags(assuranceFlag{"session", *session}, assuranceFlag{"provider", *provider}); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		if err := validateAssuranceProvider(*provider); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		if err := validateAssuranceScenario(*scenario); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		item, err := service.RunAgentInvocation(ctx, app.AgentInvocationInput{SessionID: strings.TrimSpace(*session), Provider: strings.TrimSpace(*provider), ProfileID: strings.TrimSpace(*profile), RequestedModel: strings.TrimSpace(*model), Scenario: strings.TrimSpace(*scenario)})
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	default:
+		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance invocation requires show or run"))
+	}
+}
+
+func requireAssurancePositionless(flags *flag.FlagSet, command string) error {
+	if flags.NArg() != 0 {
+		return contract.InvalidInput(command + " accepts named flags only")
+	}
+	return nil
+}
+
+type assuranceFlag struct {
+	name  string
+	value string
+}
+
+func requireAssuranceFlags(values ...assuranceFlag) error {
+	for _, item := range values {
+		if strings.TrimSpace(item.value) == "" {
+			return contract.InvalidInput("--" + item.name + " is required")
+		}
+	}
+	return nil
+}
+
+func validateAssuranceTechnique(value string) error {
+	switch strings.TrimSpace(value) {
+	case domain.QualityTechniqueStaticSecurity, domain.QualityTechniqueMutation, domain.QualityTechniqueProperty, domain.QualityTechniqueFuzz, domain.QualityTechniqueTargetedE2E:
+		return nil
+	default:
+		return contract.InvalidInput("--technique must be one of static_security, mutation, property, fuzz, targeted_e2e")
+	}
+}
+
+func validateAssuranceProvider(value string) error {
+	switch strings.TrimSpace(value) {
+	case "fake", "claude", "gemini":
+		return nil
+	case "codex":
+		return contract.InvalidInput("provider.prompt_required: Codex requires an explicit bounded prompt path and cannot run from this invocation lifecycle")
+	default:
+		return contract.InvalidInput("--provider must be one of fake, claude, gemini")
+	}
+}
+
+func validateAssuranceScenario(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	switch strings.TrimSpace(value) {
+	case "success", "malformed_output", "timeout", "cancelled", "auth_failure", "approval_prompt", "missing_usage", "nested_launch", "provider_failure":
+		return nil
+	default:
+		return contract.InvalidInput("--scenario is not a supported fixture scenario")
+	}
+}
+
+func assuranceHelpRequested(args []string) bool {
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+func assuranceJSONRequested(args []string) bool {
+	for _, arg := range args {
+		if arg == "--json" {
+			return true
+		}
+	}
+	return false
 }
 
 func runProject(args []string, stdout, stderr io.Writer) int {

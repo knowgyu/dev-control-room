@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-08-24
+- Last refreshed: 2026-08-26
 - Primary product surfaces: embedded loopback browser UI on native Windows 11
 - Evidence reviewed: `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`,
   `docs/IMPLEMENTATION_PLAN.md`, `docs/HANDOFF.md`, `internal/app/web.go`, and
@@ -26,8 +26,8 @@
   replacement for GitHub, Jenkins, or an IDE
 - Success signals: the user can register or edit a project, review and
   acknowledge a Finding, complete `discover -> proposal -> review -> apply ->
-  run`, inspect bounded Check/Action evidence, prepare a masked Handoff, and
-  unregister an item without scanning one long page
+  run`, inspect bounded Check/Action and Assurance evidence, prepare a masked
+  Handoff, and unregister an item without scanning one long page
 
 ## Personas and jobs
 
@@ -39,7 +39,7 @@
 
 ## Information architecture
 
-- Primary navigation: 홈, 프로젝트, 작업, 진단, 기록
+- Primary navigation: 홈, 프로젝트, 작업, 검증, 진단, 기록
 - Core routes/screens: hash-based screens within the embedded UI; Project detail
   is selected from the 프로젝트 screen without adding server-side routes
 - Content hierarchy:
@@ -48,6 +48,8 @@
     details, Repository CRUD, Worktrees, filterable evidence-backed Findings
   - 작업: exact-Worktree discovery, Proposal evidence review, Pre-PR Checkset
     execution/results, and Action planning/approval/execution/results
+  - 검증: Quality Run, Agent 실행, 효과 기록, 사용량·비용 상태, 그리고
+    artifact 보관 근거를 먼저 요약하고 상세 근거는 필요할 때만 엽니다
   - 진단: 개발 환경, Agent Profile CRUD, structured Guidance/Handoff review,
     정리 후보, 반복 실패 safeguard lifecycle과 지표
   - 기록: complete activity history
@@ -80,8 +82,9 @@
 - Existing components to reuse: native buttons, forms, `details`, tables, and
   the current application-service HTTP APIs
 - New/changed components: application shell, navigation links, view headers,
-  Project cards, status chips, evidence disclosure panels, structured run
-  results, safeguard lifecycle cards, empty states, toast, and native `dialog`
+  Project cards, status chips, evidence disclosure panels, Assurance dashboard
+  filters and metric cards, structured run results, safeguard lifecycle cards,
+  empty states, toast, and native `dialog`
 - Variants and states: default, hover, focus-visible, selected, disabled,
   loading, empty, warning, error, and success
 - Token/component ownership: CSS custom properties and semantic classes in the
@@ -125,8 +128,9 @@
 - Tone: concise, direct, and calm
 - Terminology: `확인할 항목`, `개발 환경`, `지침 점검`, `정리 후보`,
   `반복된 실패`, and `등록 해제`
-- Microcopy rules: buttons use active verbs; empty states direct the next step;
-  technical terms stay in English when a Korean translation would be awkward
+- Microcopy rules: buttons, status, and labels use compact noun phrases; full
+  guidance uses only a necessary short `합니다` sentence; technical terms stay
+  in English when a Korean translation would be awkward
 
 ## Implementation constraints
 
@@ -160,6 +164,11 @@ Provider status is a separate capability group in diagnostics and the home summa
 ## Progressive disclosure
 
 Show the decision first. Put revision, digest, command argv, evidence references, pricing basis, and raw diagnostics behind `details` or a focused secondary view. Keep mutation buttons next to the object they affect and show approval or deletion consequences before the action.
+
+The Assurance dashboard starts with repeatability, linked evidence, bounded
+usage/cost, and no-transcript guarantees. Provider/model filters apply only to
+Agent executions and their usage/cost aggregation; Quality Runs, effects, and
+artifact retention remain visibly unfiltered so the scope is not implied.
 
 ## Copy and accessibility
 

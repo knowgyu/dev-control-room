@@ -1,6 +1,6 @@
 # Phase 1 — AI-assisted Code Assurance plan
 
-Status: automated implementation accepted; native real-provider acceptance gap recorded
+Status: foundational automation accepted; real-provider, authoritative-baseline, and registered-executor completion is active
 Updated: 2026-08-26
 Owner: local operator
 
@@ -321,13 +321,13 @@ or reruns an uncertain external/high-impact Action.
 
 | Milestone | Scope | Exit evidence | Status |
 | --- | --- | --- |
-| A — plan/persistence | status markers, ADRs, migrations for sessions/runs/artifacts/pricing | migration/lifecycle tests and no duplicate active plan | accepted; see MILESTONE_A_VERIFICATION.md |
-| B — providers/continuity | Doctor, Codex adapter, structured schema, profiles/model picker, fake Claude/Gemini, Resume Brief | fake matrix; masking; cancellation; non-TTY, closed-stdin, auth/prompt/output/usage failure cases; no raw transcript default; separate native real-CLI acceptance | accepted automated scope; see MILESTONE_B_VERIFICATION.md |
-| C — CI/runner | gh/Jenkins baseline discovery and typed Quality Runs | fixture proves required/observed/local equivalent/unknown and stale detection | accepted local fixture scope; see MILESTONE_C_VERIFICATION.md |
-| D — assurance authoring | Q&A, Assurance Spec, test/property/mutation/fuzz proposals, isolated patch, critic | tests prove AI cannot adopt/commit/push and stale specs/runs surface | accepted; see MILESTONE_D_VERIFICATION.md |
-| E — techniques/artifacts | v1 static/security, mutation, property, fuzz, and targeted-E2E adapters; reports; archive/export/cleanup | three-repo fixture creates/verifies/exports/restores artifacts and deletion warning | accepted fixture scope; see MILESTONE_E_VERIFICATION.md |
-| F — effects/usage | dashboard, filters, usage ledger, pricing snapshots, exports | fixture produces correctly labelled measured/estimated/unknown effects and stable historical pricing | accepted automated scope; see MILESTONE_F_VERIFICATION.md |
-| G — dogfood/release | campaign on Dev Control Room and existing three-repo fixture | full automated suite, fake-provider E2E, targeted real CLI acceptance, reviewed effect report | automated dogfood accepted; see MILESTONE_G_VERIFICATION.md |
+| A — plan/persistence | status markers, ADRs, migrations for sessions/runs/artifacts/pricing | migration/lifecycle tests and no duplicate active plan | accepted automated foundation; see MILESTONE_A_VERIFICATION.md |
+| B — providers/continuity | Doctor, Codex adapter, structured schema, profiles/model picker, fake Claude/Gemini, Resume Brief | fake matrix; masking; cancellation; non-TTY, closed-stdin, auth/prompt/output/usage failure cases; no raw transcript default; separate native real-CLI acceptance | partial: trusted npm launcher and JSONL reduction are implemented; explicit bounded prompt, actual Codex invocation, and native acceptance remain [#3](https://github.com/knowgyu/dev-control-room/issues/3) |
+| C — CI/runner | gh/Jenkins baseline discovery and typed Quality Runs | fixture proves required/observed/local equivalent/unknown and stale detection | partial: local discovery exists; provider-authoritative evidence is [#4](https://github.com/knowgyu/dev-control-room/issues/4), and registered executors are [#5](https://github.com/knowgyu/dev-control-room/issues/5) |
+| D — assurance authoring | Q&A, Assurance Spec, test/property/mutation/fuzz proposals, isolated patch, critic | tests prove AI cannot adopt/commit/push and stale specs/runs surface | accepted automated boundary; see MILESTONE_D_VERIFICATION.md |
+| E — techniques/artifacts | v1 static/security, mutation, property, fuzz, and targeted-E2E adapters; reports; archive/export/cleanup | three-repo fixture creates/verifies/exports/restores artifacts and deletion warning | partial: artifact lifecycle and fixture reports are accepted; real registered executors remain [#5](https://github.com/knowgyu/dev-control-room/issues/5) |
+| F — effects/usage | dashboard, filters, usage ledger, pricing snapshots, exports | fixture produces correctly labelled measured/estimated/unknown effects and stable historical pricing | accepted automated foundation; the embedded evidence dashboard is included in the v0.7.0 candidate |
+| G — dogfood/release | campaign on Dev Control Room and existing three-repo fixture | full automated suite, fake-provider E2E, targeted real CLI acceptance, reviewed effect report | partial: fake-provider dogfood is accepted; real CLI and clean-state journey acceptance remain [#3](https://github.com/knowgyu/dev-control-room/issues/3) and [#7](https://github.com/knowgyu/dev-control-room/issues/7) |
 
 Implement one milestone per branch. Mark it completed here and in the Roadmap;
 use superseded or stale for changed plans, never silent replacement.

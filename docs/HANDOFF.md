@@ -11,12 +11,15 @@ accepted so far.
 
 ## 2026-08-26 active planning status
 
-The current `main` is the pushed v0.6.0 release after Phase 1 A–G automated
-acceptance and Phase 2 P2.0–P2.4 implementation. The original two plan commits
-and all subsequent user-scoped implementation commits are preserved. Full
-verification, Windows packages, hashes, and the GitHub Release are complete.
-Native real-provider, company endpoint, second-device, and full keyboard
-traversal gaps remain explicitly recorded. Read the applicable plan and
+The current `main` contains the v0.7.0 candidate after the pushed v0.6.0
+release. It adds an embedded Assurance dashboard, repeatable Phase 2
+CLI/loopback journey gate, lifecycle CLI, and a fail-closed Codex npm launcher
+foundation. The original two plan commits and all subsequent user-scoped
+implementation commits are preserved. The candidate must receive an exact-SHA
+full verification record and Windows package/release check before publication.
+Real Codex invocation, provider-authoritative PR CI evidence, real registered
+Quality Run executors, company endpoints, second-device acceptance, and full
+keyboard traversal remain explicit gaps. Read the applicable plan and
 verification record before selecting follow-up work.
 
 ## Read before changing code
@@ -175,7 +178,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.6.0`;
+- binary version: `0.7.0`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;

@@ -1,6 +1,6 @@
 # Native Windows acceptance summary
 
-Updated: 2026-08-25
+Updated: 2026-08-26
 
 ## Accepted baseline
 
@@ -359,12 +359,12 @@ Passed:
 - The Codex npm launcher contract reports `node.exe` plus verified
   `@openai/codex\bin\codex.js`; no `cmd.exe`, arbitrary `.cmd`, or `.bat`
   execution path is accepted.
+- Automated Full verification: `pwsh -NoProfile -File .\scripts\verify.ps1
+  -Mode Full -ArtifactDirectory artifacts\verification-0.6.0` passed. The
+  full summary is `artifacts/verification-0.6.0/verification-summary.json`.
 
 Not run or not claimed:
 
-- `pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
-  -ArtifactDirectory artifacts\verification-0.6.0`: PASS. The full summary is
-  `artifacts/verification-0.6.0/verification-summary.json`.
 - Real Codex task invocation or provider authentication.
 - Company Jenkins/GitHub/Kubernetes endpoints, proxy, production, or real
   credentials.
@@ -372,3 +372,22 @@ Not run or not claimed:
 - Full keyboard traversal could not be observed reliably in the in-app Browser
   after the initial main focus; skip-link and focus-visible source checks remain
   in place.
+
+## 2026-08-26 Phase 2 CLI/loopback journey gate
+
+The following command was run in Windows PowerShell from the source checkout:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-phase2-journeys.ps1
+```
+
+Result: PASS, 65 assertions. The script built a temporary executable outside
+the repository, used a fresh temporary app home and a local Git fixture, then
+verified the CLI first-use and return paths, loopback health/state, optional
+Provider status grouping, and empty Assurance API read/dashboard paths. It did
+not contact a real Provider, company endpoint, or credential store. Its exact
+temporary root was removed after the successful run; no user data was touched.
+
+This is automated CLI/HTTP evidence only. It is not a native UI keyboard
+acceptance, a real Provider invocation, or a claim that full Tab traversal or
+the remaining interactive Quality Run/evidence journeys passed.

@@ -1,6 +1,6 @@
 # Phase 2 — Product usability and interface plan
 
-Status: implemented and released in v0.6.0; native provider/manual gaps remain recorded
+Status: v0.7.0 candidate adds an embedded Assurance dashboard and automated CLI/loopback journey gate; native provider and manual UI gaps remain recorded
 Updated: 2026-08-26
 Owner: local operator
 Prerequisite: [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md) Phase 1
@@ -194,8 +194,8 @@ Initial measurable targets, to refine during the journey draft:
 
 1. **P2.0 Research and constraints** — [implemented] inspect the current flows and recent
    native screenshot; read selected Notion/Linear/design-system references;
-   read the fluent-korean guidance; create `DESIGN.md`, copy guide, journey
-   scripts, and an ADR if the Windows launcher policy changes.
+   read the fluent-korean guidance; create `DESIGN.md`, copy guide, the
+   repeatable CLI/loopback journey script, and an ADR for the Windows launcher policy.
 2. **P2.1 State-model correction** — [implemented] split “found”, “trusted to launch”,
    “profile ready”, “optional”, and “task required” in the backend contract;
    add the concrete Windows launcher acceptance tests.
@@ -204,9 +204,11 @@ Initial measurable targets, to refine during the journey draft:
 4. **P2.3 CLI parity and copy pass** — [implemented] improve help/doctor output, then run the
    Korean UI-string review. Do not allow generic prose to re-enter as a result
    of implementation.
-5. **P2.4 Validation and release decision** — [completed] run the complete verification
-   loop, compare against the prior screenshot issues, update status documents,
-   and create follow-up issues only for clearly bounded deferred work.
+5. **P2.4 Validation and release decision** — [partially verified] the repeatable
+   CLI/loopback gate passes for first-use, return, Provider grouping, and Assurance
+   empty/read paths. Local Browser screenshots and primary Enter activation are
+   recorded separately. Full keyboard traversal, real Provider work, company
+   endpoints, and remaining manual UI journeys are still not accepted.
 
 ## Non-goals and deferred work
 
@@ -218,6 +220,18 @@ Initial measurable targets, to refine during the journey draft:
   ledger, or approval policy.
 - Broad team personalization, multi-user onboarding analytics, and A/B testing
   remain out of scope for this local single-user product.
+
+## Evidence boundary for v0.6.0 and the v0.7.0 candidate
+
+The v0.6.0 release has automated Go/CLI/API evidence and a local Browser
+observation record. The v0.7.0 candidate adds the Assurance dashboard, its
+progressive-disclosure contract, and `scripts/verify-phase2-journeys.ps1`.
+That script does not claim that a Provider was launched: it only reads the
+grouped local Provider status contract. It also does not create Assurance
+sessions, runs, invocations, artifacts, effects, or pricing; those read paths
+are intentionally verified in their empty state. Real Provider execution,
+complete keyboard traversal, and the remaining interactive review journeys
+require a later native/manual gate.
 
 ## Next-session assignment prompt
 

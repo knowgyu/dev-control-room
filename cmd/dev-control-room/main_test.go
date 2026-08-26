@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/app"
 	"github.com/knowgyu/dev-control-room/internal/contract"
@@ -99,6 +100,198 @@ func TestAssuranceProviderCLIUsesStableEnvelope(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil || len(*envelope.Data) < 3 {
 		t.Fatalf("invalid provider envelope: %s (%v)", stdout.String(), err)
 	}
+}
+
+func TestAssuranceCommandContextPropagatesCancellationAndCleansUp(t *testing.T) {
+	t.Run("parent cancellation", func(t *testing.T) {
+		parent, cancel := context.WithCancel(context.Background())
+		ctx, stop := newAssuranceCommandContext(parent)
+		t.Cleanup(stop)
+		cancel()
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+			t.Fatal("assurance command context did not propagate cancellation")
+		}
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			t.Fatalf("context error = %v, want cancellation", ctx.Err())
+		}
+	})
+
+	t.Run("stop cleanup", func(t *testing.T) {
+		ctx, stop := newAssuranceCommandContext(context.Background())
+		stop()
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+			t.Fatal("assurance command context stop did not cancel context")
+		}
+	})
+}
+
+func TestAssuranceLifecycleCLIUsesNamedFlagsAndStableEnvelopes(t *testing.T) {
+	home, projectID := setupAssuranceCLIFixture(t)
+	base := []string{"--home", home, "--json"}
+
+	sessionArgs := append([]string{"assurance", "session", "create", "--project", projectID, "--repository", "repo-1", "--worktree", "primary", "--provider", "fake", "--model", "fixture"}, base...)
+	session := runAssuranceJSON[domain.AssuranceSession](t, sessionArgs...)
+	if session.Spec.ProjectID != projectID || session.Spec.RepositoryID != "repo-1" || session.Spec.WorktreeID != "primary" || session.Spec.Provider != "fake" {
+		t.Fatalf("unexpected assurance session: %#v", session)
+	}
+
+	baselineArgs := append([]string{"assurance", "baseline", "create", "--project", projectID, "--repository", "repo-1", "--worktree", "primary", "--target-branch", "main"}, base...)
+	baseline := runAssuranceJSON[domain.PRCIBaseline](t, baselineArgs...)
+	if baseline.Spec.ProjectID != projectID || baseline.Spec.TargetBranch != "main" || baseline.Spec.State != "fresh" {
+		t.Fatalf("unexpected PR CI baseline: %#v", baseline)
+	}
+
+	campaignArgs := append([]string{"assurance", "campaign", "create", "--project", projectID, "--repository", "repo-1", "--worktree", "primary", "--name", "fixture campaign", "--session", session.Metadata.ID}, base...)
+	campaign := runAssuranceJSON[domain.QualityCampaign](t, campaignArgs...)
+	if campaign.Spec.ProjectID != projectID || campaign.Spec.Name != "fixture campaign" || campaign.Spec.SessionID != session.Metadata.ID {
+		t.Fatalf("unexpected quality campaign: %#v", campaign)
+	}
+
+	runArgs := append([]string{"assurance", "run", "--campaign", campaign.Metadata.ID, "--technique", domain.QualityTechniqueStaticSecurity, "--provider", "fake", "--model", "fixture"}, base...)
+	qualityRun := runAssuranceJSON[domain.QualityRun](t, runArgs...)
+	if qualityRun.Spec.CampaignID != campaign.Metadata.ID || qualityRun.Spec.Technique != domain.QualityTechniqueStaticSecurity || qualityRun.Spec.State != domain.AssuranceStateSucceeded || len(qualityRun.Spec.ArtifactIDs) != 1 {
+		t.Fatalf("unexpected quality run: %#v", qualityRun)
+	}
+
+	invocationArgs := append([]string{"assurance", "invocation", "run", "--session", session.Metadata.ID, "--provider", "fake", "--profile", "fake", "--model", "fixture", "--scenario", "success"}, base...)
+	invocation := runAssuranceJSON[domain.AgentInvocation](t, invocationArgs...)
+	if invocation.Spec.SessionID != session.Metadata.ID || invocation.Spec.Provider != "fake" || invocation.Spec.State != domain.AssuranceStateSucceeded || invocation.Spec.Usage.TotalTokens == nil {
+		t.Fatalf("unexpected agent invocation: %#v", invocation)
+	}
+
+	inspectArgs := append([]string{"assurance", "invocation", "inspect", "--id", invocation.Metadata.ID}, base...)
+	inspected := runAssuranceJSON[domain.AgentInvocation](t, inspectArgs...)
+	if !reflect.DeepEqual(inspected, invocation) {
+		t.Fatalf("inspect result differs from run result: inspected=%#v invocation=%#v", inspected, invocation)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run(append([]string{"assurance", "sessions"}, base...), &stdout, &stderr); code != int(contract.ExitSuccess) || !strings.Contains(stdout.String(), session.Metadata.ID) {
+		t.Fatalf("existing sessions query changed: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestAssuranceCLIRejectsUnsafeOrAmbiguousInputs(t *testing.T) {
+	home := t.TempDir()
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing required session flag", args: []string{"assurance", "session", "create", "--repository", "repo-1", "--worktree", "primary", "--home", home}, want: "--project is required"},
+		{name: "positional quality run", args: []string{"assurance", "run", "campaign-id", "--home", home}, want: "assurance run accepts named flags only"},
+		{name: "unknown technique", args: []string{"assurance", "run", "--campaign", "campaign-id", "--technique", "arbitrary", "--home", home}, want: "--technique must be one of"},
+		{name: "unknown provider", args: []string{"assurance", "invocation", "run", "--session", "session-id", "--provider", "arbitrary", "--home", home}, want: "--provider must be one of"},
+		{name: "codex requires bounded prompt", args: []string{"assurance", "invocation", "run", "--session", "session-id", "--provider", "codex", "--home", home}, want: "provider.prompt_required"},
+		{name: "unknown scenario", args: []string{"assurance", "invocation", "run", "--session", "session-id", "--provider", "fake", "--scenario", "arbitrary", "--home", home}, want: "--scenario is not a supported fixture scenario"},
+		{name: "arbitrary command flag", args: []string{"assurance", "run", "--campaign", "campaign-id", "--technique", domain.QualityTechniqueStaticSecurity, "--command", "remove-all", "--home", home}, want: "flag provided but not defined"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run(test.args, &stdout, &stderr); code != int(contract.ExitInvalidInput) {
+				t.Fatalf("exit code = %d, want invalid input (%d), stdout=%s stderr=%s", code, contract.ExitInvalidInput, stdout.String(), stderr.String())
+			}
+			var envelope contract.Envelope[map[string]any]
+			if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil || envelope.Schema != contract.EnvelopeSchema || envelope.OK || envelope.Error == nil || !strings.Contains(envelope.Error.Message, test.want) {
+				t.Fatalf("unexpected error envelope: %s (%v)", stderr.String(), err)
+			}
+		})
+	}
+}
+
+func TestAssuranceCLIHelpListsLifecycleCommands(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"help", "assurance", "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("assurance help exit code = %d, stderr=%s", code, stderr.String())
+	}
+	var envelope contract.Envelope[map[string]any]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data == nil {
+		t.Fatalf("invalid assurance help envelope: %s (%v)", stdout.String(), err)
+	}
+	data, ok := (*envelope.Data)["commands"].([]any)
+	if !ok {
+		t.Fatalf("assurance help commands have unexpected type: %#v", (*envelope.Data)["commands"])
+	}
+	for _, want := range []string{"session create", "baseline create", "campaign create", "run", "invocation show", "invocation run"} {
+		found := false
+		for _, item := range data {
+			if item == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("assurance help omitted %q: %s", want, stdout.String())
+		}
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"assurance", "--help", "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) || !strings.Contains(stdout.String(), `"command":"assurance"`) {
+		t.Fatalf("direct assurance JSON help failed: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func runAssuranceJSON[T any](t *testing.T, args ...string) T {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	if code := run(args, &stdout, &stderr); code != int(contract.ExitSuccess) {
+		t.Fatalf("CLI command failed: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var envelope contract.Envelope[T]
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid JSON envelope: %v: %s", err, stdout.String())
+	}
+	if envelope.Schema != contract.EnvelopeSchema || !envelope.OK || envelope.Data == nil {
+		t.Fatalf("unexpected JSON envelope: %#v", envelope)
+	}
+	return *envelope.Data
+}
+
+func setupAssuranceCLIFixture(t *testing.T) (string, string) {
+	t.Helper()
+	home := t.TempDir()
+	repository := filepath.Join(t.TempDir(), "assurance-cli-fixture")
+	if err := os.MkdirAll(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "init", repository).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("assurance fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", repository, "-c", "user.email=fixture@example.invalid", "-c", "user.name=fixture"}, args...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	git("add", "README.md")
+	git("commit", "-m", "assurance fixture")
+
+	service, err := app.New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.AddProject(context.Background(), app.AddProjectInput{Name: "Assurance CLI", Path: repository})
+	if err != nil {
+		_ = service.Close()
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		_ = service.Close()
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return home, project.Metadata.ID
 }
 
 func TestProjectListJSONUsesStableEnvelope(t *testing.T) {
