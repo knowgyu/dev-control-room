@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).ProviderPath
 if ([string]::IsNullOrWhiteSpace($Version) -or $Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$') {
-    throw "-Version must be a numeric semantic version, for example 0.7.0."
+    throw "-Version must be a numeric semantic version, for example 0.8.0."
 }
 $releaseNotesPath = Join-Path $repositoryRoot ("docs\RELEASE_NOTES_v{0}.md" -f $Version)
 $verificationPath = Join-Path $repositoryRoot ("docs\VERIFICATION_v{0}.md" -f $Version)

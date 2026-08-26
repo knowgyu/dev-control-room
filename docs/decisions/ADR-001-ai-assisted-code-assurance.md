@@ -52,3 +52,17 @@ Action Broker contracts remain.
 - Detailed plan: docs/AI_CODE_ASSURANCE_PLAN.md
 - Existing foundation: docs/AI_INTEGRATION.md
 - Current status index: docs/ROADMAP.md
+
+## v0.8.0 implementation status
+
+The decision is implemented as a bounded local foundation: structured sessions,
+fake-provider E2E, real local Codex acceptance, registered native Go runners,
+bounded artifacts, and the evidence dashboard are available. It does not make
+the decision's full lifecycle promise complete. Unattended Approval Scope
+persistence/revalidation is [#9](https://github.com/knowgyu/dev-control-room/issues/9),
+isolated patch adoption is [#10](https://github.com/knowgyu/dev-control-room/issues/10),
+artifact restore/retention/quota is [#11](https://github.com/knowgyu/dev-control-room/issues/11),
+and trend/export traceability is [#12](https://github.com/knowgyu/dev-control-room/issues/12).
+Native provider resilience, authority, mutation, and accessibility gaps remain
+in [#3](https://github.com/knowgyu/dev-control-room/issues/3)–[#5](https://github.com/knowgyu/dev-control-room/issues/5)
+and [#7](https://github.com/knowgyu/dev-control-room/issues/7).

@@ -1,6 +1,6 @@
 # Phase 2 — Product usability and interface plan
 
-Status: v0.7.0 candidate adds an embedded Assurance dashboard and automated CLI/loopback journey gate; native provider and manual UI gaps remain recorded
+Status: v0.8.0 implements the planned first-use, return, Provider recovery, copy, launcher, and Assurance-value surfaces; accessibility/manual gaps remain explicit
 Updated: 2026-08-26
 Owner: local operator
 Prerequisite: [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md) Phase 1
@@ -205,10 +205,13 @@ Initial measurable targets, to refine during the journey draft:
    Korean UI-string review. Do not allow generic prose to re-enter as a result
    of implementation.
 5. **P2.4 Validation and release decision** — [partially verified] the repeatable
-   CLI/loopback gate passes for first-use, return, Provider grouping, and Assurance
-   empty/read paths. Local Browser screenshots and primary Enter activation are
-   recorded separately. Full keyboard traversal, real Provider work, company
-   endpoints, and remaining manual UI journeys are still not accepted.
+   CLI/loopback gate passes 239 assertions for first-use, return, Provider
+   grouping/recovery, local npm Codex recovery, Assurance data, blocked actions,
+   duplicate-warning grouping, and secret non-persistence. Browser evidence covers
+   first-use/return/narrow screenshots, registration, finding deep-link focus,
+   Provider recovery focus, and project-card Enter. Full Tab/Space traversal,
+   native dialog Esc delivery, company endpoints, and a second clean Windows
+   device remain [#7](https://github.com/knowgyu/dev-control-room/issues/7).
 
 ## Non-goals and deferred work
 
@@ -221,17 +224,22 @@ Initial measurable targets, to refine during the journey draft:
 - Broad team personalization, multi-user onboarding analytics, and A/B testing
   remain out of scope for this local single-user product.
 
-## Evidence boundary for v0.6.0 and the v0.7.0 candidate
+## Evidence boundary for v0.8.0
 
-The v0.6.0 release has automated Go/CLI/API evidence and a local Browser
-observation record. The v0.7.0 candidate adds the Assurance dashboard, its
-progressive-disclosure contract, and `scripts/verify-phase2-journeys.ps1`.
-That script does not claim that a Provider was launched: it only reads the
-grouped local Provider status contract. It also does not create Assurance
-sessions, runs, invocations, artifacts, effects, or pricing; those read paths
-are intentionally verified in their empty state. Real Provider execution,
-complete keyboard traversal, and the remaining interactive review journeys
-require a later native/manual gate.
+v0.8.0 extends the earlier dashboard and CLI/loopback gate with a local npm
+Codex fixture invocation, non-empty Assurance records, registered native Go
+Quality Runs, blocked mutation/action paths, duplicate-warning grouping, and
+secret-canary checks. A separate safe local `scripts/verify-real-codex.ps1`
+run uses the authenticated CLI only against a disposable local Git repository;
+it does not contact a company repository or mutate the fixture. The actual
+GitHub baseline lookup is read-only and preserves provider authority as
+`unknown` when GitHub cannot expose branch/rules data.
+
+This evidence does not accept configured company endpoints, production work,
+full keyboard traversal, a native dialog-Esc driver result, or a second clean
+Windows device. Those manual/accessibility items remain tracked in
+[#7](https://github.com/knowgyu/dev-control-room/issues/7); provider authority,
+resilience, and artifact scope remain in the Phase 1 issues.
 
 ## Next-session assignment prompt
 

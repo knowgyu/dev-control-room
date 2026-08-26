@@ -68,16 +68,13 @@ dev-control-room assurance dashboard --json --home $temp
 
 ## 2026-08-26 검증 기록
 
-- 자동 검증: `pwsh -NoProfile -File .\scripts\verify-phase2-journeys.ps1`를 실행해 65개 assertion을 통과했습니다. 새 임시 app home과 Git fixture에서 CLI first-use/return 경로, loopback health/state, Provider 상태 그룹, Assurance 빈 read path와 dashboard를 확인했습니다. 임시 root는 실행 후 정리했습니다.
-- 로컬 관찰 — 첫 사용: 빈 로컬 데이터 디렉터리에서 `첫 프로젝트를 등록합니다`, `프로젝트 등록`, `Provider 상태`를 확인했습니다.
-- 로컬 관찰 — 복귀: 임시 Git 저장소 한 개를 등록한 상태에서 `오늘의 개발 상태를 확인합니다`, 프로젝트·저장소·확인 항목 수, 다음 행동을 확인했습니다.
-- 로컬 관찰 — Provider 표면: `Codex 사용 가능`, `Claude 미설정`, `Gemini 미설정`을 한 Provider 그룹에서 확인했습니다. 기본 Agent Profile 경고는 중복 표시하지 않습니다. 이는 로컬 상태 표면 확인이며 실제 Provider 작업 호출이나 인증 검증이 아닙니다.
-- 로컬 관찰 — Assurance 빈 상태: Quality Run·Agent 실행·효과 기록이 없을 때 `아직 검증 결과가 없습니다`를 표시하는 화면을 확인했습니다.
-- 로컬 관찰 — 검증 대시보드: `검증` route에서 재실행·근거 연결·비용 경계·대화 경계, Provider/모델 필터, 빈 Quality Run/효과/Agent/artifact 영역을 확인했습니다. 390 px 폭에서도 필터와 지표가 보였고 Browser console error는 없었습니다.
-- 로컬 관찰 — 화면: 다음 스크린샷을 저장했습니다.
-  - `artifacts/phase2-home-first-use.png`
-  - `artifacts/phase2-home-established.png`
-  - `artifacts/phase2-home-narrow.png`
-  - `artifacts/phase2-diagnostics-providers.png`
-- 로컬 관찰 — 키보드: `Enter`로 상단 `지금 점검` 동작을 실행하고 실행 중 비활성화·완료 복귀를 확인했습니다. `검증` route 전환은 `main-content`로 `:focus-visible` 포커스를 옮겼고 `새로 고침`은 `Enter`를 받았습니다. in-app Browser의 `Tab` 포커스 이동은 초기 `main` 포커스 뒤 안정적으로 관찰되지 않아 전체 순회는 미실행으로 기록합니다. 소스의 skip link, `:focus-visible`, 명시적 label/heading은 정적 검사를 통과했습니다.
-- 미실행: 실제 Codex 작업 호출과 사용자 인증, 회사 Jenkins/GitHub/Kubernetes endpoint, 실제 Provider 복구, 별도 깨끗한 Windows 11 장치 수동 확인, 전체 Tab 순회, finding-to-evidence/Quality Run 상세 검토, blocked/approval-required UI 여정은 실행하지 않았습니다.
+- 자동 검증: `pwsh -NoProfile -File .\scripts\verify-phase2-journeys.ps1`가 239 assertions를 통과했습니다. fresh temporary app home과 두 local Git fixture에서 first-use/return, local npm Codex recovery, fake-provider Assurance, registered static Quality Run, blocked mutation/action, duplicate-warning grouping, secret canary non-persistence, restart를 확인했고 만든 임시 root만 정리했습니다.
+- 실제 Provider 경계: `pwsh -NoProfile -File .\scripts\verify-real-codex.ps1`가 disposable local Git fixture에서 실제 authenticated Codex invocation을 실행해 46 assertions를 통과했습니다. `node.exe`와 verified `@openai/codex/bin/codex.js`만 실행하고 `.cmd` shim·raw transcript·prompt persistence가 없음을 확인했습니다.
+- 로컬 관찰 — 첫 사용과 복귀: 빈 home은 onboarding과 `프로젝트 등록`만 우선 보였고, local Git fixture 등록 뒤에는 `오늘의 개발 상태를 확인합니다`, 프로젝트/저장소/확인 항목/Provider 지표, 다음 행동과 Assurance 가치를 보였습니다.
+- 로컬 관찰 — 회복과 근거: optional Claude/Gemini는 한 Provider 카드의 `미설정`으로 보이며 전역 오류가 되지 않았습니다. `진단` 링크는 `provider-statuses`로 초점을 옮겼고, finding 링크는 정확한 finding 카드로 초점을 옮겼습니다.
+- 로컬 관찰 — 등록과 키보드: 등록 양식은 첫 입력으로 초점을 옮기고, 성공 뒤 선택된 project card가 `aria-pressed=true`가 됐습니다. 해당 card의 `Enter` 동작을 확인했습니다. 등록 해제 dialog는 description을 연결하고 취소 뒤 opener가 남아 있지 않으면 `main-content`로 안전하게 복귀합니다.
+- 로컬 관찰 — 화면: Browser console error는 없었습니다. 다음 v0.8.0 후보 스크린샷을 저장했습니다.
+  - `artifacts/verification-v0.8.0-final/ui-first-use-final.png`
+  - `artifacts/verification-v0.8.0-final/ui-return-final.png`
+  - `artifacts/verification-v0.8.0-final/ui-return-narrow-final.png`
+- 미실행 또는 미수용: in-app Browser driver가 native dialog `Esc`와 full `Tab`/`Space` traversal을 신뢰성 있게 전달하지 않아 PASS로 주장하지 않습니다. 회사 Jenkins/GitHub/Kubernetes endpoint, production, real credential mutation, second clean Windows device/assistive technology, non-empty UI Quality Run review, blocked/approval-required UI 전체 여정도 실행하지 않았습니다.

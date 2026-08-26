@@ -19,3 +19,15 @@ Codex npm launcher는 Windows `cmd.exe`나 임의 `.cmd`·`.bat` 파일을 실�
 - argv는 구조화된 배열이며 셸 문자열로 재조합하지 않습니다.
 - 검증 실패 시 native Provider 실행을 하지 않고 복구 안내만 제공합니다.
 
+## v0.8.0 acceptance
+
+`scripts/verify-real-codex.ps1`는 disposable local Git fixture에서 실제
+authenticated Codex invocation을 실행해 46 assertions를 통과했습니다. 실행은
+regular `node.exe`와 verified `@openai/codex/bin/codex.js`만 사용했고, raw
+transcript를 저장하지 않으며 fixture Git status와 prompt persistence를
+확인했습니다. npm `.cmd` shim은 발견 근거일 뿐 실행 대상이 아닙니다.
+
+이 결과는 non-TTY/closed stdin, expired auth, provider approval prompt,
+process-tree cancellation, crash/reboot, idempotent resume을 모두 받아들인다는
+주장이 아닙니다. 이 resilience acceptance는
+[#3](https://github.com/knowgyu/dev-control-room/issues/3)에 남습니다.

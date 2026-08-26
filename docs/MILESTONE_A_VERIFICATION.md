@@ -1,6 +1,6 @@
 # Milestone A verification
 
-Status: accepted for the current source checkpoint
+Status: partial; lifecycle foundation accepted, Unattended Approval Scope remains deferred
 Updated: 2026-08-26
 
 ## Scope
@@ -29,3 +29,10 @@ gaps: native Windows runtime, Scheduler, real provider CLI, and GitHub/Jenkins
 were not exercised in this WSL milestone check. No external or destructive
 operation was performed.
 
+## v0.8.0 status update
+
+The later native candidate adds real local Codex evidence, but it does not
+persist or match an Unattended Approval Scope at execution time. Scope storage,
+expiration, fresh-observation matching, and Resume Brief behavior remain
+[#9](https://github.com/knowgyu/dev-control-room/issues/9). This record accepts
+only the additive session/run/artifact/pricing lifecycle foundation.

@@ -94,8 +94,11 @@
 
 - Target standard: practical WCAG 2.2 AA baseline
 - Keyboard/focus behavior: a skip link bypasses primary navigation; route
-  changes move reading focus to `main`; all actions are keyboard reachable;
-  focus is visible; dialogs restore focus through native behavior
+  changes move reading focus to `main` or a requested finding; Provider recovery
+  moves focus to its status group; project selection keeps an explicit selected
+  state; dialogs label their description and return focus to their opener or
+  `main` after a re-render. Focus is visible. Full Tab/Space and native-dialog
+  Esc acceptance remain a separately recorded manual gap.
 - Contrast/readability: text and status labels meet readable contrast; status
   meaning is written as text
 - Screen-reader semantics: landmarks, headings, current navigation state,
@@ -172,7 +175,7 @@ artifact retention remain visibly unfiltered so the scope is not implied.
 
 ## Copy and accessibility
 
-Use the concise Korean copy rules in `docs/KOREAN_COPY_GUIDE.md`. Buttons and labels use noun phrases. Status uses text plus color. Every route has a stable heading, keyboard-visible focus, skip link, and a recoverable empty or error state. The home and diagnostics paths are validated by `docs/USER_JOURNEY_ACCEPTANCE.md`.
+Use the concise Korean copy rules in `docs/KOREAN_COPY_GUIDE.md`. Buttons and labels use noun phrases. Status uses text plus color. Every route has a stable heading, keyboard-visible focus, skip link, and a recoverable empty or error state. The home, diagnostics, finding deep-link, and registration paths are validated by `docs/USER_JOURNEY_ACCEPTANCE.md`.
 
 ## Reference boundary
 

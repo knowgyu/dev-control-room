@@ -1,6 +1,6 @@
 # Milestone E verification
 
-Status: partial; local artifact lifecycle and fixture adapters are accepted, while real technique executors are active work
+Status: partial; bounded artifacts and registered native Go runners are verified, mutation and restore lifecycle remain deferred
 Updated: 2026-08-26
 
 The v1 technique set now has a common report contract for static/security,
@@ -17,9 +17,14 @@ commands:
   go test ./internal/assurance ./internal/app ./internal/store -run 'Test(AllV1Technique|QualityRun|AssuranceAuthoring)' -count=1  PASS
 ```
 
-gaps: fixture reports do not prove mutation, property, fuzz, static/security,
-or targeted-E2E tools ran. The registered-executor work is tracked in
-[#5](https://github.com/knowgyu/dev-control-room/issues/5); third-party
-analyzer binaries, native Windows file-lock behavior, and external archive
-drives were not exercised. No artifact outside the fresh fixture home was
-deleted.
+## v0.8.0 status update
+
+The fresh journey now executes allowlisted native Go static/security, property,
+fuzz, and targeted-E2E runners with `GOPROXY=off`, `GOSUMDB=off`,
+`GOTOOLCHAIN=local`, `GOWORK=off`, private cache, and `-mod=readonly`.
+`go-mutesting.exe` is absent in the verifier, so mutation is blocked/unavailable
+instead of reported successful. Its adapter remains
+[#5](https://github.com/knowgyu/dev-control-room/issues/5).
+
+Archive restore, retention/quota/pin enforcement, and interrupted lifecycle
+recovery remain [#11](https://github.com/knowgyu/dev-control-room/issues/11).

@@ -9,23 +9,35 @@ architecture requirements remain canonical in their dedicated documents; this
 file records what is implemented, what is only designed, and how work has been
 accepted so far.
 
-## 2026-08-26 active planning status
+## 2026-08-26 v0.8.0 release handoff
 
-The current `main` contains the v0.7.0 candidate after the pushed v0.6.0
-release. It adds an embedded Assurance dashboard, repeatable Phase 2
-CLI/loopback journey gate, lifecycle CLI, and a fail-closed Codex npm launcher
-foundation. The original two plan commits and all subsequent user-scoped
-implementation commits are preserved. Candidate source
-`8bcf1a7915d1e4997494ac7b6758ac51a7c794d7` passed the exact-SHA Full
-verification and the 65-assertion Phase 2 CLI/loopback journey gate; see
-`docs/VERIFICATION_v0.7.0.md`. Windows package/release asset checks remain
-before publication. The packages and local hash/unpacked-amd64 smoke now pass;
-the remaining release action is push, tag, GitHub asset publication, and remote
-asset verification.
-Real Codex invocation, provider-authoritative PR CI evidence, real registered
-Quality Run executors, company endpoints, second-device acceptance, and full
-keyboard traversal remain explicit gaps. Read the applicable plan and
-verification record before selecting follow-up work.
+The current `main` is prepared for v0.8.0. It preserves the earlier release
+history and adds the bounded real Codex path, registered local Quality runners,
+GitHub baseline fail-closed handling, an Assurance-value dashboard, first-use/
+return/Provider-recovery journeys, and Korean copy/accessibility refinements.
+Read [VERIFICATION_v0.8.0.md](VERIFICATION_v0.8.0.md) for exact commands and
+release evidence, rather than treating historical v0.6/v0.7 records as the
+current result.
+
+Verified at the v0.8.0 source candidate:
+
+- `scripts/verify-real-codex.ps1`: real local authenticated Codex acceptance,
+  46 assertions, typed `node.exe` plus verified `@openai/codex/bin/codex.js`,
+  no shell launcher/raw transcript, clean fixture, and prompt non-persistence.
+- `scripts/verify-phase2-journeys.ps1`: 239 assertions in fresh temporary
+  homes and local Git fixtures, including first-use/return/recovery, local npm
+  launcher, registered runners, blocked paths, and secret canary checks.
+- Browser evidence: desktop/narrow first-use and return views, registration,
+  finding deep-link focus, Provider recovery focus, project-card Enter, and
+  dialog description/cancel handling. Console errors were empty.
+
+This is not a claim that every Phase 1 exit criterion is complete. Native
+Codex resilience is [#3](https://github.com/knowgyu/dev-control-room/issues/3),
+provider-authoritative CI is [#4](https://github.com/knowgyu/dev-control-room/issues/4),
+mutation execution is [#5](https://github.com/knowgyu/dev-control-room/issues/5),
+complete accessibility/manual acceptance is [#7](https://github.com/knowgyu/dev-control-room/issues/7),
+and the remaining persistence/patch/artifact/trend scope is
+[#9](https://github.com/knowgyu/dev-control-room/issues/9)–[#12](https://github.com/knowgyu/dev-control-room/issues/12).
 
 ## Read before changing code
 
@@ -183,7 +195,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.7.0`;
+- binary version: `0.8.0`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;

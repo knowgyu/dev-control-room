@@ -423,3 +423,49 @@ Not run or not claimed:
   configured credential, production, proxy, or second-device check was not
   performed.
 - Fixture Quality Run reports do not prove a third-party quality tool ran.
+
+## 2026-08-26 v0.8.0 release-candidate verification
+
+Source: `a4e664304d3097aa27b79f39eabf8f96f606224e` on native Windows 11,
+PowerShell `7.6.4`, Go `go1.26.7 windows/amd64`, Node `v24.15.0`, and Git
+`2.53.0.windows.1`.
+
+Passed:
+
+- `pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
+  -ArtifactDirectory artifacts\verification-v0.8.0-final`: PASS. This covers
+  gofmt, full Go tests, UI syntax, race, vet, module verification, regular
+  build, Windows amd64/arm64 build, and diff check. The summary is
+  `artifacts/verification-v0.8.0-final/verification-summary.json`.
+- `pwsh -NoProfile -File .\scripts\verify-phase2-journeys.ps1`: PASS, 239
+  assertions in fresh temporary app homes and local Git fixtures. It exercised
+  local npm Codex recovery, fake-provider Assurance, registered native Go
+  Quality Run, blocked mutation/action paths, duplicate warnings, restart, and
+  secret non-persistence.
+- `pwsh -NoProfile -File .\scripts\verify-real-codex.ps1`: PASS, 46
+  assertions. A disposable local Git fixture used an actual authenticated Codex
+  invocation through regular `node.exe` and verified
+  `@openai/codex\bin\codex.js`; it retained structured evidence only, left the
+  fixture clean, and did not persist the prompt.
+- The read-only GitHub baseline attempted fixed branch-protection/rules calls
+  through `gh.exe`. GitHub returned 403 for the private-repository feature, so
+  the baseline correctly retained `unknown` rather than a fabricated required
+  context.
+- Browser evidence captured fresh first-use, established return, and 390 px
+  views. Registration, selected project-card `Enter`, finding deep-link focus,
+  Provider recovery focus, dialog description/cancel behavior, and no console
+  errors were observed.
+- `pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.8.0
+  -OutputDirectory artifacts\0.8.0`: PASS. The amd64 ZIP matched `SHA256SUMS`,
+  extracted cleanly, returned `version --json` = `0.8.0` and successful help
+  JSON, then served a fresh loopback-only health response with telemetry off.
+
+Not run or not claimed:
+
+- Full Tab/Space traversal or reliable native dialog `Esc` automation; the
+  in-app Browser driver did not deliver those keys reliably.
+- Company endpoints, production, proxy, credential mutation, or destructive
+  cleanup.
+- Codex non-TTY/closed stdin, expired-auth/prompt, process-tree,
+  crash/reboot/resume resilience; successful provider authority/Jenkins;
+  mutation tool; second-device or assistive-technology acceptance.

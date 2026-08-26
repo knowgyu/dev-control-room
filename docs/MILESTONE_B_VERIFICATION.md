@@ -1,6 +1,6 @@
 # Milestone B verification
 
-Status: partial; automated/fake-provider scope accepted, while real Codex invocation is active work
+Status: partial; automated/fake scope and real local Codex acceptance are verified, resilience remains active work
 Updated: 2026-08-26
 
 ## Delivered
@@ -25,10 +25,15 @@ commands:
   go test ./internal/app ./internal/assurance -run 'Test(FakeProvider|Codex)' -count=1  PASS
 ```
 
-gaps: the trusted launcher is now reduced to `node.exe` plus the verified
-`@openai/codex` `bin/codex.js`, and JSONL is bounded/masked in memory. An
-explicit bounded prompt, sandbox/schema arguments, authenticated native Codex
-task, non-TTY/closed-stdin, Windows process-tree cancellation, and
-provider-specific model probing remain active in [#3](https://github.com/knowgyu/dev-control-room/issues/3).
-No real provider, external endpoint, or write to the user's provider
-configuration has been performed.
+## v0.8.0 status update
+
+`scripts/verify-real-codex.ps1` executed the current native Windows binary
+against a disposable local Git fixture and passed 46 assertions. It proved the
+regular `node.exe` + verified package bin path, typed argv, real authenticated
+invocation, structured-only result, bounded evidence, clean Git status, and
+prompt non-persistence. No company repository was contacted.
+
+The remaining [#3](https://github.com/knowgyu/dev-control-room/issues/3) scope
+is non-TTY/closed stdin, expired auth/approval prompt, explicit process-tree
+cancellation/timeout, crash/reboot interruption, and idempotent resume. Those
+are not inferred from this successful read-only fixture invocation.
