@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/knowgyu/dev-control-room/internal/assurance"
 	"github.com/knowgyu/dev-control-room/internal/contract"
+	"github.com/knowgyu/dev-control-room/internal/discovery"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/environment"
 	"github.com/knowgyu/dev-control-room/internal/masking"
@@ -942,15 +942,13 @@ func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, er
 		files = append(files, filepath.Join(root, "package.json"))
 	}
 	workflowRoot := filepath.Join(root, ".github", "workflows")
-	_ = filepath.WalkDir(workflowRoot, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return nil
+	for _, pattern := range []string{"*.yml", "*.yaml"} {
+		matches, err := filepath.Glob(filepath.Join(workflowRoot, pattern))
+		if err != nil {
+			return nil, "", nil, err
 		}
-		if strings.EqualFold(filepath.Ext(path), ".yml") || strings.EqualFold(filepath.Ext(path), ".yaml") {
-			files = append(files, path)
-		}
-		return nil
-	})
+		files = append(files, matches...)
+	}
 	sort.Strings(files)
 	hash := sha256.New()
 	entries := []domain.BaselineEntry{}
@@ -972,25 +970,32 @@ func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, er
 		_, _ = hash.Write([]byte(filepath.ToSlash(strings.TrimPrefix(path, root))))
 		_, _ = hash.Write(data)
 		rel, _ := filepath.Rel(root, path)
-		text := string(data)
 		if filepath.Base(path) == "package.json" {
 			var manifest struct {
 				Scripts map[string]string `json:"scripts"`
 			}
 			if json.Unmarshal(data, &manifest) == nil {
-				for name, command := range manifest.Scripts {
+				names := make([]string, 0, len(manifest.Scripts))
+				for name := range manifest.Scripts {
+					names = append(names, name)
+				}
+				sort.Strings(names)
+				for _, name := range names {
+					command := manifest.Scripts[name]
 					entries = append(entries, domain.BaselineEntry{ID: "package-" + name, Name: "package script " + name, Classification: domain.BaselineLocalEquivalent, SourcePath: rel, Command: command, Observed: true})
 				}
 			}
 		}
-		for index, line := range strings.Split(text, "\n") {
-			trimmed := strings.TrimSpace(line)
-			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
-			if strings.HasPrefix(trimmed, "run:") {
-				command := strings.TrimSpace(strings.TrimPrefix(trimmed, "run:"))
-				entries = append(entries, domain.BaselineEntry{ID: fmt.Sprintf("workflow-%d", index), Name: "GitHub Actions run", Classification: domain.BaselineObserved, SourcePath: rel, Command: command, Observed: true})
-			}
+	}
+	workflowCandidates, err := discovery.Discover(root)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	for _, candidate := range workflowCandidates {
+		if candidate.CommandKind != "github_actions_run" {
+			continue
 		}
+		entries = append(entries, domain.BaselineEntry{ID: normalizeAppID("workflow-" + digestText(candidate.SourcePath, candidate.Command)[7:23]), Name: "GitHub Actions run", Classification: domain.BaselineObserved, SourcePath: filepath.FromSlash(candidate.SourcePath), Command: candidate.Command, Observed: true})
 	}
 	sum := hash.Sum(nil)
 	return entries, "sha256:" + hex.EncodeToString(sum), files, nil

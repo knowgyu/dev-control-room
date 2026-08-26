@@ -359,6 +359,31 @@ func TestBaselineDiscoversRequiredObservedLocalEquivalentUnknownAndTurnsStale(t 
 	}
 }
 
+func TestBaselineSkipsMultilineWorkflowRunScalars(t *testing.T) {
+	repository := tempGitRepository(t, "baseline-multiline")
+	workflowPath := filepath.Join(repository, ".github", "workflows", "ci.yml")
+	if err := os.MkdirAll(filepath.Dir(workflowPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workflow := "jobs:\n  test:\n    steps:\n      - run: |\n          go test ./...\n      - run: >-\n          go vet ./...\n      - run: go test -count=1 ./...\n"
+	if err := os.WriteFile(workflowPath, []byte(workflow), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, _, _, err := discoverBaseline(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := make([]string, 0)
+	for _, entry := range entries {
+		if entry.Classification == domain.BaselineObserved {
+			observed = append(observed, entry.Command)
+		}
+	}
+	if len(observed) != 1 || observed[0] != "go test -count=1 ./..." {
+		t.Fatalf("observed one-line workflow commands = %#v", observed)
+	}
+}
+
 func TestQualityRunUsesRegisteredGoVetRunnerAndPersistsBoundedReport(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
