@@ -1,9 +1,10 @@
 # Phase 2 — Product usability and interface plan
 
-Status: v0.9.0 implements the planned first-use, return, Provider recovery,
-copy, launcher, and evidence-first Assurance impact surface; accessibility and
-native/manual gaps remain explicit
-Updated: 2026-08-26
+Status: v0.10.1 implements the planned first-use, return, Provider recovery,
+copy, launcher, and evidence-first Assurance impact surface; initial focus and
+empty-trend behavior are polished; accessibility and native/manual gaps remain
+explicit
+Updated: 2026-08-27
 Owner: local operator
 Prerequisite: [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md) Phase 1
 is implemented and accepted at its documented safety and artifact boundaries.

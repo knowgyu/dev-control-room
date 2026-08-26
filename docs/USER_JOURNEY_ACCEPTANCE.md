@@ -59,7 +59,9 @@ dev-control-room assurance dashboard --json --home $temp
 
 ## 키보드·스크린샷 확인
 
-- `Tab` 순서가 사이드 탐색 → 상단 기본 동작 → 본문 동작 순서인지 확인합니다.
+- 첫 진입 시 첫 `Tab`은 Skip link를 보여야 하며, 본문 이동 뒤 `main`이 별도
+  Tab stop으로 다시 나타나지 않아야 합니다.
+- `Tab` 순서가 Skip link → 사이드 탐색 → 상단 기본 동작 → 본문 동작 순서인지 확인합니다.
 - `Enter`로 링크·버튼을 실행하고 `Space`로 버튼을 실행합니다.
 - `Skip to content`가 키보드 첫 포커스에서 보이는지 확인합니다.
 - 다이얼로그가 열리면 제목과 첫 입력에 포커스가 있고 `Esc`로 닫히는지 확인합니다.

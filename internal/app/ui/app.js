@@ -328,6 +328,7 @@
   let pendingFindingID = "";
   let pendingProjectFocusID = "";
   let pendingRouteFocus = "";
+  let hasMountedRoute = false;
   const currentRoute = () => {
     const candidate = routeState().name;
     if (routeTitles[candidate]) return candidate;
@@ -356,6 +357,8 @@
   function setRoute() {
     const active = currentRoute();
     const target = routeState();
+    const shouldMoveRouteFocus = hasMountedRoute;
+    hasMountedRoute = true;
     activeRoute = active;
     pendingFindingID = active === "projects" ? target.findingID : "";
     if (active === "projects" && target.projectID) state.activeProjectID = target.projectID;
@@ -371,11 +374,13 @@
     window.clearTimeout(routeFocusTimer);
     const focusTarget = pendingRouteFocus;
     pendingRouteFocus = "";
-    routeFocusTimer = window.setTimeout(() => {
-      if (focusPendingFinding()) return;
-      if (focusTarget && focusElementByID(focusTarget)) return;
-      focusElementByID("main-content");
-    }, 0);
+    if (shouldMoveRouteFocus || focusTarget) {
+      routeFocusTimer = window.setTimeout(() => {
+        if (focusPendingFinding()) return;
+        if (focusTarget && focusElementByID(focusTarget)) return;
+        focusElementByID("main-content");
+      }, 0);
+    }
     if (initialized) void loadRouteData(active, false);
   }
 
@@ -652,7 +657,8 @@
     const container = document.getElementById("assurance-impact-trend");
     if (!container) return;
     const trend = impact?.trend || [];
-    if (!trend.length) {
+    const hasActivity = trend.some(item => [item.agentInvocations, item.qualityRuns, item.effects].some(value => Number(value) > 0));
+    if (!trend.length || !hasActivity) {
       container.innerHTML = '<div class="empty-state"><strong>추세를 만들 표본이 없습니다.</strong><span>선택한 기간에 실행 기록이 쌓이면 흐름을 표시합니다.</span></div>';
       return;
     }
@@ -1316,6 +1322,7 @@
   const editorFields = document.getElementById("editor-fields");
   let unregisterTarget = null;
   let editorTarget = null;
+  let registerOpener = null;
   let unregisterOpener = null;
   let editorOpener = null;
 
@@ -1524,12 +1531,15 @@
       return;
     }
     if (button.id === "show-register") {
+      registerOpener = button;
       document.getElementById("register-panel").hidden = false;
       document.getElementById("name").focus();
       return;
     }
     if (button.id === "hide-register") {
       document.getElementById("register-panel").hidden = true;
+      restoreDialogFocus(registerOpener);
+      registerOpener = null;
       return;
     }
     if (button.dataset.openProject !== undefined) {
@@ -2167,6 +2177,7 @@
       candidates.dataset.discovered = "false";
       candidates.textContent = "폴더를 선택하면 아래의 Git 저장소를 읽기 전용으로 찾습니다.";
       document.getElementById("register-panel").hidden = true;
+      registerOpener = null;
       showNotice("프로젝트를 등록했습니다.");
       await refreshAll();
     } catch (error) {
@@ -2280,7 +2291,7 @@
   });
 
   window.addEventListener("hashchange", setRoute);
-  if (!location.hash) location.hash = "home";
+  if (!location.hash) history.replaceState(null, "", "#home");
   setRoute();
   refreshAll();
   window.setInterval(refreshAll, 30000);

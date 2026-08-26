@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Active
-- Last refreshed: 2026-08-26
+- Last refreshed: 2026-08-27
 - Primary product surfaces: embedded loopback browser UI on native Windows 11
 - Evidence reviewed: `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`,
   `docs/IMPLEMENTATION_PLAN.md`, `docs/HANDOFF.md`, `internal/app/web.go`, and
@@ -94,12 +94,14 @@
 ## Accessibility
 
 - Target standard: practical WCAG 2.2 AA baseline
-- Keyboard/focus behavior: a skip link bypasses primary navigation; route
-  changes move reading focus to `main` or a requested finding; Provider recovery
-  moves focus to its status group; project selection keeps an explicit selected
-  state; dialogs label their description and return focus to their opener or
-  `main` after a re-render. Focus is visible. Full Tab/Space and native-dialog
-  Esc acceptance remain a separately recorded manual gap.
+- Keyboard/focus behavior: the first page load does not steal focus, so the skip
+  link is the first keyboard target; route changes move reading focus to `main`
+  or a requested finding; Provider recovery moves focus to its status group;
+  project selection keeps an explicit selected state; dialogs and collapsible
+  registration return focus to their opener or `main` after a re-render. The
+  programmatic `main` target uses `tabindex="-1"` and is not a second tab stop.
+  Focus is visible. Full Tab/Space and native-dialog Esc acceptance remain a
+  separately recorded manual gap.
 - Contrast/readability: text and status labels meet readable contrast; status
   meaning is written as text
 - Screen-reader semantics: landmarks, headings, current navigation state,
@@ -119,7 +121,8 @@
 ## Interaction states
 
 - Loading: name the data being loaded in Korean
-- Empty: explain what is missing and provide the next relevant action
+- Empty: explain what is missing and provide the next relevant action; a trend
+  with no activity is one compact empty state, not a page of zero-value rows
 - Error: show the safe server message and the retryable action; do not expose
   raw filesystem, SQL, command, or secret-bearing details
 - Success: confirm the completed action using the same verb as its button

@@ -107,6 +107,7 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 		"/api/assurance/dashboard", "/api/assurance/runs", "/api/assurance/invocations",
 		"/api/assurance/artifacts", "/api/assurance/effects", "assurance-provider-filter", "assurance-model-filter",
 		"Agent 실행", "효과 기록", "재실행", "근거 연결", "비용 경계", "회귀 방지", "예상 시간 절감", "time_saved_estimated", "근거 흐름",
+		"const hasActivity = trend.some", "추세를 만들 표본이 없습니다.",
 		"rawTranscript", "usageComplete", "estimatedCost", "configDigest", "artifactIds", "evidenceIds",
 	} {
 		if !strings.Contains(javascript, value) {
@@ -136,7 +137,7 @@ func TestEmbeddedUIKeyboardRouteFocusContract(t *testing.T) {
 	for _, value := range []string{
 		`<a class="skip-link" href="#main-content">`,
 		`<h1 id="view-title">`,
-		`<main id="main-content" tabindex="0" aria-labelledby="view-title">`,
+		`<main id="main-content" tabindex="-1" aria-labelledby="view-title">`,
 		`data-home-established-only hidden`,
 	} {
 		if !strings.Contains(html, value) {
@@ -147,6 +148,7 @@ func TestEmbeddedUIKeyboardRouteFocusContract(t *testing.T) {
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
 	for _, value := range []string{
 		"let routeFocusTimer = 0",
+		"let hasMountedRoute = false",
 		`if (candidate === "main-content") return activeRoute`,
 		`document.querySelector(".skip-link").addEventListener("click"`,
 		"event.preventDefault()",
@@ -155,6 +157,9 @@ func TestEmbeddedUIKeyboardRouteFocusContract(t *testing.T) {
 		"function focusElementByID(id)",
 		`focusElementByID("main-content")`,
 		"if (focusPendingFinding()) return;",
+		"const shouldMoveRouteFocus = hasMountedRoute",
+		"if (shouldMoveRouteFocus || focusTarget)",
+		`history.replaceState(null, "", "#home")`,
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded UI route focus contract missing %q", value)
@@ -181,8 +186,8 @@ func TestEmbeddedUIDialogFocusAndDescriptionContract(t *testing.T) {
 
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
 	for _, value := range []string{
-		"let unregisterOpener = null", "let editorOpener = null", "function restoreDialogFocus(opener)",
-		"editorOpener = document.activeElement", "unregisterOpener = button", "restoreDialogFocus(editorOpener)", "restoreDialogFocus(unregisterOpener)",
+		"let registerOpener = null", "let unregisterOpener = null", "let editorOpener = null", "function restoreDialogFocus(opener)",
+		"editorOpener = document.activeElement", "unregisterOpener = button", "restoreDialogFocus(editorOpener)", "restoreDialogFocus(unregisterOpener)", "restoreDialogFocus(registerOpener)",
 		"editorDialog.addEventListener(\"cancel\"", "unregisterDialog.addEventListener(\"cancel\"", "event.preventDefault();",
 	} {
 		if !strings.Contains(javascript, value) {
