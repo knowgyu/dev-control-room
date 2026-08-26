@@ -40,10 +40,10 @@ gofmt -l <changed Go files>  PASS
 git diff --check  PASS (line-ending warnings only)
 ```
 
-The final v0.10.0 candidate still requires the full verifier, Windows package
-smoke, and release evidence before publication. Native process resilience,
-automatic patch materialization, human adoption ceremony, and causal
-attribution remain partial by design.
+The v0.10.0 candidate Full verifier passed on the release source. Windows
+package smoke and release evidence are recorded from the final package
+artifacts. Native process resilience, automatic patch materialization, human
+adoption ceremony, and causal attribution remain partial by design.
 
 ```text
 scope: WSL; isolated generic Git fixture

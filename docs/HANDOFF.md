@@ -42,16 +42,15 @@ reverification execution nodes plus adopted/reverified commit links. Focused
 tests cover these boundaries; the full verification record is
 [VERIFICATION_v0.10.0.md](VERIFICATION_v0.10.0.md).
 
-## 2026-08-27 v0.10.0 release candidate
+## 2026-08-27 v0.10.0 release
 
 The candidate combines the fail-closed Assurance restart-boundary recovery
 with the effect-evidence hardening above. The binary version is `0.10.0`.
-The candidate full verifier passed; Windows package smoke and release
-publication are performed from the final documentation commit. Remaining
-native, human-adoption, causal, and manual-accessibility gaps stay partial in
-the plan. See [VERIFICATION_v0.10.0.md](VERIFICATION_v0.10.0.md) for the
-candidate evidence and the final generated summary asset for the release
-commit.
+The release source full verifier passed; Windows package smoke and release
+publication use the final documentation commit. Remaining native,
+human-adoption, causal, and manual-accessibility gaps stay partial in the
+plan. See [VERIFICATION_v0.10.0.md](VERIFICATION_v0.10.0.md) and the generated
+summary asset for the exact release commit.
 
 ## 2026-08-27 v0.9.1 released package
 
@@ -281,7 +280,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.9.0`;
+- binary version: `0.10.0`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;
