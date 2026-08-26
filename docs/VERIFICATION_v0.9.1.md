@@ -1,9 +1,11 @@
 # v0.9.1 verification record
 
-Status: candidate verification in progress
+Status: candidate verified; package and publication checks pending
 Date: 2026-08-27
-Environment: current Windows workspace; native interactive acceptance is
-recorded separately when it is actually run.
+Candidate source commit: `37366fbff02d9369a1e844d76c0440cb1ea66d23`
+(`fix: improve startup diagnostics and storage concurrency`)
+Environment: Windows PowerShell 7.6.4, Go 1.26.7 windows/amd64, Node
+v24.15.0, Git 2.53.0.windows.1, and gcc 16.2.0 (MSYS2).
 
 ## Automated verification completed for the candidate
 
@@ -12,8 +14,8 @@ recorded separately when it is actually run.
 | `gofmt -w` on changed Go files | PASS | Changed Go sources and tests formatted. |
 | `go test -count=1 ./internal/store -run 'Test(OpenConcurrentInitializationIsSerialized|OpenReturnsContextDeadlineWhenStorageLockWaitExpires|StorageLockReturnsTypedBusyAfterBoundedWait|MigrateDirectCallHonorsStorageLock|StorageServerAndCLIProcessesSerialize|Migration(FourteenAcceptsReleasedMigrationThirteenChecksum|RejectsUnknownMigrationThirteenChecksum))' -v` | PASS | Same-home initialization, timeout/busy distinction, direct migration lock, process serialization, and legacy checksum guard. |
 | `go test -count=1 ./internal/store ./cmd/dev-control-room` | PASS | Storage and CLI startup/troubleshooting regression coverage. |
-| `go test -count=1 ./...` | PASS | Full Go test suite on the current candidate before release-record finalization. |
-| `go test -count=1 -race ./...` | PASS | Full race suite on the current candidate before release-record finalization. |
+| `go test -count=1 ./...` | PASS | Full Go test suite on source candidate `37366fb`. |
+| `go test -count=1 -race ./...` | PASS | Full race suite on source candidate `37366fb`. |
 | `node --check internal/app/ui/app.js` | PASS | Embedded UI JavaScript parses. |
 | `git diff --check` | PASS | No whitespace errors. |
 
@@ -30,12 +32,22 @@ recorded separately when it is actually run.
 
 ## Native and release checks
 
-- Windows amd64/arm64 cross-build: pending final candidate run.
-- `go vet ./...`, `go mod verify`, and `go build ./...`: pending final candidate
-  run.
+- Windows amd64/arm64 cross-build: PASS, `scripts/verify.ps1 -Mode Full`.
+- `go vet ./...`, `go mod verify`, and `go build ./...`: PASS,
+  `scripts/verify.ps1 -Mode Full`.
 - Extracted ZIP, hash, version probe, loopback health, and double-click
   startup: pending final candidate package run.
 - Full Tab/Space traversal, native dialog Esc, assistive technology, and a
   second physical Windows device: not run here unless explicitly observed.
 
 No unrun native or external check is treated as a pass.
+
+## Cross-build hashes
+
+These hashes are from the full verification run. ZIP hashes remain authoritative
+in the release `SHA256SUMS` asset.
+
+```text
+D3CDBCD19AD3ED7EC7264A93557F9FF09C9FC6880A74D1153CEB1681CD80A68F  dev-control-room-windows-amd64.exe
+E3FB5855FA7BEFFAC406AF45436389A9B952446242BA4A4EE8AA852D0DA0E7F2  dev-control-room-windows-arm64.exe
+```
