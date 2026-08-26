@@ -3,6 +3,8 @@
 Status: verified for the durable approval-scope vertical slice
 Updated: 2026-08-27
 
+Candidate source commit: `4a2de02ee3969be88af9206edfd051736ce4b43f`
+
 ## Claim
 
 An unattended action is eligible only when the current exact Project,
@@ -39,6 +41,31 @@ Result: PASS on the local Windows workspace. The focused run covered domain
 contract rejection and exact matching, SQLite migration/index and revision CAS,
 ActionPlan audit evidence, revoke-after-admit execution rejection with lease
 cleanup, protected HTTP approve/revoke routes, and plan-check reporting.
+
+## Full verification
+
+The repeatable full runner was executed after the candidate commit:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full -ArtifactDirectory artifacts\verification-milestone-a
+```
+
+Result: PASS. The runner recorded `go test -count=1 ./...`, UI JavaScript
+syntax, `go test -count=1 -race ./...`, `go vet ./...`, `go mod verify`,
+`go build ./...`, Windows amd64/arm64 cross-builds, and `git diff --check`.
+Environment: Windows, PowerShell 7.6.4, Go 1.26.7 windows/amd64, Node
+24.15.0, GCC 16.2.0. Full run duration was about 5m37s.
+
+Build artifact hashes:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `dev-control-room-windows-amd64.exe` | `0E10D40A2BDFE4E2AC63A8719704FD25C914567AC6D43181D2972EEEF42916E9` |
+| `dev-control-room-windows-arm64.exe` | `223FC79FF84527E457491FEF197A37900F7ECD3E5690F12D9652323A3869B963` |
+
+Machine-readable summary and the full log remain at
+`artifacts/verification-milestone-a/verification-summary.json` and
+`artifacts/verification-milestone-a/verification.log` in the local workspace.
 
 ## Evidence chain
 
