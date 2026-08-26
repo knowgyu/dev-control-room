@@ -30,6 +30,19 @@ Full-run time: 2026-08-26 09:21:08–09:24:19 KST.
 The Full-run summary and log are published with this release as
 `verification-summary.json` and `verification.log`.
 
+## Windows package check
+
+- `pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.7.0
+  -OutputDirectory artifacts\0.7.0`: PASS.
+- Both ZIP hashes matched the generated `SHA256SUMS`.
+- The amd64 ZIP contains the executable, license/policy, native smoke/playbook,
+  and the v0.7.0 release notes and verification record.
+- The unpacked amd64 executable returned `version --json` = `0.7.0` and served
+  `/api/health` in loopback-only mode from a fresh package-local home.
+
+Final release assets are rebuilt from the tagged record commit. Their ZIP
+hashes are authoritative only in that release's `SHA256SUMS` asset.
+
 ## Cross-build hashes
 
 These are the binary hashes from the exact candidate verification run. ZIP

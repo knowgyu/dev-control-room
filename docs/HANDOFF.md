@@ -19,7 +19,9 @@ implementation commits are preserved. Candidate source
 `8bcf1a7915d1e4997494ac7b6758ac51a7c794d7` passed the exact-SHA Full
 verification and the 65-assertion Phase 2 CLI/loopback journey gate; see
 `docs/VERIFICATION_v0.7.0.md`. Windows package/release asset checks remain
-before publication.
+before publication. The packages and local hash/unpacked-amd64 smoke now pass;
+the remaining release action is push, tag, GitHub asset publication, and remote
+asset verification.
 Real Codex invocation, provider-authoritative PR CI evidence, real registered
 Quality Run executors, company endpoints, second-device acceptance, and full
 keyboard traversal remain explicit gaps. Read the applicable plan and

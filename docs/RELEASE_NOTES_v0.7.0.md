@@ -38,4 +38,6 @@ observations. It does not claim a real Codex task invocation or authentication.
 It also makes no authoritative company CI endpoint assertion; company
 Jenkins/GitHub/Kubernetes or production endpoints were not contacted or
 verified. Packaging requires `VERIFICATION_v0.7.0.md` and stops before staging
-if that versioned verification record is absent.
+if that versioned verification record is absent. Candidate code verification is
+`8bcf1a7915d1e4997494ac7b6758ac51a7c794d7`; final release assets are rebuilt
+from the tagged verification-record commit.

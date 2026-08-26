@@ -411,6 +411,9 @@ Passed:
 - Codex provider status resolved the verified local `node.exe` plus
   `@openai/codex\bin\codex.js` package entry. No shell, `cmd.exe`, `.cmd`, or
   `.bat` launcher was executed.
+- The portable package script built both v0.7.0 ZIPs. Their SHA256SUMS entries
+  matched, and the unpacked amd64 executable reported v0.7.0 and served a
+  fresh loopback-only health response.
 
 Not run or not claimed:
 
