@@ -28,12 +28,13 @@ The final verifier records the exact Windows build hashes in
 `artifacts/verification-v0.9.0-final/verification-summary.json` and
 `verification.log`.
 
-Final verifier build hashes from the Windows host:
+Final verifier build hashes from the Windows host (source commit
+`4eacd51355085fb20bae8a530b0bf0f5db211978`):
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `dev-control-room-windows-amd64.exe` | `E7A9B1EE3B1DC6236F567A452B88FAB50F7B321E637DEF33667F35651F8D251C` |
-| `dev-control-room-windows-arm64.exe` | `4C9477C18A5884B041935AAAB3A769FC746479DCA82FEAF4C9C6FE556B530D3E` |
+| `dev-control-room-windows-amd64.exe` | `A13D96BF57D6CBC838C30C87E6F43B49A12263CD63E5619C7128E9E1ACFBE227` |
+| `dev-control-room-windows-arm64.exe` | `D44E6CAC15108653EB78C629F32FE64AE0D9CE403B2F444E171D6C779667113C` |
 
 ## Browser, UI, and keyboard evidence
 
