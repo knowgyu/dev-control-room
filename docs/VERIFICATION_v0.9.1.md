@@ -1,6 +1,6 @@
 # v0.9.1 verification record
 
-Status: candidate verified; package and publication checks pending
+Status: candidate and local package verified; remote publication pending
 Date: 2026-08-27
 Candidate source commit: `37366fbff02d9369a1e844d76c0440cb1ea66d23`
 (`fix: improve startup diagnostics and storage concurrency`)
@@ -35,8 +35,11 @@ v24.15.0, Git 2.53.0.windows.1, and gcc 16.2.0 (MSYS2).
 - Windows amd64/arm64 cross-build: PASS, `scripts/verify.ps1 -Mode Full`.
 - `go vet ./...`, `go mod verify`, and `go build ./...`: PASS,
   `scripts/verify.ps1 -Mode Full`.
-- Extracted ZIP, hash, version probe, loopback health, and double-click
-  startup: pending final candidate package run.
+- Extracted ZIP, SHA-256, version probe, loopback health, and native process
+  startup guidance: PASS using the amd64 package.
+- Explorer double-click observation: not run by automation; the native process
+  launch and no-terminal failure output are covered, but an operator should
+  still observe the exact Desktop double-click once.
 - Full Tab/Space traversal, native dialog Esc, assistive technology, and a
   second physical Windows device: not run here unless explicitly observed.
 
@@ -51,3 +54,15 @@ in the release `SHA256SUMS` asset.
 D3CDBCD19AD3ED7EC7264A93557F9FF09C9FC6880A74D1153CEB1681CD80A68F  dev-control-room-windows-amd64.exe
 E3FB5855FA7BEFFAC406AF45436389A9B952446242BA4A4EE8AA852D0DA0E7F2  dev-control-room-windows-arm64.exe
 ```
+
+## Package smoke
+
+The package script created both portable ZIPs. Their hashes were checked
+against the generated `SHA256SUMS`; the amd64 archive was extracted into a
+fresh temporary directory and reported version `0.9.1`, successful help, and a
+loopback-only health response. A deliberately invalid local database produced
+the Korean `원인`/`조치`/`다음 명령` guidance and a safe troubleshooting record.
+
+The generated `artifacts/0.9.1/SHA256SUMS` is the package hash record. The
+published release asset is authoritative because changing the included
+verification document necessarily changes the ZIP hash.
