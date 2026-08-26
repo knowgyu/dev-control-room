@@ -1843,6 +1843,11 @@
     editorDialog.close();
     restoreDialogFocus(editorOpener);
   });
+  editorDialog.addEventListener("cancel", event => {
+    event.preventDefault();
+    editorDialog.close();
+    restoreDialogFocus(editorOpener);
+  });
   document.getElementById("editor-form").addEventListener("submit", async event => {
     event.preventDefault();
     const submit = document.getElementById("editor-submit");
@@ -1864,6 +1869,11 @@
     document.getElementById("unregister-submit").disabled = unregisterInput.value !== unregisterTarget?.name;
   });
   document.getElementById("unregister-cancel").addEventListener("click", () => {
+    unregisterDialog.close();
+    restoreDialogFocus(unregisterOpener);
+  });
+  unregisterDialog.addEventListener("cancel", event => {
+    event.preventDefault();
     unregisterDialog.close();
     restoreDialogFocus(unregisterOpener);
   });

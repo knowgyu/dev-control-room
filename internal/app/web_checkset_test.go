@@ -183,6 +183,7 @@ func TestEmbeddedUIDialogFocusAndDescriptionContract(t *testing.T) {
 	for _, value := range []string{
 		"let unregisterOpener = null", "let editorOpener = null", "function restoreDialogFocus(opener)",
 		"editorOpener = document.activeElement", "unregisterOpener = button", "restoreDialogFocus(editorOpener)", "restoreDialogFocus(unregisterOpener)",
+		"editorDialog.addEventListener(\"cancel\"", "unregisterDialog.addEventListener(\"cancel\"", "event.preventDefault();",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded UI dialog JavaScript missing %q", value)
