@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -58,7 +60,24 @@ const (
 	EffectUserEstimated            = "user_estimated"
 	EffectAIInference              = "ai_inference"
 	EffectUnavailable              = "unavailable"
+	UnattendedScopeDraft           = "draft"
+	UnattendedScopeApproved        = "approved"
+	UnattendedScopeRevoked         = "revoked"
+	UnattendedScopeExpired         = "expired"
+	NetworkPolicyOffline           = "offline"
+	NetworkPolicyPublicDocs        = "public_docs"
+	NetworkPolicyAllowlist         = "allowlist"
 )
+
+var requiredUnattendedProhibitions = []string{
+	"ci_edit",
+	"commit",
+	"delete",
+	"pull_request",
+	"push",
+	"remote_dispatch",
+	"scope_expansion",
+}
 
 type AssuranceSession struct {
 	TypeMeta `json:",inline"`
@@ -382,19 +401,61 @@ type UnattendedApprovalScope struct {
 }
 
 type UnattendedApprovalSpec struct {
-	ProjectID       string     `json:"projectId"`
-	RepositoryID    string     `json:"repositoryId"`
-	WorktreeID      string     `json:"worktreeId"`
-	ProviderProfile string     `json:"providerProfile"`
-	Techniques      []string   `json:"techniques"`
-	WritablePaths   []string   `json:"writablePaths"`
-	NetworkPolicy   string     `json:"networkPolicy"`
-	DiskLimitBytes  int64      `json:"diskLimitBytes"`
-	Deadline        time.Time  `json:"deadline"`
-	Prohibited      []string   `json:"prohibited"`
-	State           string     `json:"state"`
-	ApprovedBy      string     `json:"approvedBy"`
-	ApprovedAt      *time.Time `json:"approvedAt,omitempty"`
+	ProjectID            string       `json:"projectId"`
+	RepositoryID         string       `json:"repositoryId"`
+	WorktreeID           string       `json:"worktreeId"`
+	ProviderProfile      string       `json:"providerProfile"`
+	ActionTypes          []string     `json:"actionTypes"`
+	RiskClasses          []ActionRisk `json:"riskClasses"`
+	Techniques           []string     `json:"techniques"`
+	ToolSetup            []string     `json:"toolSetup"`
+	ToolVersion          string       `json:"toolVersion"`
+	ToolConfigDigest     string       `json:"toolConfigDigest"`
+	ArgumentSchemaDigest string       `json:"argumentSchemaDigest"`
+	WritablePaths        []string     `json:"writablePaths"`
+	NetworkPolicy        string       `json:"networkPolicy"`
+	DiskLimitBytes       int64        `json:"diskLimitBytes"`
+	Deadline             time.Time    `json:"deadline"`
+	Prohibited           []string     `json:"prohibited"`
+	State                string       `json:"state"`
+	ApprovedBy           string       `json:"approvedBy"`
+	ApprovedAt           *time.Time   `json:"approvedAt,omitempty"`
+	Revision             int          `json:"revision"`
+	CreatedAt            time.Time    `json:"createdAt"`
+	UpdatedAt            time.Time    `json:"updatedAt"`
+}
+
+// UnattendedApprovalRequest is the exact, resolved envelope checked before a
+// potentially writable ActionPlan is admitted. It is deliberately separate
+// from the approval record so callers cannot pass an approval decision or
+// actor as part of a request.
+type UnattendedApprovalRequest struct {
+	ScopeID              string
+	ScopeDigest          string
+	ProjectID            string
+	RepositoryID         string
+	WorktreeID           string
+	ProviderProfile      string
+	ActionType           string
+	Risk                 ActionRisk
+	Techniques           []string
+	ToolSetup            []string
+	ToolVersion          string
+	ToolConfigDigest     string
+	ArgumentSchemaDigest string
+	WritablePaths        []string
+	NetworkPolicy        string
+	DiskBytes            int64
+	Deadline             time.Time
+	Prohibited           []string
+}
+
+type UnattendedApprovalMatch struct {
+	ScopeID     string    `json:"scopeId"`
+	ScopeDigest string    `json:"scopeDigest"`
+	Matched     bool      `json:"matched"`
+	Reasons     []string  `json:"reasons"`
+	CheckedAt   time.Time `json:"checkedAt"`
 }
 
 func assuranceResource(meta TypeMeta, kind string, object ObjectMeta) error {
@@ -405,7 +466,7 @@ func assuranceResource(meta TypeMeta, kind string, object ObjectMeta) error {
 }
 
 func validateAssuranceScope(projectID, repositoryID, worktreeID, head string) error {
-	if err := validateProjectRepository(projectID, repositoryID); err != nil || !validIdentifier(worktreeID) || strings.TrimSpace(head) == "" {
+	if !validIdentifier(projectID) || !validIdentifier(repositoryID) || !validIdentifier(worktreeID) || strings.TrimSpace(head) == "" {
 		return errors.New("assurance scope requires project, repository, worktree, and HEAD")
 	}
 	return nil
@@ -578,10 +639,365 @@ func (s UnattendedApprovalScope) Validate() error {
 	if err := validateAssuranceScope(s.Spec.ProjectID, s.Spec.RepositoryID, s.Spec.WorktreeID, "scope"); err != nil {
 		return err
 	}
-	if strings.TrimSpace(s.Spec.ProviderProfile) == "" || s.Spec.DiskLimitBytes <= 0 || s.Spec.Deadline.IsZero() || len(s.Spec.Prohibited) == 0 {
+	if !validIdentifier(s.Spec.ProviderProfile) || s.Spec.DiskLimitBytes <= 0 || s.Spec.Deadline.IsZero() || len(s.Spec.Prohibited) == 0 || s.Spec.Revision < 1 || s.Spec.CreatedAt.IsZero() || s.Spec.UpdatedAt.IsZero() {
 		return errors.New("unattended scope is not bounded")
 	}
+	if s.Spec.Deadline.Before(s.Spec.CreatedAt) || s.Spec.UpdatedAt.Before(s.Spec.CreatedAt) {
+		return errors.New("unattended scope timestamps are invalid")
+	}
+	if !validUnattendedScopeState(s.Spec.State) {
+		return errors.New("unattended scope state is invalid")
+	}
+	if len(s.Spec.ActionTypes) == 0 || len(s.Spec.RiskClasses) == 0 || len(s.Spec.Techniques) == 0 || len(s.Spec.WritablePaths) == 0 {
+		return errors.New("unattended scope must enumerate actions, risks, techniques, and writable paths")
+	}
+	if err := validateApprovalIdentifiers(s.Spec.ActionTypes, true, func(value string) bool {
+		_, ok := ActionDefinitionFor(value)
+		return ok
+	}); err != nil {
+		return fmt.Errorf("unattended scope action types: %w", err)
+	}
+	if err := validateApprovalIdentifiers(s.Spec.Techniques, true, validQualityTechnique); err != nil {
+		return fmt.Errorf("unattended scope techniques: %w", err)
+	}
+	if err := validateApprovalIdentifiers(s.Spec.ToolSetup, false, validIdentifier); err != nil {
+		return fmt.Errorf("unattended scope tool setup: %w", err)
+	}
+	if err := validateApprovalRisks(s.Spec.RiskClasses); err != nil {
+		return err
+	}
+	for _, path := range s.Spec.WritablePaths {
+		if _, err := normalizeApprovalPath(path); err != nil {
+			return fmt.Errorf("unattended scope writable path: %w", err)
+		}
+	}
+	if !validNetworkPolicy(s.Spec.NetworkPolicy) || !validBoundedText(s.Spec.ToolVersion) || !planDigestPattern.MatchString(s.Spec.ToolConfigDigest) || !planDigestPattern.MatchString(s.Spec.ArgumentSchemaDigest) {
+		return errors.New("unattended scope tool and network bounds are invalid")
+	}
+	if err := validateApprovalIdentifiers(s.Spec.Prohibited, true, validIdentifier); err != nil {
+		return fmt.Errorf("unattended scope prohibitions: %w", err)
+	}
+	for _, required := range requiredUnattendedProhibitions {
+		if !containsString(s.Spec.Prohibited, required) {
+			return fmt.Errorf("unattended scope must prohibit %s", required)
+		}
+	}
+	switch s.Spec.State {
+	case UnattendedScopeDraft:
+		if s.Spec.ApprovedBy != "" || s.Spec.ApprovedAt != nil {
+			return errors.New("draft unattended scope cannot contain approval evidence")
+		}
+	case UnattendedScopeApproved, UnattendedScopeRevoked, UnattendedScopeExpired:
+		if !validBoundedText(s.Spec.ApprovedBy) || s.Spec.ApprovedAt == nil || s.Spec.ApprovedAt.Before(s.Spec.CreatedAt) {
+			return errors.New("non-draft unattended scope requires approval evidence")
+		}
+	}
 	return nil
+}
+
+func (s UnattendedApprovalScope) Digest() (string, error) {
+	return assuranceDigest(s.Spec)
+}
+
+func (s UnattendedApprovalScope) ValidateForApprovalAt(now time.Time) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if s.Spec.State != UnattendedScopeDraft {
+		return errors.New("only a draft unattended scope can be approved")
+	}
+	if !s.Spec.Deadline.After(now.UTC()) {
+		return errors.New("unattended scope deadline has passed")
+	}
+	return nil
+}
+
+func (s UnattendedApprovalScope) Match(request UnattendedApprovalRequest, now time.Time) UnattendedApprovalMatch {
+	digest, err := s.Digest()
+	result := UnattendedApprovalMatch{ScopeID: s.Metadata.ID, ScopeDigest: digest, CheckedAt: now.UTC(), Matched: err == nil}
+	if err != nil {
+		result.Reasons = []string{"scope_invalid"}
+		return result
+	}
+	if err := s.ValidateForExecutionAt(now); err != nil {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, reasonForScopeError(err))
+	}
+	if request.ScopeID != s.Metadata.ID {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "scope_id_mismatch")
+	}
+	if request.ScopeDigest != digest {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "scope_digest_mismatch")
+	}
+	if request.ProjectID != s.Spec.ProjectID || request.RepositoryID != s.Spec.RepositoryID || request.WorktreeID != s.Spec.WorktreeID {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "worktree_scope_mismatch")
+	}
+	if request.ProviderProfile != s.Spec.ProviderProfile {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "provider_profile_mismatch")
+	}
+	if !containsString(s.Spec.ActionTypes, request.ActionType) {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "action_type_not_allowed")
+	}
+	if !containsRisk(s.Spec.RiskClasses, request.Risk) {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "risk_not_allowed")
+	}
+	if !containsAll(s.Spec.Techniques, request.Techniques) {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "technique_not_allowed")
+	}
+	if !containsAll(s.Spec.ToolSetup, request.ToolSetup) || request.ToolVersion != s.Spec.ToolVersion || request.ToolConfigDigest != s.Spec.ToolConfigDigest || request.ArgumentSchemaDigest != s.Spec.ArgumentSchemaDigest {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "tool_contract_mismatch")
+	}
+	if !pathsWithin(s.Spec.WritablePaths, request.WritablePaths) {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "writable_path_not_allowed")
+	}
+	if request.NetworkPolicy != s.Spec.NetworkPolicy {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "network_policy_mismatch")
+	}
+	if request.DiskBytes <= 0 || request.DiskBytes > s.Spec.DiskLimitBytes {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "disk_limit_exceeded")
+	}
+	if request.Deadline.IsZero() || request.Deadline.After(s.Spec.Deadline) || !request.Deadline.After(now.UTC()) {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "deadline_invalid")
+	}
+	if !containsAll(request.Prohibited, s.Spec.Prohibited) {
+		result.Matched = false
+		result.Reasons = append(result.Reasons, "prohibition_set_weakened")
+	}
+	if result.Matched {
+		result.Reasons = []string{"exact_match"}
+	}
+	return result
+}
+
+func (s UnattendedApprovalScope) ValidateForExecutionAt(now time.Time) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if s.Spec.State != UnattendedScopeApproved {
+		return errors.New("unattended scope is not approved")
+	}
+	if !s.Spec.Deadline.After(now.UTC()) {
+		return errors.New("unattended scope is expired")
+	}
+	return nil
+}
+
+func (a ActionPlan) UnattendedApprovalRequest() UnattendedApprovalRequest {
+	return UnattendedApprovalRequest{
+		ScopeID:              a.Spec.ApprovalScopeID,
+		ScopeDigest:          a.Spec.ApprovalScopeDigest,
+		ProjectID:            a.Spec.ProjectID,
+		RepositoryID:         a.Spec.RepositoryID,
+		WorktreeID:           a.Spec.WorktreeID,
+		ProviderProfile:      a.Spec.ProviderProfile,
+		ActionType:           a.Spec.ActionType,
+		Risk:                 a.Spec.Risk,
+		Techniques:           append([]string(nil), a.Spec.Techniques...),
+		ToolSetup:            append([]string(nil), a.Spec.ToolSetup...),
+		ToolVersion:          a.Spec.ToolVersion,
+		ToolConfigDigest:     a.Spec.ToolConfigDigest,
+		ArgumentSchemaDigest: a.Spec.ArgumentSchemaDigest,
+		WritablePaths:        append([]string(nil), a.Spec.WritablePaths...),
+		NetworkPolicy:        a.Spec.NetworkPolicy,
+		DiskBytes:            a.Spec.DiskLimitBytes,
+		Deadline:             a.Spec.ScopeDeadline,
+		Prohibited:           append([]string(nil), a.Spec.ProhibitedOperations...),
+	}
+}
+
+func validateActionPlanApprovalScope(spec ActionPlanSpec) error {
+	if spec.ApprovalScopeID == "" {
+		if spec.ApprovalScopeDigest != "" || spec.ProviderProfile != "" || len(spec.Techniques) > 0 || len(spec.ToolSetup) > 0 || spec.ToolVersion != "" || spec.ToolConfigDigest != "" || spec.ArgumentSchemaDigest != "" || len(spec.WritablePaths) > 0 || spec.NetworkPolicy != "" || spec.DiskLimitBytes != 0 || !spec.ScopeDeadline.IsZero() || len(spec.ProhibitedOperations) > 0 || spec.ScopeMatch || len(spec.ScopeMatchReasons) > 0 || !spec.ScopeCheckedAt.IsZero() {
+			return errors.New("action plan contains an unbound approval scope contract")
+		}
+		return nil
+	}
+	if !validIdentifier(spec.ApprovalScopeID) || !planDigestPattern.MatchString(spec.ApprovalScopeDigest) || spec.ScopeCheckedAt.IsZero() || spec.ScopeDeadline.IsZero() {
+		return errors.New("action plan approval scope evidence is incomplete")
+	}
+	request := ActionPlan{Spec: spec}.UnattendedApprovalRequest()
+	if err := validateUnattendedApprovalRequest(request); err != nil {
+		return err
+	}
+	if spec.ScopeMatch && len(spec.ScopeMatchReasons) == 0 {
+		return errors.New("matched approval scope requires a match reason")
+	}
+	if !spec.ScopeMatch && len(spec.ScopeMatchReasons) == 0 {
+		return errors.New("rejected approval scope requires mismatch reasons")
+	}
+	return nil
+}
+
+func validateUnattendedApprovalRequest(request UnattendedApprovalRequest) error {
+	if !validIdentifier(request.ScopeID) || !planDigestPattern.MatchString(request.ScopeDigest) || !validIdentifier(request.ProjectID) || !validIdentifier(request.RepositoryID) || !validIdentifier(request.WorktreeID) || !validIdentifier(request.ProviderProfile) || strings.TrimSpace(request.ActionType) == "" || !validRisk(request.Risk) || !validBoundedText(request.ToolVersion) || !planDigestPattern.MatchString(request.ToolConfigDigest) || !planDigestPattern.MatchString(request.ArgumentSchemaDigest) || !validNetworkPolicy(request.NetworkPolicy) || request.DiskBytes <= 0 || request.Deadline.IsZero() {
+		return errors.New("action plan approval scope request is incomplete")
+	}
+	if _, ok := ActionDefinitionFor(request.ActionType); !ok {
+		return errors.New("action plan approval scope action is not reviewed")
+	}
+	if err := validateApprovalIdentifiers(request.Techniques, true, validQualityTechnique); err != nil {
+		return errors.New("action plan approval scope techniques are invalid")
+	}
+	if err := validateApprovalIdentifiers(request.ToolSetup, false, validIdentifier); err != nil {
+		return errors.New("action plan approval scope tool setup is invalid")
+	}
+	if len(request.WritablePaths) == 0 {
+		return errors.New("action plan approval scope requires writable paths")
+	}
+	for _, path := range request.WritablePaths {
+		if _, err := normalizeApprovalPath(path); err != nil {
+			return errors.New("action plan approval scope writable path is invalid")
+		}
+	}
+	if err := validateApprovalIdentifiers(request.Prohibited, true, validIdentifier); err != nil {
+		return errors.New("action plan approval scope prohibitions are invalid")
+	}
+	for _, required := range requiredUnattendedProhibitions {
+		if !containsString(request.Prohibited, required) {
+			return errors.New("action plan approval scope weakens a required prohibition")
+		}
+	}
+	return nil
+}
+
+func validateApprovalIdentifiers(values []string, required bool, valid func(string) bool) error {
+	if required && len(values) == 0 {
+		return errors.New("at least one value is required")
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != value || !valid(value) {
+			return errors.New("contains an invalid value")
+		}
+		if _, ok := seen[value]; ok {
+			return errors.New("contains a duplicate value")
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func validateApprovalRisks(values []ActionRisk) error {
+	seen := make(map[ActionRisk]struct{}, len(values))
+	for _, value := range values {
+		if !validRisk(value) {
+			return errors.New("unattended scope risk class is invalid")
+		}
+		if _, ok := seen[value]; ok {
+			return errors.New("unattended scope risk classes contain a duplicate")
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func normalizeApprovalPath(value string) (string, error) {
+	if !validApprovalPathText(value) || strings.ContainsAny(value, "*?") || (!filepath.IsAbs(value) && !windowsPathPattern.MatchString(value)) {
+		return "", errors.New("path must be an absolute path without wildcards")
+	}
+	cleaned := filepath.Clean(value)
+	if cleaned == filepath.VolumeName(cleaned)+string(filepath.Separator) || cleaned == string(filepath.Separator) {
+		return "", errors.New("path cannot be a filesystem root")
+	}
+	return cleaned, nil
+}
+
+func validApprovalPathText(value string) bool {
+	return len(value) > 0 && len(value) <= 32767 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func pathsWithin(roots, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	for _, path := range paths {
+		target, err := normalizeApprovalPath(path)
+		if err != nil {
+			return false
+		}
+		allowed := false
+		for _, root := range roots {
+			base, err := normalizeApprovalPath(root)
+			if err == nil && approvalPathContains(base, target) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	return true
+}
+
+func approvalPathContains(root, target string) bool {
+	if runtime.GOOS == "windows" {
+		root = strings.ToLower(root)
+		target = strings.ToLower(target)
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative))
+}
+
+func containsAll(allowed, requested []string) bool {
+	for _, value := range requested {
+		if !containsString(allowed, value) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsRisk(allowed []ActionRisk, requested ActionRisk) bool {
+	for _, value := range allowed {
+		if value == requested {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func validUnattendedScopeState(value string) bool {
+	return value == UnattendedScopeDraft || value == UnattendedScopeApproved || value == UnattendedScopeRevoked || value == UnattendedScopeExpired
+}
+
+func validNetworkPolicy(value string) bool {
+	return value == NetworkPolicyOffline || value == NetworkPolicyPublicDocs || value == NetworkPolicyAllowlist
+}
+
+func validBoundedText(value string) bool {
+	return len(value) > 0 && len(value) <= 128 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func reasonForScopeError(err error) string {
+	if strings.Contains(err.Error(), "expired") || strings.Contains(err.Error(), "deadline") {
+		return "scope_expired"
+	}
+	return "scope_not_approved"
 }
 
 func (a AgentInvocation) Digest() (string, error) { return assuranceDigest(a) }

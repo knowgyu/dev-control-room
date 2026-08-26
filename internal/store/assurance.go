@@ -174,6 +174,44 @@ func (s *Store) SavePricingSnapshot(ctx context.Context, item domain.ProviderPri
 	return nil
 }
 
+func (s *Store) SaveUnattendedApprovalScope(ctx context.Context, item domain.UnattendedApprovalScope) error {
+	return s.saveAssurance(ctx, domain.UnattendedApprovalScopeKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, item.Spec.Revision, item.Spec.CreatedAt, item.Spec.UpdatedAt, item, item.Validate())
+}
+
+func (s *Store) UpdateUnattendedApprovalScope(ctx context.Context, item domain.UnattendedApprovalScope) error {
+	if err := item.Validate(); err != nil {
+		return err
+	}
+	return s.UpdateAssuranceRevision(ctx, domain.UnattendedApprovalScopeKind, item.Metadata.ID, item.Spec.Revision, item.Spec.State, item.Spec.UpdatedAt, item)
+}
+
+func (s *Store) GetUnattendedApprovalScope(ctx context.Context, id string) (domain.UnattendedApprovalScope, error) {
+	var item domain.UnattendedApprovalScope
+	if err := s.GetAssurance(ctx, domain.UnattendedApprovalScopeKind, id, &item); err != nil {
+		return domain.UnattendedApprovalScope{}, err
+	}
+	if err := item.Validate(); err != nil {
+		return domain.UnattendedApprovalScope{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) ListUnattendedApprovalScopes(ctx context.Context) ([]domain.UnattendedApprovalScope, error) {
+	items := []domain.UnattendedApprovalScope{}
+	err := s.ListAssurance(ctx, domain.UnattendedApprovalScopeKind, func(data []byte) error {
+		var item domain.UnattendedApprovalScope
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
+
 func (s *Store) saveAssurance(ctx context.Context, kind, id, projectID, repositoryID, worktreeID, state string, revision int, createdAt, updatedAt time.Time, value any, validation error) error {
 	if validation != nil {
 		return validation

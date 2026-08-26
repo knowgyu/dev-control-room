@@ -50,6 +50,7 @@ Action Broker contracts remain.
 ## Links
 
 - Detailed plan: docs/AI_CODE_ASSURANCE_PLAN.md
+- Unattended execution boundary: docs/decisions/ADR-003-unattended-approval-scope.md
 - Existing foundation: docs/AI_INTEGRATION.md
 - Current status index: docs/ROADMAP.md
 

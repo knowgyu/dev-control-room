@@ -14,7 +14,21 @@ troubleshooting, security, and observability guidance; and CLI work through
 Action Broker, masking, Worktree trust, npm Codex launcher boundary, or human
 patch-adoption rule, and they are not runtime dependencies of the binary.
 
-## 2026-08-27 v0.9.1 patch candidate
+## 2026-08-27 Milestone A approval-scope slice
+
+The durable Unattended Approval Scope slice is implemented on the current
+working branch. A Scope is draft/approved/revoked, revisioned with SQLite CAS,
+bound to a current observed Worktree, and matched against exact action,
+Provider/tool, path, network, disk, deadline, and mandatory-prohibition fields.
+The Broker records digest/match evidence at Plan and rechecks it at Admit and
+Execute. Revocation or expiry fails closed and a pre-launch rejection releases
+an acquired Action lease. Protected API routes cover list/get/check/create,
+approve, and revoke. Read
+[VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md](VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md)
+and [ADR-003](decisions/ADR-003-unattended-approval-scope.md) before changing
+this boundary.
+
+## 2026-08-27 v0.9.1 released package
 
 The current candidate keeps the v0.9.0 evidence dashboard and adds actionable
 startup diagnostics for double-click launches. Human CLI errors now show the
@@ -26,9 +40,9 @@ machine-readable.
 Same-home server, CLI, and direct migration access now share a companion file
 lock with bounded retry. Context cancellation/deadline is distinct from a
 genuinely busy store, and cross-process initialization/read/write tests pass.
-The full candidate verification is recorded in
-[VERIFICATION_v0.9.1.md](VERIFICATION_v0.9.1.md); package and remote release
-checks remain pending until the final candidate commit is fixed.
+The full package and remote hash verification is recorded in
+[VERIFICATION_v0.9.1.md](VERIFICATION_v0.9.1.md), and the release is published
+at https://github.com/knowgyu/dev-control-room/releases/tag/v0.9.1.
 
 This is the canonical current-state handoff for continuing Dev Control Room.
 It exists so the next long-running goal or implementation agent can start from

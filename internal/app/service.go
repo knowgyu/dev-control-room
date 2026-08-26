@@ -70,6 +70,9 @@ type QueryService interface {
 	PRCIBaselines(context.Context) ([]domain.PRCIBaseline, error)
 	AssuranceArtifacts(context.Context) ([]domain.Artifact, error)
 	AssuranceEffects(context.Context) ([]domain.Effect, error)
+	UnattendedApprovalScopes(context.Context) ([]domain.UnattendedApprovalScope, error)
+	UnattendedApprovalScope(context.Context, string) (domain.UnattendedApprovalScope, error)
+	CheckUnattendedApprovalScope(context.Context, string) (domain.UnattendedApprovalMatch, error)
 	ProviderStatuses(context.Context) ([]ProviderStatus, error)
 	PricingSnapshots(context.Context) ([]domain.ProviderPricingSnapshot, error)
 	AssuranceDashboard(context.Context, string, string) (AssuranceDashboard, error)
@@ -146,6 +149,9 @@ type CommandService interface {
 	RunAgentInvocation(context.Context, AgentInvocationInput) (domain.AgentInvocation, error)
 	SaveAssuranceArtifact(context.Context, ArtifactInput) (domain.Artifact, error)
 	CreateEffect(context.Context, EffectInput) (domain.Effect, error)
+	CreateUnattendedApprovalScope(context.Context, UnattendedApprovalScopeInput) (domain.UnattendedApprovalScope, error)
+	ApproveUnattendedApprovalScope(context.Context, string) (domain.UnattendedApprovalScope, error)
+	RevokeUnattendedApprovalScope(context.Context, string) (domain.UnattendedApprovalScope, error)
 	SavePricingSnapshot(context.Context, domain.ProviderPricingSnapshot) (domain.ProviderPricingSnapshot, error)
 	ExportAssuranceArtifacts(context.Context, []string, string) (ArtifactExportResult, error)
 	SetAssuranceArtifactRetention(context.Context, string, string) (domain.Artifact, error)
@@ -212,6 +218,18 @@ type CreateChecksetInput struct {
 type ActionPlanInput struct {
 	ID, Name, ProjectID, RepositoryID, WorktreeID, ActionType string
 	Inputs                                                    map[string]string
+	ApprovalScopeID                                           string
+	ProviderProfile                                           string
+	Techniques                                                []string
+	ToolSetup                                                 []string
+	ToolVersion                                               string
+	ToolConfigDigest                                          string
+	ArgumentSchemaDigest                                      string
+	WritablePaths                                             []string
+	NetworkPolicy                                             string
+	DiskLimitBytes                                            int64
+	ScopeDeadline                                             time.Time
+	ProhibitedOperations                                      []string
 }
 
 type ExternalWorkPlanInput struct {
@@ -229,7 +247,7 @@ type CleanupPlanInput struct {
 }
 
 func (a *App) PlanAction(ctx context.Context, input ActionPlanInput) (domain.ActionPlan, error) {
-	plan, err := a.broker.Plan(ctx, action.PlanRequest{ID: input.ID, Name: input.Name, ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, ActionType: input.ActionType, Inputs: input.Inputs, RequestedBy: domain.Actor{Kind: domain.ActorSystem, ID: "adapter"}})
+	plan, err := a.broker.Plan(ctx, action.PlanRequest{ID: input.ID, Name: input.Name, ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, ActionType: input.ActionType, Inputs: input.Inputs, RequestedBy: domain.Actor{Kind: domain.ActorSystem, ID: "adapter"}, ApprovalScopeID: input.ApprovalScopeID, ProviderProfile: input.ProviderProfile, Techniques: input.Techniques, ToolSetup: input.ToolSetup, ToolVersion: input.ToolVersion, ToolConfigDigest: input.ToolConfigDigest, ArgumentSchemaDigest: input.ArgumentSchemaDigest, WritablePaths: input.WritablePaths, NetworkPolicy: input.NetworkPolicy, DiskLimitBytes: input.DiskLimitBytes, ScopeDeadline: input.ScopeDeadline, ProhibitedOperations: input.ProhibitedOperations})
 	return plan, classifyActionError(err)
 }
 
@@ -352,6 +370,8 @@ func classifyActionError(err error) error {
 		return nil
 	case errors.Is(err, action.ErrApprovalRequired), errors.Is(err, action.ErrPolicyDenied):
 		return contract.CodedError{Code: contract.ErrorPolicyDenied, Message: "action requires a current human approval"}
+	case errors.Is(err, action.ErrApprovalScopeMismatch):
+		return contract.CodedError{Code: contract.ErrorPolicyDenied, Message: "unattended approval scope does not match the action plan"}
 	case errors.Is(err, action.ErrUnknownAction):
 		return contract.InvalidInput("action type is not reviewed")
 	case errors.Is(err, action.ErrLockConflict), errors.Is(err, action.ErrIdempotencyConflict):
@@ -498,6 +518,27 @@ type EffectInput struct {
 	PeriodEnd           *time.Time `json:"periodEnd"`
 	RecordedBy          string     `json:"recordedBy"`
 	Reason              string     `json:"reason"`
+}
+
+type UnattendedApprovalScopeInput struct {
+	ID                   string              `json:"id,omitempty"`
+	Name                 string              `json:"name"`
+	ProjectID            string              `json:"projectId"`
+	RepositoryID         string              `json:"repositoryId"`
+	WorktreeID           string              `json:"worktreeId"`
+	ProviderProfile      string              `json:"providerProfile"`
+	ActionTypes          []string            `json:"actionTypes"`
+	RiskClasses          []domain.ActionRisk `json:"riskClasses"`
+	Techniques           []string            `json:"techniques"`
+	ToolSetup            []string            `json:"toolSetup"`
+	ToolVersion          string              `json:"toolVersion"`
+	ToolConfigDigest     string              `json:"toolConfigDigest"`
+	ArgumentSchemaDigest string              `json:"argumentSchemaDigest"`
+	WritablePaths        []string            `json:"writablePaths"`
+	NetworkPolicy        string              `json:"networkPolicy"`
+	DiskLimitBytes       int64               `json:"diskLimitBytes"`
+	Deadline             time.Time           `json:"deadline"`
+	Prohibited           []string            `json:"prohibited"`
 }
 
 type ProviderStatus struct {

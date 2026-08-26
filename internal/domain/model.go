@@ -616,20 +616,36 @@ type ActionPlan struct {
 }
 
 type ActionPlanSpec struct {
-	ProjectID        string                   `json:"projectId"`
-	RepositoryID     string                   `json:"repositoryId"`
-	WorktreeID       string                   `json:"worktreeId"`
-	ActionType       string                   `json:"actionType"`
-	Risk             ActionRisk               `json:"risk"`
-	Inputs           map[string]string        `json:"inputs,omitempty"`
-	Execution        ActionExecution          `json:"execution"`
-	ExecutionContext WorktreeExecutionContext `json:"executionContext"`
-	Prechecks        []ActionEvidenceContract `json:"prechecks"`
-	Postchecks       []ActionEvidenceContract `json:"postchecks"`
-	PolicyDecision   string                   `json:"policyDecision"`
-	ApprovalRequired bool                     `json:"approvalRequired"`
-	RequestedBy      Actor                    `json:"requestedBy"`
-	RequestedAt      time.Time                `json:"requestedAt"`
+	ProjectID            string                   `json:"projectId"`
+	RepositoryID         string                   `json:"repositoryId"`
+	WorktreeID           string                   `json:"worktreeId"`
+	ActionType           string                   `json:"actionType"`
+	Risk                 ActionRisk               `json:"risk"`
+	Inputs               map[string]string        `json:"inputs,omitempty"`
+	Execution            ActionExecution          `json:"execution"`
+	ExecutionContext     WorktreeExecutionContext `json:"executionContext"`
+	Prechecks            []ActionEvidenceContract `json:"prechecks"`
+	Postchecks           []ActionEvidenceContract `json:"postchecks"`
+	PolicyDecision       string                   `json:"policyDecision"`
+	ApprovalRequired     bool                     `json:"approvalRequired"`
+	RequestedBy          Actor                    `json:"requestedBy"`
+	RequestedAt          time.Time                `json:"requestedAt"`
+	ApprovalScopeID      string                   `json:"approvalScopeId,omitempty"`
+	ApprovalScopeDigest  string                   `json:"approvalScopeDigest,omitempty"`
+	ProviderProfile      string                   `json:"providerProfile,omitempty"`
+	Techniques           []string                 `json:"techniques,omitempty"`
+	ToolSetup            []string                 `json:"toolSetup,omitempty"`
+	ToolVersion          string                   `json:"toolVersion,omitempty"`
+	ToolConfigDigest     string                   `json:"toolConfigDigest,omitempty"`
+	ArgumentSchemaDigest string                   `json:"argumentSchemaDigest,omitempty"`
+	WritablePaths        []string                 `json:"writablePaths,omitempty"`
+	NetworkPolicy        string                   `json:"networkPolicy,omitempty"`
+	DiskLimitBytes       int64                    `json:"diskLimitBytes,omitempty"`
+	ScopeDeadline        time.Time                `json:"scopeDeadline,omitempty"`
+	ProhibitedOperations []string                 `json:"prohibitedOperations,omitempty"`
+	ScopeMatch           bool                     `json:"scopeMatch,omitempty"`
+	ScopeMatchReasons    []string                 `json:"scopeMatchReasons,omitempty"`
+	ScopeCheckedAt       time.Time                `json:"scopeCheckedAt,omitempty"`
 }
 
 // ActionExecution is the complete process contract copied from a reviewed
@@ -1257,6 +1273,9 @@ func (a ActionPlan) Validate() error {
 		if strings.TrimSpace(a.Spec.Inputs[name]) == "" {
 			return errors.New("action plan is missing a reviewed input")
 		}
+	}
+	if err := validateActionPlanApprovalScope(a.Spec); err != nil {
+		return err
 	}
 	execution, err := definition.ExecutionFor(a.Spec.Inputs)
 	if err != nil || !reflect.DeepEqual(a.Spec.Execution, execution) || !validExecutionContext(a.Spec.ExecutionContext) || a.Spec.ExecutionContext.ProjectID != a.Spec.ProjectID || a.Spec.ExecutionContext.RepositoryID != a.Spec.RepositoryID || a.Spec.ExecutionContext.WorktreeID != a.Spec.WorktreeID || !sameEvidenceContracts(a.Spec.Prechecks, definition.Prechecks) || !sameEvidenceContracts(a.Spec.Postchecks, definition.Postchecks) {

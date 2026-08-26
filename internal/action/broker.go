@@ -30,6 +30,7 @@ var (
 	ErrExecutionContextStale    = errors.New("action worktree execution context is stale")
 	ErrHumanDecisionUnavailable = errors.New("native human decision prompt is unavailable")
 	ErrHumanDecisionInProgress  = errors.New("a human decision ceremony is already active")
+	ErrApprovalScopeMismatch    = errors.New("unattended approval scope does not match the action plan")
 	ErrActionExecution          = errors.New("action execution failed")
 	ErrActionPrecheck           = errors.New("action precheck failed")
 	ErrActionPostcheck          = errors.New("action postcheck failed")
@@ -126,6 +127,18 @@ type PlanRequest struct {
 	ID, Name, ProjectID, RepositoryID, WorktreeID, ActionType string
 	Inputs                                                    map[string]string
 	RequestedBy                                               domain.Actor
+	ApprovalScopeID                                           string
+	ProviderProfile                                           string
+	Techniques                                                []string
+	ToolSetup                                                 []string
+	ToolVersion                                               string
+	ToolConfigDigest                                          string
+	ArgumentSchemaDigest                                      string
+	WritablePaths                                             []string
+	NetworkPolicy                                             string
+	DiskLimitBytes                                            int64
+	ScopeDeadline                                             time.Time
+	ProhibitedOperations                                      []string
 }
 
 func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPlan, error) {
@@ -147,6 +160,33 @@ func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPl
 	}
 	now := b.now().UTC()
 	plan := domain.ActionPlan{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ActionPlanKind}, Metadata: domain.ObjectMeta{ID: request.ID, Name: request.Name}, Spec: domain.ActionPlanSpec{ProjectID: request.ProjectID, RepositoryID: request.RepositoryID, WorktreeID: request.WorktreeID, ActionType: definition.ActionType, Risk: definition.Risk, Inputs: request.Inputs, Execution: execution, ExecutionContext: executionContext, Prechecks: definition.Prechecks, Postchecks: definition.Postchecks, PolicyDecision: definition.PolicyDecision, ApprovalRequired: definition.ApprovalRequired, RequestedBy: request.RequestedBy, RequestedAt: now}}
+	if request.ApprovalScopeID != "" {
+		scope, scopeErr := b.store.GetUnattendedApprovalScope(ctx, request.ApprovalScopeID)
+		if scopeErr != nil {
+			return domain.ActionPlan{}, scopeErr
+		}
+		scopeDigest, digestErr := scope.Digest()
+		if digestErr != nil {
+			return domain.ActionPlan{}, fmt.Errorf("digest unattended approval scope: %w", digestErr)
+		}
+		match := scope.Match(domain.UnattendedApprovalRequest{ScopeID: scope.Metadata.ID, ScopeDigest: scopeDigest, ProjectID: request.ProjectID, RepositoryID: request.RepositoryID, WorktreeID: request.WorktreeID, ProviderProfile: request.ProviderProfile, ActionType: definition.ActionType, Risk: definition.Risk, Techniques: request.Techniques, ToolSetup: request.ToolSetup, ToolVersion: request.ToolVersion, ToolConfigDigest: request.ToolConfigDigest, ArgumentSchemaDigest: request.ArgumentSchemaDigest, WritablePaths: request.WritablePaths, NetworkPolicy: request.NetworkPolicy, DiskBytes: request.DiskLimitBytes, Deadline: request.ScopeDeadline, Prohibited: request.ProhibitedOperations}, now)
+		plan.Spec.ApprovalScopeID = scope.Metadata.ID
+		plan.Spec.ApprovalScopeDigest = scopeDigest
+		plan.Spec.ProviderProfile = request.ProviderProfile
+		plan.Spec.Techniques = append([]string(nil), request.Techniques...)
+		plan.Spec.ToolSetup = append([]string(nil), request.ToolSetup...)
+		plan.Spec.ToolVersion = request.ToolVersion
+		plan.Spec.ToolConfigDigest = request.ToolConfigDigest
+		plan.Spec.ArgumentSchemaDigest = request.ArgumentSchemaDigest
+		plan.Spec.WritablePaths = append([]string(nil), request.WritablePaths...)
+		plan.Spec.NetworkPolicy = request.NetworkPolicy
+		plan.Spec.DiskLimitBytes = request.DiskLimitBytes
+		plan.Spec.ScopeDeadline = request.ScopeDeadline
+		plan.Spec.ProhibitedOperations = append([]string(nil), request.ProhibitedOperations...)
+		plan.Spec.ScopeMatch = match.Matched
+		plan.Spec.ScopeMatchReasons = append([]string(nil), match.Reasons...)
+		plan.Spec.ScopeCheckedAt = match.CheckedAt
+	}
 	if err := b.store.SaveActionPlan(ctx, plan); err != nil {
 		return domain.ActionPlan{}, err
 	}
@@ -156,6 +196,9 @@ func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPl
 	}
 	if err := b.audit(ctx, persisted, "planned", persisted.Spec.RequestedBy, now, persisted.Metadata.ID); err != nil {
 		return domain.ActionPlan{}, err
+	}
+	if persisted.Spec.ApprovalScopeID != "" && !persisted.Spec.ScopeMatch {
+		return persisted, ErrApprovalScopeMismatch
 	}
 	return persisted, nil
 }
@@ -282,6 +325,9 @@ func (b *Broker) Admit(ctx context.Context, planID, holder, idempotencyKey strin
 	if plan.Spec.PolicyDecision == domain.PolicyDenied {
 		return Admission{}, ErrPolicyDenied
 	}
+	if err := b.validateApprovalScope(ctx, plan); err != nil {
+		return Admission{}, err
+	}
 	now := b.now().UTC()
 	if plan.Spec.ApprovalRequired {
 		approvals, err := b.store.ListApprovals(ctx, planID)
@@ -353,6 +399,21 @@ func (b *Broker) validateExecutionContext(ctx context.Context, plan domain.Actio
 	return nil
 }
 
+func (b *Broker) validateApprovalScope(ctx context.Context, plan domain.ActionPlan) error {
+	if plan.Spec.ApprovalScopeID == "" {
+		return nil
+	}
+	scope, err := b.store.GetUnattendedApprovalScope(ctx, plan.Spec.ApprovalScopeID)
+	if err != nil {
+		return err
+	}
+	match := scope.Match(plan.UnattendedApprovalRequest(), b.now().UTC())
+	if !match.Matched || match.ScopeDigest != plan.Spec.ApprovalScopeDigest || !plan.Spec.ScopeMatch {
+		return ErrApprovalScopeMismatch
+	}
+	return nil
+}
+
 func (b *Broker) Renew(ctx context.Context, admission Admission) (Admission, error) {
 	now := b.now().UTC()
 	lock, err := b.store.RenewActionLock(ctx, admission.Lock, now, now.Add(leaseDuration))
@@ -401,6 +462,10 @@ func (b *Broker) ExecuteWithRevalidation(ctx context.Context, admission Admissio
 	if admission.Plan.Metadata.ID != plan.Metadata.ID || admission.Lock.ActionPlanID != plan.Metadata.ID || admission.Lock.Scope != scope(plan) || admission.Lock.Holder == "" || !admission.Lock.ExpiresAt.After(b.now().UTC()) {
 		return domain.ActionRun{}, ErrLockConflict
 	}
+	// Once an admission has been acquired, every pre-launch rejection must
+	// release its lease. This matters when a scope is revoked or expires after
+	// admission but before the execution boundary is reached.
+	defer func() { _ = b.Release(context.Background(), admission) }()
 	digest, err := plan.Digest()
 	if err != nil || digest != admission.Lock.ActionPlanDigest {
 		return domain.ActionRun{}, ErrExecutionContextStale
@@ -411,6 +476,9 @@ func (b *Broker) ExecuteWithRevalidation(ctx context.Context, admission Admissio
 	}
 	if plan.Spec.PolicyDecision == domain.PolicyDenied {
 		return domain.ActionRun{}, ErrPolicyDenied
+	}
+	if err := b.validateApprovalScope(ctx, plan); err != nil {
+		return domain.ActionRun{}, err
 	}
 	if plan.Spec.ApprovalRequired {
 		approvals, approvalErr := b.store.ListApprovals(ctx, plan.Metadata.ID)
@@ -428,7 +496,6 @@ func (b *Broker) ExecuteWithRevalidation(ctx context.Context, admission Admissio
 			return domain.ActionRun{}, ErrApprovalRequired
 		}
 	}
-	defer func() { _ = b.Release(context.Background(), admission) }()
 	if revalidate != nil {
 		if err := revalidate(ctx); err != nil {
 			return b.saveRejectedRun(ctx, plan, admission.Lock.Holder, b.now().UTC(), "precheck_failed", err)

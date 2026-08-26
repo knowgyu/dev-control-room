@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-const CurrentSchemaVersion = 14
+const CurrentSchemaVersion = 15
 
 // acceptedHistoricalMigrationChecksums permits only checksums emitted by
 // released builds whose migration SQL was corrected before the next schema
@@ -446,6 +446,15 @@ CREATE TABLE IF NOT EXISTS provider_pricing_snapshots (
  object_json TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pricing_snapshot_immutable ON provider_pricing_snapshots(provider, model, effective_at);
+`,
+	},
+	{
+		Version: 15,
+		Name:    "unattended-approval-scope-index",
+		SQL: `
+CREATE INDEX IF NOT EXISTS idx_unattended_scope_target
+ ON assurance_objects(kind, project_id, repository_id, worktree_id, state, updated_at DESC, id)
+ WHERE kind = 'UnattendedApprovalScope';
 `,
 	},
 }

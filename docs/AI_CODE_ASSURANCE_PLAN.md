@@ -1,10 +1,10 @@
 # Phase 1 — AI-assisted Code Assurance plan
 
-Status: v0.9.1 adds actionable startup/storage diagnostics while preserving the
-v0.9.0 effect-proof surface, traceable artifact lifecycle, and
-honest period comparisons; unfinished authority, native resilience, and
-accessibility criteria remain tracked by issue
-Updated: 2026-08-26
+Status: v0.10.0 development: Milestone A durable Unattended Approval Scope
+vertical slice is implemented and focused-verified; native resilience,
+provider authority, mutation, adoption, causal attribution, and manual
+accessibility criteria remain tracked
+Updated: 2026-08-27
 Owner: local operator
 
 This is the canonical active feature plan. It is Phase 1 of the current product
@@ -171,7 +171,12 @@ Quality Campaign/Run, PR CI Baseline, Artifact, Effect, Provider Pricing
 Snapshot, and Unattended Approval Scope. A Session owns spec revisions and
 invocations; a Campaign owns Quality Runs; runs and invocations reference
 artifacts; an Effect links a finding/mutant/counterexample to adoption and
-reverification evidence.
+reverification evidence. The current A vertical slice adds the durable Scope
+draft/approve/revoke lifecycle, exact contract digest, revision CAS, API
+surface, and Plan/Admit/Execute revalidation. Its focused evidence is in
+[VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md](VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md)
+and its boundary is fixed by
+[ADR-003](decisions/ADR-003-unattended-approval-scope.md).
 
 Sessions and runs have a fail-closed state machine: draft, awaiting answer,
 ready, queued, running, cancelling, interrupted, succeeded, failed, timed out,
@@ -324,7 +329,7 @@ or reruns an uncertain external/high-impact Action.
 
 | Milestone | Scope | Exit evidence | Status |
 | --- | --- | --- |
-| A — plan/persistence | status markers, ADRs, migrations for sessions/runs/artifacts/pricing | migration/lifecycle tests and no duplicate active plan | partial: revisioned lifecycle foundation is accepted; durable Unattended Approval Scope persistence and execution-time matching remain [#9](https://github.com/knowgyu/dev-control-room/issues/9) |
+| A — plan/persistence | status markers, ADRs, migrations for sessions/runs/artifacts/pricing, durable Unattended Approval Scope contract | migration/lifecycle tests, revision CAS, exact Plan/Admit/Execute matching, protected API, and no duplicate active plan | verified for the approval-scope vertical slice; full A foundation remains accepted historical evidence in [VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md](VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md) |
 | B — providers/continuity | Doctor, Codex adapter, structured schema, profiles/model picker, fake Claude/Gemini, Resume Brief | fake matrix; masking; cancellation; non-TTY, closed-stdin, auth/prompt/output/usage failure cases; no raw transcript default; separate native real-CLI acceptance | partial: bounded prompt, real authenticated local Codex invocation, typed `node.exe` launcher, JSONL reduction, and no-transcript evidence are verified; native resilience cases remain [#3](https://github.com/knowgyu/dev-control-room/issues/3) |
 | C — CI/runner | gh/Jenkins baseline discovery and typed Quality Runs | fixture proves required/observed/local equivalent/unknown and stale detection | partial: local discovery and read-only GitHub branch/rules lookup are verified; unavailable provider rules stay unknown, while successful provider/Jenkins authority remains [#4](https://github.com/knowgyu/dev-control-room/issues/4) |
 | D — assurance authoring | Q&A, Assurance Spec, test/property/mutation/fuzz proposals, isolated patch, critic | tests prove AI cannot adopt/commit/push and stale specs/runs surface | partial: authoring/review boundary is accepted; isolated patch materialization, human adoption, and re-verification remain [#10](https://github.com/knowgyu/dev-control-room/issues/10) |
@@ -354,10 +359,10 @@ success never proves real provider CLI operation.
 
 ## First implementation action
 
-Begin Milestone A with status/decision convention and additive domain migrations
-without changing Checkset or Action semantics. Build the fake-provider contract
-before the first real Codex CLI invocation so that integration remains narrow,
-observable, and reversible.
+Milestone A's approval-scope vertical slice is focused-verified without changing
+Checkset semantics or weakening the Action Broker. Continue with the first
+remaining partial provider/continuity slice, beginning with deterministic fake
+resilience cases before any real Provider invocation.
 
 ## Next-session assignment prompt
 
@@ -370,7 +375,10 @@ Use the following as a new ChatGPT/Codex task for the active Phase 1 work:
 > Milestone A unless its exit evidence is already present; inspect and report
 > the existing implementation before changing anything. Preserve Checksets,
 > Action Broker approvals, Worktree trust, masking, local-first storage, and
-> the rule that AI patches require human adoption. Implement exactly one
+> the rule that AI patches require human adoption. Milestone A's approval-scope
+> slice is already recorded in `docs/VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md`;
+> begin at the first remaining partial milestone and preserve that contract.
+> Implement exactly one
 > milestone or coherent vertical slice at a time. For an explicit unattended
 > “continue Phase 1 to completion” request, do not stop after a successful
 > milestone: commit each verified coherent milestone, update its evidence and

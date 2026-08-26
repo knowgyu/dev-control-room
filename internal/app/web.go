@@ -1049,6 +1049,67 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
+	mux.HandleFunc("GET /api/assurance/approval-scopes", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.UnattendedApprovalScopes(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/assurance/approval-scopes/{scopeID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.UnattendedApprovalScope(request.Context(), request.PathValue("scopeID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/assurance/action-plans/{planID}/approval-scope", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.CheckUnattendedApprovalScope(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("POST /api/assurance/approval-scopes", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input UnattendedApprovalScopeInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.CreateUnattendedApprovalScope(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/assurance/approval-scopes/{scopeID}/approve", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("approval scope approval accepts an empty body only"))
+			return
+		}
+		item, err := service.ApproveUnattendedApprovalScope(request.Context(), request.PathValue("scopeID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/assurance/approval-scopes/{scopeID}/revoke", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("approval scope revocation accepts an empty body only"))
+			return
+		}
+		item, err := service.RevokeUnattendedApprovalScope(request.Context(), request.PathValue("scopeID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
 	mux.HandleFunc("GET /api/assurance/sessions", func(response http.ResponseWriter, request *http.Request) {
 		items, err := service.AssuranceSessions(request.Context())
 		if err != nil {
