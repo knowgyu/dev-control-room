@@ -28,6 +28,28 @@ approve, and revoke. Read
 and [ADR-003](decisions/ADR-003-unattended-approval-scope.md) before changing
 this boundary.
 
+## 2026-08-27 effect-evidence hardening slice
+
+The Assurance impact surface now treats `measured`, `prevented_regression`,
+`user_estimated`, `ai_inference`, and `unavailable` as separate classifications.
+Measured time saved and user-estimated time saved are separate metrics; the
+latter never becomes a measured benefit. Trace-ID-only source links contribute
+to provider/model attribution, and an effect is counted as verified only when
+its source and live artifact evidence are linked, its adoption and
+reverification metadata point to the same commit, and the referenced run or
+invocation succeeded at that exact HEAD. Trace drill-down includes source and
+reverification execution nodes plus adopted/reverified commit links. Focused
+tests cover these boundaries; the full verification record is
+[VERIFICATION_v0.10.0.md](VERIFICATION_v0.10.0.md).
+
+## 2026-08-27 v0.10.0 release candidate
+
+The candidate combines the fail-closed Assurance restart-boundary recovery
+with the effect-evidence hardening above. The binary version is `0.10.0`.
+The final full verifier, Windows package smoke, and release publication are
+performed from the final release commit; remaining native, human-adoption,
+causal, and manual-accessibility gaps stay partial in the plan.
+
 ## 2026-08-27 v0.9.1 released package
 
 The current candidate keeps the v0.9.0 evidence dashboard and adds actionable

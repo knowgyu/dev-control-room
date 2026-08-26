@@ -68,16 +68,17 @@ type AssuranceTrendPoint struct {
 }
 
 type AssuranceDataQuality struct {
-	RecordsTotal        int       `json:"recordsTotal"`
-	MeasuredEffects     int       `json:"measuredEffects"`
-	UserEstimated       int       `json:"userEstimatedEffects"`
-	AIInference         int       `json:"aiInferenceEffects"`
-	UnavailableEffects  int       `json:"unavailableEffects"`
-	UnattributedEffects int       `json:"unattributedEffects"`
-	MissingEvidence     int       `json:"missingEvidence"`
-	MissingArtifacts    int       `json:"missingArtifacts"`
-	BaselineState       string    `json:"baselineState"`
-	LastEvidenceAt      time.Time `json:"lastEvidenceAt,omitempty"`
+	RecordsTotal               int       `json:"recordsTotal"`
+	MeasuredEffects            int       `json:"measuredEffects"`
+	PreventedRegressionEffects int       `json:"preventedRegressionEffects"`
+	UserEstimated              int       `json:"userEstimatedEffects"`
+	AIInference                int       `json:"aiInferenceEffects"`
+	UnavailableEffects         int       `json:"unavailableEffects"`
+	UnattributedEffects        int       `json:"unattributedEffects"`
+	MissingEvidence            int       `json:"missingEvidence"`
+	MissingArtifacts           int       `json:"missingArtifacts"`
+	BaselineState              string    `json:"baselineState"`
+	LastEvidenceAt             time.Time `json:"lastEvidenceAt,omitempty"`
 }
 
 type AssuranceTraceabilitySummary struct {
@@ -183,20 +184,24 @@ type assuranceObservation struct {
 }
 
 type assuranceImpactCounts struct {
-	Invocations       int
-	SuccessfulAgents  int
-	QualityRuns       int
-	SuccessfulRuns    int
-	Effects           int
-	AdoptedEffects    int
-	ReverifiedEffects int
-	VerifiedEffects   int
-	CompleteEffects   int
-	Artifacts         int
-	KnownTimeSaved    float64
-	KnownTimeUnit     string
-	KnownTimeCount    int
-	KnownTimeMixed    bool
+	Invocations             int
+	SuccessfulAgents        int
+	QualityRuns             int
+	SuccessfulRuns          int
+	Effects                 int
+	AdoptedEffects          int
+	ReverifiedEffects       int
+	VerifiedEffects         int
+	CompleteEffects         int
+	Artifacts               int
+	KnownTimeSaved          float64
+	KnownTimeUnit           string
+	KnownTimeCount          int
+	KnownTimeMixed          bool
+	KnownEstimatedTimeSaved float64
+	KnownEstimatedTimeUnit  string
+	KnownEstimatedTimeCount int
+	KnownEstimatedTimeMixed bool
 }
 
 type assuranceInvocationContext struct {
@@ -379,8 +384,10 @@ func (a *App) AssuranceImpact(ctx context.Context, query AssuranceImpactQuery) (
 	dataQuality.RecordsTotal = current.Invocations + current.QualityRuns + current.Effects + current.Artifacts
 	for _, item := range currentEffects {
 		switch item.Spec.Kind {
-		case domain.EffectMeasured, domain.EffectPreventedRegression:
+		case domain.EffectMeasured:
 			dataQuality.MeasuredEffects++
+		case domain.EffectPreventedRegression:
+			dataQuality.PreventedRegressionEffects++
 		case domain.EffectUserEstimated:
 			dataQuality.UserEstimated++
 		case domain.EffectAIInference:
@@ -410,7 +417,7 @@ func (a *App) AssuranceImpact(ctx context.Context, query AssuranceImpactQuery) (
 		impactRateMetric("reverification_rate", "재검증률", current.ReverifiedEffects, current.Effects, previous.ReverifiedEffects, previous.Effects, current.Effects),
 		impactRateMetric("evidence_coverage", "근거 완결성", current.CompleteEffects, current.Effects, previous.CompleteEffects, previous.Effects, current.Effects),
 	}
-	metrics = append(metrics, timeSavedMetric(current, previous))
+	metrics = append(metrics, timeSavedMetric(current, previous), timeSavedEstimateMetric(current, previous))
 
 	return AssuranceImpactDashboard{
 		GeneratedAt:  time.Now().UTC(),
@@ -515,6 +522,7 @@ func (a *App) AssuranceTrace(ctx context.Context, effectID string) (AssuranceTra
 	if !invocationOK {
 		invocation, invocationOK = invocationTraceMap[effect.Spec.SourceRunID]
 	}
+	traceSourceFound := false
 	if runOK {
 		addNode(AssuranceTraceNode{ID: run.Metadata.ID, Kind: domain.QualityRunKind, Label: run.Spec.Technique, TraceID: run.Spec.TraceID, State: run.Spec.State, Scope: assuranceScopeLabel(run.Spec.ProjectID, run.Spec.RepositoryID, run.Spec.WorktreeID), Head: run.Spec.Head, Digest: run.Spec.ConfigDigest, StartedAt: timePtr(run.Spec.StartedAt), CompletedAt: run.Spec.CompletedAt})
 		addLink(run.Metadata.ID, effect.Metadata.ID, "source_run")
@@ -556,6 +564,7 @@ func (a *App) AssuranceTrace(ctx context.Context, effectID string) (AssuranceTra
 			run, runOK = runTraceMap[traceID]
 		}
 		if runOK {
+			traceSourceFound = true
 			addNode(AssuranceTraceNode{ID: run.Metadata.ID, Kind: domain.QualityRunKind, Label: run.Spec.Technique, TraceID: run.Spec.TraceID, State: run.Spec.State, Scope: assuranceScopeLabel(run.Spec.ProjectID, run.Spec.RepositoryID, run.Spec.WorktreeID), Head: run.Spec.Head, Digest: run.Spec.ConfigDigest, StartedAt: timePtr(run.Spec.StartedAt), CompletedAt: run.Spec.CompletedAt})
 			addLink(run.Metadata.ID, effect.Metadata.ID, "trace")
 			continue
@@ -565,6 +574,7 @@ func (a *App) AssuranceTrace(ctx context.Context, effectID string) (AssuranceTra
 			invocation, invocationOK = invocationTraceMap[traceID]
 		}
 		if invocationOK {
+			traceSourceFound = true
 			addNode(AssuranceTraceNode{ID: invocation.Metadata.ID, Kind: domain.AgentInvocationKind, Label: invocation.Spec.Provider, TraceID: invocation.Spec.TraceID, State: invocation.Spec.State, Scope: assuranceScopeLabel(invocation.Spec.ProjectID, invocation.Spec.RepositoryID, invocation.Spec.WorktreeID), Head: invocation.Spec.Head, StartedAt: timePtr(invocation.Spec.StartedAt), CompletedAt: invocation.Spec.CompletedAt})
 			addLink(invocation.Metadata.ID, effect.Metadata.ID, "trace")
 			continue
@@ -581,11 +591,61 @@ func (a *App) AssuranceTrace(ctx context.Context, effectID string) (AssuranceTra
 		}
 		result.MissingRefs = append(result.MissingRefs, traceID)
 	}
+	if ref := strings.TrimSpace(effect.Spec.ReverificationRunID); ref != "" {
+		verificationRun, found := runMap[ref]
+		if !found {
+			verificationRun, found = runTraceMap[ref]
+		}
+		if found {
+			addNode(AssuranceTraceNode{ID: verificationRun.Metadata.ID, Kind: domain.QualityRunKind, Label: verificationRun.Spec.Technique, TraceID: verificationRun.Spec.TraceID, State: verificationRun.Spec.State, Scope: assuranceScopeLabel(verificationRun.Spec.ProjectID, verificationRun.Spec.RepositoryID, verificationRun.Spec.WorktreeID), Head: verificationRun.Spec.Head, Digest: verificationRun.Spec.ConfigDigest, StartedAt: timePtr(verificationRun.Spec.StartedAt), CompletedAt: verificationRun.Spec.CompletedAt})
+			addLink(verificationRun.Metadata.ID, effect.Metadata.ID, "reverification")
+		} else {
+			verificationInvocation, invocationFound := invocationMap[ref]
+			if !invocationFound {
+				verificationInvocation, invocationFound = invocationTraceMap[ref]
+			}
+			if invocationFound {
+				addNode(AssuranceTraceNode{ID: verificationInvocation.Metadata.ID, Kind: domain.AgentInvocationKind, Label: verificationInvocation.Spec.Provider, TraceID: verificationInvocation.Spec.TraceID, State: verificationInvocation.Spec.State, Scope: assuranceScopeLabel(verificationInvocation.Spec.ProjectID, verificationInvocation.Spec.RepositoryID, verificationInvocation.Spec.WorktreeID), Head: verificationInvocation.Spec.Head, StartedAt: timePtr(verificationInvocation.Spec.StartedAt), CompletedAt: verificationInvocation.Spec.CompletedAt})
+				addLink(verificationInvocation.Metadata.ID, effect.Metadata.ID, "reverification")
+			} else {
+				result.MissingRefs = appendUniqueStrings(result.MissingRefs, ref)
+			}
+		}
+	}
+	if commit := strings.TrimSpace(effect.Spec.AdoptedCommit); commit != "" {
+		addNode(AssuranceTraceNode{ID: commit, Kind: "GitCommit", Label: "채택 커밋", Head: commit})
+		addLink(commit, effect.Metadata.ID, "adopted_commit")
+	}
+	if commit := strings.TrimSpace(effect.Spec.ReverifiedCommit); commit != "" {
+		addNode(AssuranceTraceNode{ID: commit, Kind: "GitCommit", Label: "재검증 커밋", Head: commit})
+		addLink(commit, effect.Metadata.ID, "reverified_commit")
+	}
 	sort.Strings(result.MissingRefs)
-	hasSource := runOK || invocationOK || seenNodes[effect.Spec.SourceFindingID]
-	reverificationLinked := traceReferenceExists(effect.Spec.ReverificationRunID, runMap, runTraceMap, invocationMap, invocationTraceMap)
-	result.Complete = len(result.MissingRefs) == 0 && effectEvidenceComplete(effect, artifactMap) && hasSource && effectAdoptionMetadataComplete(effect) && reverificationLinked
+	hasSource := runOK || invocationOK || traceSourceFound || seenNodes[effect.Spec.SourceFindingID]
+	result.Complete = len(result.MissingRefs) == 0 && effectEvidenceComplete(effect, artifactMap) && hasSource && effectAdoptionComplete(effect, mergeAssuranceInvocations(invocationMap, invocationTraceMap), mergeAssuranceRuns(runMap, runTraceMap))
 	return result, nil
+}
+
+func mergeAssuranceRuns(primary, trace map[string]domain.QualityRun) map[string]domain.QualityRun {
+	merged := make(map[string]domain.QualityRun, len(primary)+len(trace))
+	for key, item := range primary {
+		merged[key] = item
+	}
+	for key, item := range trace {
+		merged[key] = item
+	}
+	return merged
+}
+
+func mergeAssuranceInvocations(primary, trace map[string]domain.AgentInvocation) map[string]domain.AgentInvocation {
+	merged := make(map[string]domain.AgentInvocation, len(primary)+len(trace))
+	for key, item := range primary {
+		merged[key] = item
+	}
+	for key, item := range trace {
+		merged[key] = item
+	}
+	return merged
 }
 
 func (a *App) AssuranceArtifactStorage(ctx context.Context) (ArtifactStorageSummary, error) {
@@ -806,12 +866,30 @@ func timeSavedMetric(current, previous assuranceImpactCounts) AssuranceMetric {
 	return metricWithComparison("time_saved", "기록된 시간 절감", currentObservation, previousObservation, current.KnownTimeUnit)
 }
 
+func timeSavedEstimateMetric(current, previous assuranceImpactCounts) AssuranceMetric {
+	if current.KnownEstimatedTimeCount == 0 || current.KnownEstimatedTimeMixed {
+		return AssuranceMetric{
+			Key: "time_saved_estimated", Label: "예상 시간 절감", Unit: current.KnownEstimatedTimeUnit,
+			State: "unavailable", SampleCount: current.KnownEstimatedTimeCount, EvidenceCount: current.KnownEstimatedTimeCount,
+			Comparison: &AssuranceMetricComparison{Kind: "previous_equal_period", State: "unavailable"},
+		}
+	}
+	currentObservation := assuranceObservation{Value: current.KnownEstimatedTimeSaved, Available: true, SampleCount: current.KnownEstimatedTimeCount, EvidenceCount: current.KnownEstimatedTimeCount}
+	previousAvailable := previous.KnownEstimatedTimeCount > 0 && !previous.KnownEstimatedTimeMixed && previous.KnownEstimatedTimeUnit == current.KnownEstimatedTimeUnit
+	previousObservation := assuranceObservation{Value: previous.KnownEstimatedTimeSaved, Available: previousAvailable, SampleCount: previous.KnownEstimatedTimeCount, EvidenceCount: previous.KnownEstimatedTimeCount}
+	return metricWithComparisonState("time_saved_estimated", "예상 시간 절감", currentObservation, previousObservation, current.KnownEstimatedTimeUnit, "user_estimated")
+}
+
 func metricWithComparison(key, label string, current, previous assuranceObservation, unit string) AssuranceMetric {
+	return metricWithComparisonState(key, label, current, previous, unit, "measured")
+}
+
+func metricWithComparisonState(key, label string, current, previous assuranceObservation, unit, availableState string) AssuranceMetric {
 	metric := AssuranceMetric{Key: key, Label: label, Unit: unit, State: "unavailable", SampleCount: current.SampleCount, EvidenceCount: current.EvidenceCount}
 	if current.Available {
 		value := current.Value
 		metric.Value = &value
-		metric.State = "measured"
+		metric.State = availableState
 	}
 	comparison := &AssuranceMetricComparison{Kind: "previous_equal_period", State: "unavailable"}
 	if previous.Available {
@@ -897,6 +975,18 @@ func effectProviderModel(item domain.Effect, invocations map[string]domain.Agent
 		model, _ := run.Spec.Evidence["model"].(string)
 		return provider, model, provider != "" || model != ""
 	}
+	for _, traceID := range item.Spec.TraceIDs {
+		if invocation, ok := invocations[traceID]; ok {
+			return invocation.Spec.Provider, firstNonEmpty(invocation.Spec.ResolvedModel, invocation.Spec.RequestedModel), true
+		}
+		if run, ok := runs[traceID]; ok {
+			provider, _ := run.Spec.Evidence["provider"].(string)
+			model, _ := run.Spec.Evidence["model"].(string)
+			if provider != "" || model != "" {
+				return provider, model, true
+			}
+		}
+	}
 	return "", "", false
 }
 
@@ -915,68 +1005,79 @@ func addEffectCounts(counts *assuranceImpactCounts, item domain.Effect, artifact
 	if complete && effectSourceLinked(item, invocations, runs, findingRefs) && effectAdoptionComplete(item, invocations, runs) && (item.Spec.Kind == domain.EffectMeasured || item.Spec.Kind == domain.EffectPreventedRegression) {
 		counts.VerifiedEffects++
 	}
-	if item.Spec.MetricKey != "time_saved" || !item.Spec.ValueKnown || item.Spec.Unit == "" || (item.Spec.Kind != domain.EffectMeasured && item.Spec.Kind != domain.EffectUserEstimated) {
+	if item.Spec.MetricKey != "time_saved" || !item.Spec.ValueKnown || item.Spec.Unit == "" {
 		return
 	}
-	unit := strings.ToLower(strings.TrimSpace(item.Spec.Unit))
-	if counts.KnownTimeCount == 0 {
-		counts.KnownTimeUnit = unit
-		counts.KnownTimeSaved = item.Spec.Value
-		counts.KnownTimeCount = 1
+	switch item.Spec.Kind {
+	case domain.EffectMeasured:
+		addTimeSaved(&counts.KnownTimeSaved, &counts.KnownTimeUnit, &counts.KnownTimeCount, &counts.KnownTimeMixed, item.Spec.Value, item.Spec.Unit)
+	case domain.EffectUserEstimated:
+		addTimeSaved(&counts.KnownEstimatedTimeSaved, &counts.KnownEstimatedTimeUnit, &counts.KnownEstimatedTimeCount, &counts.KnownEstimatedTimeMixed, item.Spec.Value, item.Spec.Unit)
+	}
+}
+
+func addTimeSaved(total *float64, knownUnit *string, count *int, mixed *bool, value float64, rawUnit string) {
+	unit := strings.ToLower(strings.TrimSpace(rawUnit))
+	if *count == 0 {
+		*knownUnit = unit
+		*total = value
+		*count = 1
 		return
 	}
-	counts.KnownTimeCount++
-	if counts.KnownTimeUnit != unit {
-		counts.KnownTimeMixed = true
+	(*count)++
+	if *knownUnit != unit {
+		*mixed = true
 		return
 	}
-	if !counts.KnownTimeMixed {
-		counts.KnownTimeSaved += item.Spec.Value
+	if !*mixed {
+		*total += value
 	}
 }
 
 func effectSourceLinked(item domain.Effect, invocations map[string]domain.AgentInvocation, runs map[string]domain.QualityRun, findingRefs map[string]bool) bool {
 	if item.Spec.SourceFindingID != "" {
-		return findingRefs[item.Spec.SourceFindingID]
+		if findingRefs[item.Spec.SourceFindingID] {
+			return true
+		}
 	}
-	if item.Spec.SourceRunID == "" {
-		return false
+	if item.Spec.SourceRunID != "" {
+		if _, ok := invocations[item.Spec.SourceRunID]; ok {
+			return true
+		}
+		if _, ok := runs[item.Spec.SourceRunID]; ok {
+			return true
+		}
 	}
-	if _, ok := invocations[item.Spec.SourceRunID]; ok {
-		return true
+	for _, traceID := range item.Spec.TraceIDs {
+		if _, ok := invocations[traceID]; ok {
+			return true
+		}
+		if _, ok := runs[traceID]; ok {
+			return true
+		}
 	}
-	_, ok := runs[item.Spec.SourceRunID]
-	return ok
+	return false
 }
 
 func effectAdoptionComplete(item domain.Effect, invocations map[string]domain.AgentInvocation, runs map[string]domain.QualityRun) bool {
 	if !effectAdoptionMetadataComplete(item) {
 		return false
 	}
-	_, runExists := runs[item.Spec.ReverificationRunID]
-	_, invocationExists := invocations[item.Spec.ReverificationRunID]
-	return runExists || invocationExists
+	ref := strings.TrimSpace(item.Spec.ReverificationRunID)
+	reverifiedCommit := strings.TrimSpace(item.Spec.ReverifiedCommit)
+	if run, ok := runs[ref]; ok {
+		return run.Spec.State == domain.AssuranceStateSucceeded && strings.TrimSpace(run.Spec.Head) == reverifiedCommit
+	}
+	if invocation, ok := invocations[ref]; ok {
+		return invocation.Spec.State == domain.AssuranceStateSucceeded && strings.TrimSpace(invocation.Spec.Head) == reverifiedCommit
+	}
+	return false
 }
 
 func effectAdoptionMetadataComplete(item domain.Effect) bool {
-	return item.Spec.Adopted && item.Spec.Reverified && strings.TrimSpace(item.Spec.AdoptedCommit) != "" && strings.TrimSpace(item.Spec.ReverifiedCommit) != "" && strings.TrimSpace(item.Spec.ReverificationRunID) != ""
-}
-
-func traceReferenceExists(ref string, runs, runTraces map[string]domain.QualityRun, invocations, invocationTraces map[string]domain.AgentInvocation) bool {
-	if strings.TrimSpace(ref) == "" {
-		return false
-	}
-	if _, ok := runs[ref]; ok {
-		return true
-	}
-	if _, ok := runTraces[ref]; ok {
-		return true
-	}
-	if _, ok := invocations[ref]; ok {
-		return true
-	}
-	_, ok := invocationTraces[ref]
-	return ok
+	adoptedCommit := strings.TrimSpace(item.Spec.AdoptedCommit)
+	reverifiedCommit := strings.TrimSpace(item.Spec.ReverifiedCommit)
+	return item.Spec.Adopted && item.Spec.Reverified && adoptedCommit != "" && adoptedCommit == reverifiedCommit && strings.TrimSpace(item.Spec.ReverificationRunID) != ""
 }
 
 func effectEvidenceComplete(item domain.Effect, artifacts map[string]domain.Artifact) bool {
@@ -1023,12 +1124,7 @@ func missingArtifactCount(effects []domain.Effect, artifacts map[string]domain.A
 func summarizeTraceability(effects []domain.Effect, invocations map[string]domain.AgentInvocation, runs map[string]domain.QualityRun, artifacts map[string]domain.Artifact, findingRefs map[string]bool) AssuranceTraceabilitySummary {
 	result := AssuranceTraceabilitySummary{EffectsTotal: len(effects)}
 	for _, item := range effects {
-		hasSource := item.Spec.SourceFindingID != "" && findingRefs[item.Spec.SourceFindingID]
-		if item.Spec.SourceRunID != "" {
-			_, hasRun := runs[item.Spec.SourceRunID]
-			_, hasInvocation := invocations[item.Spec.SourceRunID]
-			hasSource = hasRun || hasInvocation
-		}
+		hasSource := effectSourceLinked(item, invocations, runs, findingRefs)
 		linked := 0
 		for _, id := range item.Spec.EvidenceIDs {
 			if artifact, ok := artifacts[id]; ok && artifact.Spec.Retention != domain.ArtifactRetentionDeleted && artifactPresent(artifact) {

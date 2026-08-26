@@ -74,7 +74,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 4vw, 44px)
 .workflow-steps small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .metric-card { padding: 18px 20px; background: var(--white); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 4px 14px rgb(16 24 38 / 3%); }
 .metric-card span { color: var(--muted); font-size: 12px; }
-.metric-card strong { display: block; margin-top: 7px; font-size: 25px; }
+.metric-card strong { display: block; margin-top: 7px; font-size: 25px; font-variant-numeric: tabular-nums; }
 .metric-card.accent { border-top: 3px solid var(--amber); padding-top: 16px; }
 
 .dashboard-grid, .diagnostic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -149,7 +149,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 4vw, 44px)
 .filter-field > span { color: #465368; font-size: 11px; font-weight: 800; }
 .assurance-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 16px 0; }
 .assurance-metrics .metric-card { padding: 15px 16px; }
-.assurance-metrics .metric-card strong { font-size: 21px; overflow-wrap: anywhere; }
+.assurance-metrics .metric-card strong { font-size: 21px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .assurance-grid { margin-top: 0; }
 .assurance-record { border-left: 3px solid #c6d1df; }
 .assurance-record.ok { border-left-color: var(--green); }
@@ -170,7 +170,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 4vw, 44px)
 .impact-metric-card h3 { margin: 0; font-size: 13px; }
 .impact-metric-card .meta { margin: 5px 0 0; }
 .impact-metric-card .chip { flex-shrink: 0; }
-.impact-metric-value { display: block; margin-top: 15px; font-size: 24px; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.impact-metric-value { display: block; margin-top: 15px; font-size: 24px; letter-spacing: -.02em; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .impact-comparison { margin: 5px 0 0; color: #465368; font-size: 12px; font-weight: 700; }
 .impact-trend { display: grid; gap: 13px; }
 .trend-row { display: grid; grid-template-columns: 116px minmax(100px, 1fr) minmax(260px, 1.2fr); gap: 12px; align-items: center; }
@@ -184,7 +184,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 4vw, 44px)
 .quality-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
 .quality-list > div { display: flex; justify-content: space-between; gap: 10px; padding-bottom: 7px; border-bottom: 1px solid #edf1f5; font-size: 11px; }
 .quality-list span { color: var(--muted); }
-.quality-list strong { color: #344054; }
+.quality-list strong { color: #344054; font-variant-numeric: tabular-nums; }
 .trace-score { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 15px; }
 .trace-score strong { font-size: 22px; }
 .surface-error { display: flex; align-items: center; gap: 10px; margin: 16px 0; padding: 12px 14px; border: 1px solid #efc3c8; border-left: 3px solid var(--red); border-radius: 10px; background: var(--red-soft); color: #7b2631; font-size: 12px; }

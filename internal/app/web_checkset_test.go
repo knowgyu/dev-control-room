@@ -75,7 +75,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".app-shell", ".side-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion"} {
+	for _, value := range []string{".app-shell", ".side-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums"} {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded UI CSS missing %q", value)
 		}
@@ -106,7 +106,7 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 		"assuranceDashboardPath", "renderAssuranceDashboard", "renderAssuranceBenefits", "refreshAssuranceFilter",
 		"/api/assurance/dashboard", "/api/assurance/runs", "/api/assurance/invocations",
 		"/api/assurance/artifacts", "/api/assurance/effects", "assurance-provider-filter", "assurance-model-filter",
-		"Agent 실행", "효과 기록", "재실행", "근거 연결", "비용 경계",
+		"Agent 실행", "효과 기록", "재실행", "근거 연결", "비용 경계", "회귀 방지", "예상 시간 절감", "time_saved_estimated", "근거 흐름",
 		"rawTranscript", "usageComplete", "estimatedCost", "configDigest", "artifactIds", "evidenceIds",
 	} {
 		if !strings.Contains(javascript, value) {

@@ -53,7 +53,7 @@ func TestAssuranceImpactAndTraceExposeMeasuredEvidenceWithoutLocalPaths(t *testi
 	value := 12.5
 	effect, err := service.CreateEffect(context.Background(), EffectInput{
 		ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Fingerprint: "sha256:impact-trace", Kind: domain.EffectMeasured,
-		SourceRunID: invocation.Metadata.ID, EvidenceIDs: invocation.Spec.ArtifactIDs, Adopted: true, Reverified: true, AdoptedCommit: invocation.Spec.Head, ReverificationRunID: invocation.Metadata.ID, ReverifiedCommit: invocation.Spec.Head, Label: "검증된 개선", Value: value, ValueKnown: true, Unit: "분",
+		SourceRunID: invocation.Metadata.ID, EvidenceIDs: invocation.Spec.ArtifactIDs, Adopted: true, Reverified: true, AdoptedCommit: invocation.Spec.Head, ReverificationRunID: invocation.Spec.TraceID, ReverifiedCommit: invocation.Spec.Head, Label: "검증된 개선", Value: value, ValueKnown: true, Unit: "분",
 		MetricKey: "time_saved", Outcome: "improved",
 	})
 	if err != nil {
@@ -96,6 +96,9 @@ func TestAssuranceImpactAndTraceExposeMeasuredEvidenceWithoutLocalPaths(t *testi
 	}
 	if !strings.Contains(string(encoded), `"fromId"`) || !strings.Contains(string(encoded), `"toId"`) {
 		t.Fatalf("trace did not expose typed link IDs: %s", encoded)
+	}
+	if !hasTraceRelation(trace.Links, "reverification") || !hasTraceRelation(trace.Links, "adopted_commit") || !hasTraceRelation(trace.Links, "reverified_commit") {
+		t.Fatalf("trace omitted adoption chain = %#v", trace.Links)
 	}
 	report, err := service.ExportAssuranceReport(context.Background(), AssuranceReportQuery{Format: "json", Days: 7})
 	if err != nil {
@@ -233,6 +236,110 @@ func TestAssuranceImpactTimeSavedUsesExplicitMetricAndConsistentUnits(t *testing
 	if metric == nil || metric.Value == nil || *metric.Value != 12.5 || metric.SampleCount != 1 || metric.Unit != "분" {
 		t.Fatalf("time saved metric = %#v", metric)
 	}
+}
+
+func TestAssuranceImpactSeparatesMeasuredAndUserEstimatedTime(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	if _, err := service.CreateEffect(context.Background(), EffectInput{Fingerprint: "sha256:measured-time", Kind: domain.EffectMeasured, MetricKey: "time_saved", Value: 12, ValueKnown: true, Unit: "분", Label: "측정 시간"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateEffect(context.Background(), EffectInput{Fingerprint: "sha256:estimated-time", Kind: domain.EffectUserEstimated, MetricKey: "time_saved", Value: 30, ValueKnown: true, Unit: "분", Label: "추정 시간"}); err != nil {
+		t.Fatal(err)
+	}
+
+	impact, err := service.AssuranceImpact(context.Background(), AssuranceImpactQuery{Days: 7, Now: time.Now().UTC().Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	measured := metricByKey(impact.Metrics, "time_saved")
+	estimated := metricByKey(impact.Metrics, "time_saved_estimated")
+	if measured == nil || measured.Value == nil || *measured.Value != 12 || measured.State != "measured" {
+		t.Fatalf("measured time metric = %#v", measured)
+	}
+	if estimated == nil || estimated.Value == nil || *estimated.Value != 30 || estimated.State != "user_estimated" {
+		t.Fatalf("estimated time metric = %#v", estimated)
+	}
+	if impact.DataQuality.MeasuredEffects != 1 || impact.DataQuality.UserEstimated != 1 {
+		t.Fatalf("effect classifications = %#v", impact.DataQuality)
+	}
+}
+
+func TestEffectVerificationRequiresSuccessfulReverificationAtAdoptedCommit(t *testing.T) {
+	now := time.Now().UTC()
+	run := domain.QualityRun{Spec: domain.QualityRunSpec{Head: "head-good", State: domain.AssuranceStateSucceeded}}
+	effect := domain.Effect{Spec: domain.EffectSpec{Adopted: true, Reverified: true, AdoptedCommit: "head-good", ReverificationRunID: "run-1", ReverifiedCommit: "head-bad", CreatedAt: now}}
+	if effectAdoptionComplete(effect, nil, map[string]domain.QualityRun{"run-1": run}) {
+		t.Fatal("mismatched reverification commit was accepted")
+	}
+	effect.Spec.AdoptedCommit = "another-commit"
+	effect.Spec.ReverifiedCommit = "head-good"
+	if effectAdoptionComplete(effect, nil, map[string]domain.QualityRun{"run-1": run}) {
+		t.Fatal("reverification at a different adopted commit was accepted")
+	}
+	effect.Spec.AdoptedCommit = "head-good"
+	effect.Spec.ReverifiedCommit = "head-good"
+	if !effectAdoptionComplete(effect, nil, map[string]domain.QualityRun{"run-1": run}) {
+		t.Fatal("successful reverification at adopted commit was rejected")
+	}
+	effect.Spec.ReverificationRunID = " run-1 "
+	run.Spec.Head = " head-good "
+	if !effectAdoptionComplete(effect, nil, map[string]domain.QualityRun{"run-1": run}) {
+		t.Fatal("trimmed successful reverification metadata was rejected")
+	}
+	run.Spec.State = domain.AssuranceStateFailed
+	if effectAdoptionComplete(effect, nil, map[string]domain.QualityRun{"run-1": run}) {
+		t.Fatal("failed reverification was accepted")
+	}
+}
+
+func TestAssuranceImpactAttributesTraceIDAsSource(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Trace source", Path: tempGitRepository(t, "trace-source")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := service.RunAgentInvocation(context.Background(), AgentInvocationInput{SessionID: session.Metadata.ID, Provider: "trace-provider", ProfileID: "fake", RequestedModel: "trace-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateEffect(context.Background(), EffectInput{
+		ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Fingerprint: "sha256:trace-source", Kind: domain.EffectUnavailable,
+		TraceIDs: []string{invocation.Spec.TraceID}, Label: "Trace source", Reason: "source uses trace identity",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	impact, err := service.AssuranceImpact(context.Background(), AssuranceImpactQuery{Provider: "trace-provider", Model: "trace-model", ProjectID: project.Metadata.ID, Days: 7, Now: time.Now().UTC().Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if impact.Traceability.EffectsTotal != 1 || impact.Traceability.PartialEffects != 1 || impact.Traceability.UnresolvedEffects != 0 {
+		t.Fatalf("trace-id source was not attributed = %#v", impact.Traceability)
+	}
+}
+
+func hasTraceRelation(links []AssuranceTraceLink, relation string) bool {
+	for _, link := range links {
+		if link.Relation == relation {
+			return true
+		}
+	}
+	return false
 }
 
 func metricByKey(metrics []AssuranceMetric, key string) *AssuranceMetric {

@@ -1,10 +1,9 @@
 # Phase 1 — AI-assisted Code Assurance plan
 
-Status: v0.10.0 development: Milestone A durable Unattended Approval Scope
-vertical slice and the B restart-boundary recovery slice are implemented and
-focused-verified; native resilience,
-provider authority, mutation, adoption, causal attribution, and manual
-accessibility criteria remain tracked
+Status: v0.10.0 release candidate: Milestone A durable Unattended Approval Scope,
+the B restart-boundary recovery slice, and the F effect-evidence hardening slice
+are focused-verified; native resilience, provider authority, mutation, adoption,
+causal attribution, and manual accessibility criteria remain tracked
 Updated: 2026-08-27
 Owner: local operator
 
@@ -344,7 +343,7 @@ or reruns an uncertain external/high-impact Action.
 | C — CI/runner | gh/Jenkins baseline discovery and typed Quality Runs | fixture proves required/observed/local equivalent/unknown and stale detection | partial: local discovery and read-only GitHub branch/rules lookup are verified; unavailable provider rules stay unknown, while successful provider/Jenkins authority remains [#4](https://github.com/knowgyu/dev-control-room/issues/4) |
 | D — assurance authoring | Q&A, Assurance Spec, test/property/mutation/fuzz proposals, isolated patch, critic | tests prove AI cannot adopt/commit/push and stale specs/runs surface | partial: authoring/review boundary is accepted; isolated patch materialization, human adoption, and re-verification remain [#10](https://github.com/knowgyu/dev-control-room/issues/10) |
 | E — techniques/artifacts | v1 static/security, mutation, property, fuzz, and targeted-E2E adapters; reports; archive/export/cleanup | three-repo fixture creates/verifies/exports/restores artifacts and deletion warning | partial: registered native Go static/property/fuzz/targeted-E2E runners and bounded reports are verified; mutation adapter remains [#5](https://github.com/knowgyu/dev-control-room/issues/5). Manifest export/restore, pinning, hash checks, and the 512 MiB quota are now verified. |
-| F — effects/usage | dashboard, filters, usage ledger, pricing snapshots, exports | fixture produces correctly labelled measured/estimated/unknown effects and stable historical pricing | partial: period/project/provider/model impact metrics, previous-equal-period comparison, daily/weekly trend, CSV/JSON export, safe trace drill-down, and artifact retention are verified; automatic patch materialization, human adoption ceremony, and causal attribution remain [#10](https://github.com/knowgyu/dev-control-room/issues/10), [#12](https://github.com/knowgyu/dev-control-room/issues/12) |
+| F — effects/usage | dashboard, filters, usage ledger, pricing snapshots, exports | fixture produces correctly labelled measured/estimated/unknown effects and stable historical pricing | partial: period/project/provider/model impact metrics, previous-equal-period comparison, daily/weekly trend, CSV/JSON export, safe trace drill-down, artifact retention, measured versus user-estimated time separation, trace-ID attribution, and successful exact-HEAD reverification checks are focused-verified; automatic patch materialization, human adoption ceremony, and full causal attribution remain [#10](https://github.com/knowgyu/dev-control-room/issues/10), [#12](https://github.com/knowgyu/dev-control-room/issues/12) |
 | G — dogfood/release | campaign on Dev Control Room and existing three-repo fixture | full automated suite, fake-provider E2E, targeted real CLI acceptance, reviewed effect report | partial: fake-provider E2E, 239-assertion clean-state journey, real local Codex acceptance, and Browser journey evidence are recorded; complete keyboard/second-device accessibility remains [#7](https://github.com/knowgyu/dev-control-room/issues/7) |
 
 Implement one milestone per branch. Mark it completed here and in the Roadmap;

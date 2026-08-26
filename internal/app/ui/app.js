@@ -228,12 +228,13 @@
   };
   const assuranceImpactStateLabels = {
     measured: "측정됨",
+    prevented_regression: "회귀 방지",
     user_estimated: "사용자 추정",
     ai_inference: "AI 추론",
     unavailable: "확인 불가",
   };
-  const assuranceImpactStateClass = value => value === "measured" ? "ok" : ["user_estimated", "ai_inference"].includes(value) ? "warn" : value === "unavailable" ? "bad" : "";
-  const assuranceEffectClassification = spec => spec.classification || (["user_estimated", "ai_inference", "unavailable"].includes(spec.kind) ? spec.kind : spec.adopted || spec.reverified ? "measured" : "unavailable");
+  const assuranceImpactStateClass = value => ["measured", "prevented_regression"].includes(value) ? "ok" : ["user_estimated", "ai_inference"].includes(value) ? "warn" : value === "unavailable" ? "bad" : "";
+  const assuranceEffectClassification = spec => ["measured", "prevented_regression", "user_estimated", "ai_inference", "unavailable"].includes(spec.kind) ? spec.kind : "unavailable";
   const assuranceComparisonLabels = { increase: "증가", decrease: "감소", neutral: "변화 없음", unavailable: "비교 불가" };
   const assuranceUnitLabels = { count: "건", percent: "%", seconds: "초", minutes: "분", hours: "시간", milliseconds: "ms" };
   const assuranceRetentionLabels = {
@@ -556,14 +557,18 @@
   function renderAssuranceEffect(item) {
     const spec = item.spec || {};
     const classification = assuranceEffectClassification(spec);
-    const outcome = spec.outcome || (classification === "measured" ? spec.kind : "effect");
-    const status = spec.reverified ? "재검증됨" : spec.adopted ? "채택됨" : classification === "unavailable" ? "확인 불가" : "검토 대기";
+    const outcome = spec.outcome || (["measured", "prevented_regression"].includes(classification) ? classification : "effect");
+    const status = spec.reverified
+      ? (spec.reverificationRunId && spec.reverifiedCommit ? "재검증 기록" : "재검증 정보 부족")
+      : spec.adopted
+        ? (spec.adoptedCommit ? "채택 기록" : "채택 정보 부족")
+        : classification === "unavailable" ? "확인 불가" : "검토 대기";
     const value = spec.observation?.value ?? spec.value;
     const valueKnown = spec.valueKnown === undefined ? value !== null && value !== undefined : spec.valueKnown;
     const valueText = !valueKnown || value === null || value === undefined ? "" : ` · ${escapeHTML(formatImpactValue(value, spec.observation?.unit || spec.unit || ""))}`;
     const baselineText = spec.baselineValue === null || spec.baselineValue === undefined ? "확인 불가" : formatImpactValue(spec.baselineValue, spec.baselineUnit || spec.unit || "");
     const id = artifactID(item);
-    const traceButton = id ? `<button class="button small" type="button" data-assurance-trace="${escapeHTML(id)}">trace 보기</button>` : "";
+    const traceButton = id ? `<button class="button small" type="button" data-assurance-trace="${escapeHTML(id)}">근거 흐름</button>` : "";
     return `<article class="list-item assurance-record ${assuranceImpactStateClass(classification)}"><div class="list-item-header"><div><h3>${escapeHTML(spec.label || "효과 기록")}</h3><p class="meta">${escapeHTML(assuranceEffectLabels[outcome] || outcome || "효과")}${valueText}</p></div><span class="chip ${assuranceImpactStateClass(classification)}">${escapeHTML(assuranceImpactStateLabels[classification] || classification)} · ${escapeHTML(status)}</span></div><div class="item-actions">${traceButton}</div><details><summary>효과 근거 보기</summary><dl class="detail-grid"><div><dt>분류</dt><dd>${escapeHTML(assuranceImpactStateLabels[classification] || classification)}</dd></div><div><dt>지표</dt><dd><code>${escapeHTML(spec.metricKey || "지정 없음")}</code></dd></div><div><dt>결과</dt><dd>${escapeHTML(assuranceEffectLabels[outcome] || outcome || "확인 불가")}</dd></div><div><dt>기준선</dt><dd>${escapeHTML(baselineText)}</dd></div><div><dt>관측값</dt><dd>${escapeHTML(valueKnown ? formatImpactValue(value, spec.unit || "") : "확인 불가")}</dd></div><div><dt>범위</dt><dd>${escapeHTML(assuranceScope(spec))}</dd></div><div><dt>생성 시각</dt><dd>${escapeHTML(formatDate(spec.createdAt))}</dd></div><div><dt>채택 시각</dt><dd>${escapeHTML(formatDate(spec.adoptedAt))}</dd></div><div><dt>재검증 시각</dt><dd>${escapeHTML(formatDate(spec.reverifiedAt))}</dd></div><div><dt>원본 Quality Run</dt><dd><code>${escapeHTML(spec.sourceRunId || "연결 없음")}</code></dd></div><div><dt>증거 artifact</dt><dd>${escapeHTML((spec.evidenceIds || []).length ? `${spec.evidenceIds.length}개` : "없음")}</dd></div><div><dt>Trace ID</dt><dd><code>${escapeHTML(spec.traceId || id || "연결 없음")}</code></dd></div><div><dt>채택 커밋</dt><dd><code>${escapeHTML(spec.adoptedCommit || "연결 없음")}</code></dd></div><div><dt>재검증 run</dt><dd><code>${escapeHTML(spec.reverificationRunId || (spec.reverified ? "완료" : "없음"))}</code></dd></div><div><dt>재검증 commit</dt><dd><code>${escapeHTML(spec.reverifiedCommit || "연결 없음")}</code></dd></div><div class="wide"><dt>Fingerprint</dt><dd><code>${escapeHTML(spec.fingerprint || "기록 없음")}</code></dd></div></dl></details></article>`;
   }
 
@@ -608,12 +613,15 @@
     const trace = impact?.traceability || {};
     const proofMetric = findImpactMetric(metrics, ["verified", "defect_fixed", "improvement"], "개선");
     const successMetric = findImpactMetric(metrics, ["reverification_rate"], "재검증률");
-    const durationMetric = findImpactMetric(metrics, ["time_saved"], "시간 절감");
+    const measuredDuration = metrics.find(metric => metric.key === "time_saved" && metric.value !== null && metric.value !== undefined);
+    const estimatedDuration = metrics.find(metric => metric.key === "time_saved_estimated" && metric.value !== null && metric.value !== undefined);
+    const durationMetric = measuredDuration || estimatedDuration;
+    const durationTitle = measuredDuration ? "기록된 시간 절감" : estimatedDuration ? "예상 시간 절감" : "기록된 시간 절감";
     const completeness = trace.effectsTotal ? `${formatImpactValue((Number(trace.completeEffects || 0) / Number(trace.effectsTotal)) * 100, "percent")}` : "확인 불가";
     const cards = [
       ["검증된 개선", proofMetric, "현재 기간"],
       ["재검증률", successMetric, "현재 기간"],
-      ["기록된 시간 절감", durationMetric, "이전 기간 비교"],
+      [durationTitle, durationMetric, "이전 기간 비교"],
       ["근거 완결성", { value: completeness, state: trace.status === "complete" ? "measured" : trace.effectsTotal ? "user_estimated" : "unavailable" }, "trace 연결 상태"],
     ];
     container.innerHTML = cards.map(([title, metric, hint]) => {
@@ -634,7 +642,8 @@
     container.innerHTML = metrics.length ? metrics.map(metric => {
       const state = metric.state || "unavailable";
       const comparison = metric.comparison || {};
-      const evidence = metric.evidenceCount === null || metric.evidenceCount === undefined ? "근거 수 미상" : `근거 ${formatCount(metric.evidenceCount)}개`;
+      const evidenceLabel = state === "user_estimated" ? "기록" : "근거";
+      const evidence = metric.evidenceCount === null || metric.evidenceCount === undefined ? `${evidenceLabel} 수 미상` : `${evidenceLabel} ${formatCount(metric.evidenceCount)}개`;
       return `<article class="impact-metric-card ${assuranceImpactStateClass(state)}"><div class="list-item-header"><div><h3>${escapeHTML(metric.label || metric.key || "효과 지표")}</h3><p class="meta"><code>${escapeHTML(metric.key || "metric")}</code></p></div><span class="chip ${assuranceImpactStateClass(state)}">${escapeHTML(assuranceImpactStateLabels[state] || state)}</span></div><strong class="impact-metric-value">${escapeHTML(formatImpactValue(metric.value, metric.unit))}</strong><p class="impact-comparison">${escapeHTML(formatImpactDelta(comparison, metric.unit))}</p><p class="meta">${escapeHTML(metric.sampleCount ? `표본 ${formatCount(metric.sampleCount)}개 · ` : "")} ${escapeHTML(evidence)}</p></article>`;
     }).join("") : '<div class="empty-state"><strong>표시할 효과 지표가 없습니다.</strong><span>Quality Run과 효과 기록이 쌓이면 기간 비교를 시작합니다.</span></div>';
   }
@@ -662,7 +671,7 @@
       container.innerHTML = '<div class="empty-state"><strong>품질 정보를 표시할 수 없습니다.</strong><span>Impact API가 복구되면 데이터 경계를 확인합니다.</span></div>';
       return;
     }
-    const rows = [["전체 기록", quality.recordsTotal], ["측정 효과", quality.measuredEffects], ["사용자 추정", quality.userEstimatedEffects], ["AI 추론", quality.aiInferenceEffects], ["확인 불가", quality.unavailableEffects], ["근거 누락", quality.missingEvidence], ["artifact 누락", quality.missingArtifacts]];
+    const rows = [["전체 기록", quality.recordsTotal], ["측정 효과", quality.measuredEffects], ["회귀 방지", quality.preventedRegressionEffects], ["사용자 추정", quality.userEstimatedEffects], ["AI 추론", quality.aiInferenceEffects], ["확인 불가", quality.unavailableEffects], ["근거 누락", quality.missingEvidence], ["artifact 누락", quality.missingArtifacts]];
     const baselineLabels = { previous_equal_period: "이전 동일 기간", unavailable: "확인 불가" };
     container.innerHTML = `<div class="quality-list">${rows.map(([name, value]) => `<div><span>${escapeHTML(name)}</span><strong>${escapeHTML(formatCount(value))}</strong></div>`).join("")}</div><p class="meta">비교 기준 ${escapeHTML(baselineLabels[quality.baselineState] || quality.baselineState || "확인 불가")} · 마지막 기록 ${escapeHTML(formatDate(quality.lastEvidenceAt))}</p>`;
   }
