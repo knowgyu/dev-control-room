@@ -2191,6 +2191,12 @@
     }
   });
 
+  document.addEventListener("keydown", event => {
+    if (event.target?.id !== "assurance-filter-reset" || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    event.target.click();
+  });
+
   document.addEventListener("input", event => {
     if (!event.target.matches("[data-safeguard-owner]")) return;
     const submit = event.target.closest(".list-item").querySelector("[data-owner-submit]");
