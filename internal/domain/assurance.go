@@ -160,10 +160,14 @@ type AgentInvocation struct {
 type AgentInvocationSpec struct {
 	SessionID       string         `json:"sessionId"`
 	ParentID        string         `json:"parentId,omitempty"`
+	ProjectID       string         `json:"projectId,omitempty"`
+	RepositoryID    string         `json:"repositoryId,omitempty"`
 	WorktreeID      string         `json:"worktreeId"`
+	Branch          string         `json:"branch,omitempty"`
 	Head            string         `json:"head"`
 	Provider        string         `json:"provider"`
 	ProfileID       string         `json:"profileId"`
+	ToolVersion     string         `json:"toolVersion,omitempty"`
 	RequestedModel  string         `json:"requestedModel,omitempty"`
 	ResolvedModel   string         `json:"resolvedModel,omitempty"`
 	SelectionSource string         `json:"selectionSource"`
@@ -175,6 +179,9 @@ type AgentInvocationSpec struct {
 	Structured      map[string]any `json:"structured,omitempty"`
 	Usage           Usage          `json:"usage"`
 	ArtifactIDs     []string       `json:"artifactIds,omitempty"`
+	InputDigest     string         `json:"inputDigest,omitempty"`
+	OutputDigest    string         `json:"outputDigest,omitempty"`
+	TraceID         string         `json:"traceId,omitempty"`
 	FailureCode     string         `json:"failureCode,omitempty"`
 	RawTranscript   bool           `json:"rawTranscript"`
 }
@@ -215,24 +222,31 @@ type QualityRun struct {
 }
 
 type QualityRunSpec struct {
-	CampaignID    string         `json:"campaignId"`
-	ProjectID     string         `json:"projectId"`
-	RepositoryID  string         `json:"repositoryId"`
-	WorktreeID    string         `json:"worktreeId"`
-	Head          string         `json:"head"`
-	Technique     string         `json:"technique"`
-	Runner        string         `json:"runner"`
-	Command       CheckCommand   `json:"command"`
-	ConfigDigest  string         `json:"configDigest"`
-	State         string         `json:"state"`
-	Summary       string         `json:"summary,omitempty"`
-	ExitCode      int            `json:"exitCode,omitempty"`
-	StartedAt     time.Time      `json:"startedAt"`
-	CompletedAt   *time.Time     `json:"completedAt,omitempty"`
-	ArtifactIDs   []string       `json:"artifactIds,omitempty"`
-	InvocationIDs []string       `json:"invocationIds,omitempty"`
-	Evidence      map[string]any `json:"evidence,omitempty"`
-	StaleReason   string         `json:"staleReason,omitempty"`
+	CampaignID             string         `json:"campaignId"`
+	ProjectID              string         `json:"projectId"`
+	RepositoryID           string         `json:"repositoryId"`
+	WorktreeID             string         `json:"worktreeId"`
+	Branch                 string         `json:"branch,omitempty"`
+	Head                   string         `json:"head"`
+	BaselineID             string         `json:"baselineId,omitempty"`
+	Technique              string         `json:"technique"`
+	Runner                 string         `json:"runner"`
+	Command                CheckCommand   `json:"command"`
+	ConfigDigest           string         `json:"configDigest"`
+	State                  string         `json:"state"`
+	Summary                string         `json:"summary,omitempty"`
+	ExitCode               int            `json:"exitCode,omitempty"`
+	StartedAt              time.Time      `json:"startedAt"`
+	CompletedAt            *time.Time     `json:"completedAt,omitempty"`
+	ArtifactIDs            []string       `json:"artifactIds,omitempty"`
+	InvocationIDs          []string       `json:"invocationIds,omitempty"`
+	InputDigest            string         `json:"inputDigest,omitempty"`
+	OutputDigest           string         `json:"outputDigest,omitempty"`
+	TraceID                string         `json:"traceId,omitempty"`
+	IsReverification       bool           `json:"isReverification,omitempty"`
+	ReverificationEffectID string         `json:"reverificationEffectId,omitempty"`
+	Evidence               map[string]any `json:"evidence,omitempty"`
+	StaleReason            string         `json:"staleReason,omitempty"`
 }
 
 type BaselineEntry struct {
@@ -273,18 +287,31 @@ type Artifact struct {
 }
 
 type ArtifactSpec struct {
-	SourceType  string     `json:"sourceType"`
-	SourceID    string     `json:"sourceId"`
-	Path        string     `json:"path"`
-	MIME        string     `json:"mime"`
-	Size        int64      `json:"size"`
-	SHA256      string     `json:"sha256"`
-	Retention   string     `json:"retention"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	ArchivedAt  *time.Time `json:"archivedAt,omitempty"`
-	ArchivePath string     `json:"archivePath,omitempty"`
-	DeletedAt   *time.Time `json:"deletedAt,omitempty"`
-	SourceRef   string     `json:"sourceRef,omitempty"`
+	ManifestVersion     string     `json:"manifestVersion,omitempty"`
+	StorageKey          string     `json:"storageKey,omitempty"`
+	SourceType          string     `json:"sourceType"`
+	SourceID            string     `json:"sourceId"`
+	Path                string     `json:"path"`
+	MIME                string     `json:"mime"`
+	Size                int64      `json:"size"`
+	SHA256              string     `json:"sha256"`
+	Retention           string     `json:"retention"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	ArchivedAt          *time.Time `json:"archivedAt,omitempty"`
+	ArchivePath         string     `json:"archivePath,omitempty"`
+	ArchiveManifest     string     `json:"archiveManifest,omitempty"`
+	ArchiveSHA256       string     `json:"archiveSha256,omitempty"`
+	ArchiveID           string     `json:"archiveId,omitempty"`
+	ArchiveVerifiedAt   *time.Time `json:"archiveVerifiedAt,omitempty"`
+	RestoredAt          *time.Time `json:"restoredAt,omitempty"`
+	PinnedAt            *time.Time `json:"pinnedAt,omitempty"`
+	PinReason           string     `json:"pinReason,omitempty"`
+	RetentionUntil      *time.Time `json:"retentionUntil,omitempty"`
+	MaskingPolicyDigest string     `json:"maskingPolicyDigest,omitempty"`
+	RedactionState      string     `json:"redactionState,omitempty"`
+	TraceID             string     `json:"traceId,omitempty"`
+	DeletedAt           *time.Time `json:"deletedAt,omitempty"`
+	SourceRef           string     `json:"sourceRef,omitempty"`
 }
 
 type Effect struct {
@@ -294,20 +321,39 @@ type Effect struct {
 }
 
 type EffectSpec struct {
-	Fingerprint  string    `json:"fingerprint"`
-	ProjectID    string    `json:"projectId"`
-	RepositoryID string    `json:"repositoryId"`
-	WorktreeID   string    `json:"worktreeId"`
-	Kind         string    `json:"kind"`
-	SourceRunID  string    `json:"sourceRunId,omitempty"`
-	EvidenceIDs  []string  `json:"evidenceIds,omitempty"`
-	Adopted      bool      `json:"adopted"`
-	Reverified   bool      `json:"reverified"`
-	Label        string    `json:"label"`
-	Value        float64   `json:"value,omitempty"`
-	Unit         string    `json:"unit,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	Fingerprint         string     `json:"fingerprint"`
+	ProjectID           string     `json:"projectId"`
+	RepositoryID        string     `json:"repositoryId"`
+	WorktreeID          string     `json:"worktreeId"`
+	Kind                string     `json:"kind"`
+	MetricKey           string     `json:"metricKey,omitempty"`
+	BaselineID          string     `json:"baselineId,omitempty"`
+	SourceRunID         string     `json:"sourceRunId,omitempty"`
+	SourceFindingID     string     `json:"sourceFindingId,omitempty"`
+	EvidenceIDs         []string   `json:"evidenceIds,omitempty"`
+	TraceIDs            []string   `json:"traceIds,omitempty"`
+	TraceID             string     `json:"traceId,omitempty"`
+	Adopted             bool       `json:"adopted"`
+	Reverified          bool       `json:"reverified"`
+	AdoptedAt           *time.Time `json:"adoptedAt,omitempty"`
+	ReverifiedAt        *time.Time `json:"reverifiedAt,omitempty"`
+	AdoptedCommit       string     `json:"adoptedCommit,omitempty"`
+	ReverificationRunID string     `json:"reverificationRunId,omitempty"`
+	ReverifiedCommit    string     `json:"reverifiedCommit,omitempty"`
+	Label               string     `json:"label"`
+	Value               float64    `json:"value,omitempty"`
+	ValueKnown          bool       `json:"valueKnown"`
+	Unit                string     `json:"unit,omitempty"`
+	BaselineValue       *float64   `json:"baselineValue,omitempty"`
+	BaselineUnit        string     `json:"baselineUnit,omitempty"`
+	PeriodStart         *time.Time `json:"periodStart,omitempty"`
+	PeriodEnd           *time.Time `json:"periodEnd,omitempty"`
+	Outcome             string     `json:"outcome,omitempty"`
+	RecordedBy          string     `json:"recordedBy,omitempty"`
+	Reason              string     `json:"reason,omitempty"`
+	Note                string     `json:"note,omitempty"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	UpdatedAt           time.Time  `json:"updatedAt"`
 }
 
 type ProviderPricingSnapshot struct {
@@ -481,6 +527,15 @@ func (a Artifact) Validate() error {
 	if strings.TrimSpace(a.Spec.SourceType) == "" || strings.TrimSpace(a.Spec.SourceID) == "" || strings.TrimSpace(a.Spec.Path) == "" || a.Spec.Size < 0 || len(a.Spec.SHA256) != 64 || !validArtifactRetention(a.Spec.Retention) || a.Spec.CreatedAt.IsZero() {
 		return errors.New("artifact manifest is incomplete")
 	}
+	if a.Spec.ArchiveSHA256 != "" && len(a.Spec.ArchiveSHA256) != 64 {
+		return errors.New("artifact archive hash is invalid")
+	}
+	if a.Spec.ArchiveManifest != "" && strings.TrimSpace(a.Spec.ArchivePath) == "" {
+		return errors.New("artifact archive manifest requires an archive path")
+	}
+	if a.Spec.RestoredAt != nil && a.Spec.RestoredAt.Before(a.Spec.CreatedAt) {
+		return errors.New("artifact restore cannot precede creation")
+	}
 	return nil
 }
 
@@ -490,6 +545,18 @@ func (e Effect) Validate() error {
 	}
 	if strings.TrimSpace(e.Spec.Fingerprint) == "" || strings.TrimSpace(e.Spec.Kind) == "" || !validEffectKind(e.Spec.Kind) || e.Spec.CreatedAt.IsZero() || e.Spec.UpdatedAt.IsZero() {
 		return errors.New("effect requires a stable fingerprint, kind, and timestamps")
+	}
+	if e.Spec.BaselineValue != nil && e.Spec.BaselineUnit != "" && e.Spec.Unit != "" && e.Spec.BaselineUnit != e.Spec.Unit {
+		return errors.New("effect baseline and observed units must match")
+	}
+	if e.Spec.Outcome != "" && !validEffectOutcome(e.Spec.Outcome) {
+		return errors.New("effect outcome is invalid")
+	}
+	if e.Spec.AdoptedAt != nil && e.Spec.AdoptedAt.Before(e.Spec.CreatedAt) {
+		return errors.New("effect adoption cannot precede creation")
+	}
+	if e.Spec.ReverifiedAt != nil && e.Spec.ReverifiedAt.Before(e.Spec.CreatedAt) {
+		return errors.New("effect reverification cannot precede creation")
 	}
 	return nil
 }
@@ -554,6 +621,14 @@ func validArtifactRetention(value string) bool {
 func validEffectKind(value string) bool {
 	switch value {
 	case EffectMeasured, EffectPreventedRegression, EffectUserEstimated, EffectAIInference, EffectUnavailable:
+		return true
+	}
+	return false
+}
+
+func validEffectOutcome(value string) bool {
+	switch value {
+	case "improved", "unchanged", "regressed", "unknown":
 		return true
 	}
 	return false

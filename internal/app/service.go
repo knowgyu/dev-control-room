@@ -73,6 +73,9 @@ type QueryService interface {
 	ProviderStatuses(context.Context) ([]ProviderStatus, error)
 	PricingSnapshots(context.Context) ([]domain.ProviderPricingSnapshot, error)
 	AssuranceDashboard(context.Context, string, string) (AssuranceDashboard, error)
+	AssuranceImpact(context.Context, AssuranceImpactQuery) (AssuranceImpactDashboard, error)
+	AssuranceTrace(context.Context, string) (AssuranceTrace, error)
+	AssuranceArtifactStorage(context.Context) (ArtifactStorageSummary, error)
 }
 
 type CommandService interface {
@@ -145,7 +148,10 @@ type CommandService interface {
 	CreateEffect(context.Context, EffectInput) (domain.Effect, error)
 	SavePricingSnapshot(context.Context, domain.ProviderPricingSnapshot) (domain.ProviderPricingSnapshot, error)
 	ExportAssuranceArtifacts(context.Context, []string, string) (ArtifactExportResult, error)
+	SetAssuranceArtifactRetention(context.Context, string, string) (domain.Artifact, error)
+	RestoreAssuranceArtifact(context.Context, string) (domain.Artifact, error)
 	DeleteAssuranceArtifact(context.Context, string, string) (domain.Artifact, error)
+	ExportAssuranceReport(context.Context, AssuranceReportQuery) (AssuranceReportExport, error)
 }
 
 type ApplicationService interface {
@@ -457,21 +463,41 @@ type ArtifactInput struct {
 	Name       string `json:"name"`
 	MIME       string `json:"mime"`
 	Content    []byte `json:"-"`
+	TraceID    string `json:"traceId,omitempty"`
 }
 
 type EffectInput struct {
-	ProjectID    string   `json:"projectId"`
-	RepositoryID string   `json:"repositoryId"`
-	WorktreeID   string   `json:"worktreeId"`
-	Fingerprint  string   `json:"fingerprint"`
-	Kind         string   `json:"kind"`
-	SourceRunID  string   `json:"sourceRunId"`
-	EvidenceIDs  []string `json:"evidenceIds"`
-	Adopted      bool     `json:"adopted"`
-	Reverified   bool     `json:"reverified"`
-	Label        string   `json:"label"`
-	Value        float64  `json:"value"`
-	Unit         string   `json:"unit"`
+	ProjectID           string     `json:"projectId"`
+	RepositoryID        string     `json:"repositoryId"`
+	WorktreeID          string     `json:"worktreeId"`
+	Fingerprint         string     `json:"fingerprint"`
+	Kind                string     `json:"kind"`
+	SourceRunID         string     `json:"sourceRunId"`
+	EvidenceIDs         []string   `json:"evidenceIds"`
+	Adopted             bool       `json:"adopted"`
+	Reverified          bool       `json:"reverified"`
+	Label               string     `json:"label"`
+	Value               float64    `json:"value"`
+	Unit                string     `json:"unit"`
+	MetricKey           string     `json:"metricKey"`
+	BaselineID          string     `json:"baselineId"`
+	SourceFindingID     string     `json:"sourceFindingId"`
+	TraceIDs            []string   `json:"traceIds"`
+	TraceID             string     `json:"traceId"`
+	ValueKnown          bool       `json:"valueKnown"`
+	BaselineValue       *float64   `json:"baselineValue"`
+	BaselineUnit        string     `json:"baselineUnit"`
+	Outcome             string     `json:"outcome"`
+	Note                string     `json:"note"`
+	AdoptedAt           *time.Time `json:"adoptedAt"`
+	ReverifiedAt        *time.Time `json:"reverifiedAt"`
+	AdoptedCommit       string     `json:"adoptedCommit"`
+	ReverificationRunID string     `json:"reverificationRunId"`
+	ReverifiedCommit    string     `json:"reverifiedCommit"`
+	PeriodStart         *time.Time `json:"periodStart"`
+	PeriodEnd           *time.Time `json:"periodEnd"`
+	RecordedBy          string     `json:"recordedBy"`
+	Reason              string     `json:"reason"`
 }
 
 type ProviderStatus struct {
@@ -489,20 +515,24 @@ type ProviderStatus struct {
 type ArtifactExportResult struct {
 	Destination string   `json:"destination"`
 	ArtifactIDs []string `json:"artifactIds"`
+	Manifest    string   `json:"manifest"`
+	ManifestSHA string   `json:"manifestSha256"`
 	Verified    bool     `json:"verified"`
 }
 
 type AssuranceDashboard struct {
-	GeneratedAt    time.Time                `json:"generatedAt"`
-	ProviderFilter string                   `json:"providerFilter,omitempty"`
-	ModelFilter    string                   `json:"modelFilter,omitempty"`
-	Effects        []domain.Effect          `json:"effects"`
-	Invocations    []domain.AgentInvocation `json:"invocations"`
-	TotalTokens    int64                    `json:"totalTokens"`
-	UsageComplete  bool                     `json:"usageComplete"`
-	EstimatedCost  *float64                 `json:"estimatedCost,omitempty"`
-	CostLabel      string                   `json:"costLabel"`
-	CostState      string                   `json:"costState"`
+	GeneratedAt    time.Time                    `json:"generatedAt"`
+	ProviderFilter string                       `json:"providerFilter,omitempty"`
+	ModelFilter    string                       `json:"modelFilter,omitempty"`
+	Effects        []domain.Effect              `json:"effects"`
+	Invocations    []domain.AgentInvocation     `json:"invocations"`
+	TotalTokens    int64                        `json:"totalTokens"`
+	UsageComplete  bool                         `json:"usageComplete"`
+	EstimatedCost  *float64                     `json:"estimatedCost,omitempty"`
+	CostLabel      string                       `json:"costLabel"`
+	CostState      string                       `json:"costState"`
+	Impact         AssuranceImpactDashboard     `json:"impact"`
+	Traceability   AssuranceTraceabilitySummary `json:"traceability"`
 }
 
 type GuidanceFinding struct {

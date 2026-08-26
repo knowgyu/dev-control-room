@@ -15,8 +15,8 @@ instructions to rerun completed work.
 | P0 local control plane | implemented and accepted | milestone verification documents and docs/HANDOFF.md |
 | P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
 | P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |
-| AI-assisted Code Assurance | v0.8.0 verifies bounded real Codex, GitHub fail-closed lookup, and native Go runners; A–G still have explicit resilience, authority, patch, artifact, trend, and accessibility gaps in #3–#5 and #7, #9–#12 | docs/AI_CODE_ASSURANCE_PLAN.md and milestone verification documents |
-| Product usability and interface | v0.8.0 has first-use/return/recovery journeys, concise Korean copy, Assurance value dashboard, screenshots, and focused keyboard evidence; full Tab/Space, native dialog Esc, and second-device acceptance remain #7 | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md |
+| AI-assisted Code Assurance | v0.9.0 adds period-based effect proof, honest comparisons, trace drill-down, safe report export, and manifest-backed artifact retention; native resilience, mutation, patch adoption, and causal attribution remain tracked | docs/AI_CODE_ASSURANCE_PLAN.md, docs/ASSURANCE_EFFECT_DASHBOARD.md, and milestone verification documents |
+| Product usability and interface | v0.9.0 keeps first-use/return/recovery journeys and adds an evidence-first impact surface with concise Korean copy; full Tab/Space, native dialog Esc, and second-device acceptance remain #7 | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md and DESIGN.md |
 
 ## P0: dependable local control plane
 
@@ -77,8 +77,9 @@ Outcome: humans and agents use the same deterministic control plane, while AI
 is invoked only for bounded judgment-heavy work.
 
 Managed non-interactive assurance sessions, provider/model selection, usage and
-price-equivalent ledger, Quality Runs, artifacts, and the effect screen are
-active work under docs/AI_CODE_ASSURANCE_PLAN.md.
+price-equivalent ledger, Quality Runs, artifacts, and the effect-proof screen are
+implemented slices under docs/AI_CODE_ASSURANCE_PLAN.md. Patch adoption and
+reverification authority remain human-owned.
 
 ## P3: optional operational visibility
 

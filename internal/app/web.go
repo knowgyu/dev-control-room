@@ -1263,6 +1263,23 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	})
+	mux.HandleFunc("GET /api/assurance/artifacts/{artifactID}", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.AssuranceArtifacts(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		for _, item := range items {
+			if item.Metadata.ID == request.PathValue("artifactID") {
+				// The detail endpoint is safe to share; local storage paths stay
+				// inside the operator-only artifact listing and never enter trace
+				// or report responses.
+				writeEnvelope(response, http.StatusOK, contract.Success(assuranceArtifactRef(item)))
+				return
+			}
+		}
+		writeServiceError(response, contract.NotFound("assurance artifact not found"))
+	})
 	mux.HandleFunc("POST /api/assurance/artifacts/export", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input struct {
 			IDs         []string `json:"ids"`
@@ -1288,6 +1305,33 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 			return
 		}
 		item, err := service.DeleteAssuranceArtifact(request.Context(), request.PathValue("artifactID"), input.Confirmation)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/assurance/artifacts/{artifactID}/retention", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Retention string `json:"retention"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.SetAssuranceArtifactRetention(request.Context(), request.PathValue("artifactID"), input.Retention)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/assurance/artifacts/{artifactID}/restore", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyBody(request); err != nil {
+			writeServiceError(response, contract.InvalidInput("restore request body must be empty"))
+			return
+		}
+		item, err := service.RestoreAssuranceArtifact(request.Context(), request.PathValue("artifactID"))
 		if err != nil {
 			writeServiceError(response, err)
 			return
@@ -1331,6 +1375,51 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(item))
 	})
+	mux.HandleFunc("GET /api/assurance/impact", func(response http.ResponseWriter, request *http.Request) {
+		days, err := assuranceImpactDays(request.URL.Query().Get("days"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		item, err := service.AssuranceImpact(request.Context(), AssuranceImpactQuery{Provider: request.URL.Query().Get("provider"), Model: request.URL.Query().Get("model"), ProjectID: request.URL.Query().Get("project"), Days: days})
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/assurance/traces/{effectID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.AssuranceTrace(request.Context(), request.PathValue("effectID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/assurance/artifacts/storage", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.AssuranceArtifactStorage(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/assurance/impact/export", func(response http.ResponseWriter, request *http.Request) {
+		days, err := assuranceImpactDays(request.URL.Query().Get("days"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		export, err := service.ExportAssuranceReport(request.Context(), AssuranceReportQuery{Format: request.URL.Query().Get("format"), Provider: request.URL.Query().Get("provider"), Model: request.URL.Query().Get("model"), ProjectID: request.URL.Query().Get("project"), Days: days})
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		response.Header().Set("Content-Type", export.ContentType)
+		response.Header().Set("Content-Disposition", `attachment; filename="`+export.Filename+`"`)
+		response.WriteHeader(http.StatusOK)
+		_, _ = response.Write(export.Body)
+	})
 	mux.HandleFunc("POST /api/assurance/pricing", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input domain.ProviderPricingSnapshot
 		if err := decodeBody(response, request, &input); err != nil {
@@ -1360,6 +1449,17 @@ func requireEmptyBody(request *http.Request) error {
 		return io.ErrUnexpectedEOF
 	}
 	return err
+}
+
+func assuranceImpactDays(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil || days < 1 || days > maxImpactPeriodDays {
+		return 0, contract.InvalidInput("impact days must be between 1 and 365")
+	}
+	return days, nil
 }
 
 func decodeBody(response http.ResponseWriter, request *http.Request, target any) error {

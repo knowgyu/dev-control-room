@@ -18,7 +18,16 @@
     assuranceInvocations: [],
     assuranceArtifacts: [],
     assuranceEffects: [],
-    assuranceFilters: { provider: "", model: "" },
+    assuranceImpact: null,
+    assuranceStorage: null,
+    assuranceTrace: null,
+    assuranceTraceEffectID: "",
+    assuranceTraceOpener: null,
+    assuranceImpactError: "",
+    assuranceStorageError: "",
+    assuranceTraceError: "",
+    assuranceFilters: { days: "30", provider: "", model: "", project: "" },
+    assuranceEffectFilter: "all",
     workItems: [],
     actionDetails: [],
     repositorySyncPlan: null,
@@ -212,7 +221,21 @@
     user_estimated: "사용자 추정",
     ai_inference: "AI 추론",
     unavailable: "확인 불가",
+    improved: "개선",
+    unchanged: "변화 없음",
+    regressed: "악화",
+    unknown: "확인 불가",
   };
+  const assuranceImpactStateLabels = {
+    measured: "측정됨",
+    user_estimated: "사용자 추정",
+    ai_inference: "AI 추론",
+    unavailable: "확인 불가",
+  };
+  const assuranceImpactStateClass = value => value === "measured" ? "ok" : ["user_estimated", "ai_inference"].includes(value) ? "warn" : value === "unavailable" ? "bad" : "";
+  const assuranceEffectClassification = spec => spec.classification || (["user_estimated", "ai_inference", "unavailable"].includes(spec.kind) ? spec.kind : spec.adopted || spec.reverified ? "measured" : "unavailable");
+  const assuranceComparisonLabels = { increase: "증가", decrease: "감소", neutral: "변화 없음", unavailable: "비교 불가" };
+  const assuranceUnitLabels = { count: "건", percent: "%", seconds: "초", minutes: "분", hours: "시간", milliseconds: "ms" };
   const assuranceRetentionLabels = {
     active: "활성",
     pinned: "고정",
@@ -232,12 +255,33 @@
     if (projectAdded) return `프로젝트와 저장소 ${projectAdded[1]}개를 등록했습니다.`;
     return text;
   };
-  const formatDate = value => value ? new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value)) : "아직 없음";
+  const formatDate = value => {
+    if (!value) return "아직 없음";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) return "아직 없음";
+    return new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short" }).format(date);
+  };
   const formatCount = value => numberFormatter.format(Number(value) || 0);
   const formatOptionalCount = value => value === null || value === undefined ? "미상" : numberFormatter.format(Number(value) || 0);
+  const formatImpactValue = (value, unit = "") => {
+    if (value === null || value === undefined || value === "") return "확인 불가";
+    const numeric = Number(value);
+    const text = Number.isFinite(numeric) ? new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 2 }).format(numeric) : String(value);
+    return `${text}${assuranceUnitLabels[unit] || (unit ? ` ${unit}` : "")}`;
+  };
+  const formatImpactDelta = (comparison = {}, unit = "") => {
+    if (comparison.state === "unavailable" || comparison.delta === null || comparison.delta === undefined) return "이전 기간 비교 불가";
+    const delta = Number(comparison.delta);
+    const deltaText = Number.isFinite(delta) ? `${delta > 0 ? "+" : ""}${formatImpactValue(delta, unit)}` : "변화 기록 없음";
+    const percent = comparison.deltaPercent === null || comparison.deltaPercent === undefined ? "" : ` (${Number(comparison.deltaPercent) > 0 ? "+" : ""}${formatImpactValue(comparison.deltaPercent, "percent")})`;
+    return `${assuranceComparisonLabels[comparison.state] || "변화"} ${deltaText}${percent}`;
+  };
+  const safePercentage = (value, maximum) => {
+    const numeric = Number(value) || 0;
+    const max = Number(maximum) || 1;
+    return Math.max(0, Math.min(100, Math.round((numeric / max) * 100)));
+  };
+  const artifactID = item => item?.metadata?.id || item?.id || item?.spec?.id || "";
   const assuranceStateClass = value => ["succeeded", "passed"].includes(value) ? "ok" : ["failed", "timed_out", "cancelled", "interrupted", "stale"].includes(value) ? "bad" : "warn";
   const assuranceScope = spec => [spec.projectId, spec.repositoryId, spec.worktreeId].filter(Boolean).join(" / ") || "전체 범위";
   const assuranceDashboardPath = () => {
@@ -247,6 +291,16 @@
     const suffix = query.toString();
     return `/api/assurance/dashboard${suffix ? `?${suffix}` : ""}`;
   };
+  const assuranceImpactQuery = includeFormat => {
+    const query = new URLSearchParams({ days: state.assuranceFilters.days || "30" });
+    if (state.assuranceFilters.provider) query.set("provider", state.assuranceFilters.provider);
+    if (state.assuranceFilters.model) query.set("model", state.assuranceFilters.model);
+    if (state.assuranceFilters.project) query.set("project", state.assuranceFilters.project);
+    if (includeFormat) query.set("format", includeFormat);
+    return query;
+  };
+  const assuranceImpactPath = () => `/api/assurance/impact?${assuranceImpactQuery().toString()}`;
+  const assuranceStoragePath = () => "/api/assurance/artifacts/storage";
   const projectRepositories = () => (state.snapshot.projects || []).flatMap(project =>
     (project.repos || []).map(repository => ({ ...repository, projectID: project.id, projectName: project.name })));
   const openFindings = () => state.findings.filter(item => ["open", "acknowledged"].includes(item.spec.state));
@@ -437,23 +491,34 @@
   function renderAssuranceFilters() {
     const providerSelect = document.getElementById("assurance-provider-filter");
     const modelSelect = document.getElementById("assurance-model-filter");
-    if (!providerSelect || !modelSelect) return;
+    const projectSelect = document.getElementById("assurance-project-filter");
+    const daysSelect = document.getElementById("assurance-days-filter");
+    const effectSelect = document.getElementById("assurance-effect-filter");
+    if (!providerSelect || !modelSelect || !projectSelect || !daysSelect || !effectSelect) return;
     const providers = [...new Set([
       ...(state.providerStatuses || []).map(item => item.provider),
       ...(state.assuranceInvocations || []).map(item => item.spec?.provider),
     ].filter(Boolean))].sort();
     const models = [...new Set((state.assuranceInvocations || []).map(item => item.spec?.requestedModel).filter(Boolean))].sort();
+    const projects = (state.snapshot.projects || []).map(project => ({ id: project.id, name: project.name || project.id })).filter(project => project.id);
     const optionMarkup = (value, selected, fallback) => `<option value="${escapeHTML(value)}" ${value === selected ? "selected" : ""}>${escapeHTML(fallback || value)}</option>`;
     providerSelect.innerHTML = optionMarkup("", state.assuranceFilters.provider, "전체 Provider") + providers.map(value => optionMarkup(value, state.assuranceFilters.provider)).join("");
     modelSelect.innerHTML = optionMarkup("", state.assuranceFilters.model, "전체 모델") + models.map(value => optionMarkup(value, state.assuranceFilters.model)).join("");
+    projectSelect.innerHTML = optionMarkup("", state.assuranceFilters.project, "전체 프로젝트") + projects.map(project => optionMarkup(project.id, state.assuranceFilters.project, project.name)).join("");
     if (state.assuranceFilters.provider && !providers.includes(state.assuranceFilters.provider)) {
       providerSelect.insertAdjacentHTML("beforeend", optionMarkup(state.assuranceFilters.provider, state.assuranceFilters.provider));
     }
     if (state.assuranceFilters.model && !models.includes(state.assuranceFilters.model)) {
       modelSelect.insertAdjacentHTML("beforeend", optionMarkup(state.assuranceFilters.model, state.assuranceFilters.model));
     }
+    if (state.assuranceFilters.project && !projects.some(project => project.id === state.assuranceFilters.project)) {
+      projectSelect.insertAdjacentHTML("beforeend", optionMarkup(state.assuranceFilters.project, state.assuranceFilters.project));
+    }
     providerSelect.value = state.assuranceFilters.provider;
     modelSelect.value = state.assuranceFilters.model;
+    projectSelect.value = state.assuranceFilters.project;
+    daysSelect.value = state.assuranceFilters.days;
+    effectSelect.value = state.assuranceEffectFilter;
   }
 
   function renderAssuranceBenefits() {
@@ -490,9 +555,16 @@
 
   function renderAssuranceEffect(item) {
     const spec = item.spec || {};
-    const status = spec.reverified ? "재검증됨" : spec.adopted ? "채택됨" : "검토 대기";
-    const value = spec.value ? ` · ${escapeHTML(spec.value)}${spec.unit ? ` ${escapeHTML(spec.unit)}` : ""}` : "";
-    return `<article class="list-item assurance-record"><div class="list-item-header"><div><h3>${escapeHTML(spec.label || "효과 기록")}</h3><p class="meta">${escapeHTML(assuranceEffectLabels[spec.kind] || spec.kind || "효과")}${value}</p></div><span class="chip ${spec.reverified || spec.adopted ? "ok" : "warn"}">${escapeHTML(status)}</span></div><details><summary>효과 근거 보기</summary><dl class="detail-grid"><div><dt>범위</dt><dd>${escapeHTML(assuranceScope(spec))}</dd></div><div><dt>생성 시각</dt><dd>${escapeHTML(formatDate(spec.createdAt))}</dd></div><div><dt>원본 Quality Run</dt><dd><code>${escapeHTML(spec.sourceRunId || "연결 없음")}</code></dd></div><div><dt>증거 artifact</dt><dd>${escapeHTML((spec.evidenceIds || []).length ? `${spec.evidenceIds.length}개` : "없음")}</dd></div><div class="wide"><dt>Fingerprint</dt><dd><code>${escapeHTML(spec.fingerprint || "기록 없음")}</code></dd></div></dl></details></article>`;
+    const classification = assuranceEffectClassification(spec);
+    const outcome = spec.outcome || (classification === "measured" ? spec.kind : "effect");
+    const status = spec.reverified ? "재검증됨" : spec.adopted ? "채택됨" : classification === "unavailable" ? "확인 불가" : "검토 대기";
+    const value = spec.observation?.value ?? spec.value;
+    const valueKnown = spec.valueKnown === undefined ? value !== null && value !== undefined : spec.valueKnown;
+    const valueText = !valueKnown || value === null || value === undefined ? "" : ` · ${escapeHTML(formatImpactValue(value, spec.observation?.unit || spec.unit || ""))}`;
+    const baselineText = spec.baselineValue === null || spec.baselineValue === undefined ? "확인 불가" : formatImpactValue(spec.baselineValue, spec.baselineUnit || spec.unit || "");
+    const id = artifactID(item);
+    const traceButton = id ? `<button class="button small" type="button" data-assurance-trace="${escapeHTML(id)}">trace 보기</button>` : "";
+    return `<article class="list-item assurance-record ${assuranceImpactStateClass(classification)}"><div class="list-item-header"><div><h3>${escapeHTML(spec.label || "효과 기록")}</h3><p class="meta">${escapeHTML(assuranceEffectLabels[outcome] || outcome || "효과")}${valueText}</p></div><span class="chip ${assuranceImpactStateClass(classification)}">${escapeHTML(assuranceImpactStateLabels[classification] || classification)} · ${escapeHTML(status)}</span></div><div class="item-actions">${traceButton}</div><details><summary>효과 근거 보기</summary><dl class="detail-grid"><div><dt>분류</dt><dd>${escapeHTML(assuranceImpactStateLabels[classification] || classification)}</dd></div><div><dt>지표</dt><dd><code>${escapeHTML(spec.metricKey || "지정 없음")}</code></dd></div><div><dt>결과</dt><dd>${escapeHTML(assuranceEffectLabels[outcome] || outcome || "확인 불가")}</dd></div><div><dt>기준선</dt><dd>${escapeHTML(baselineText)}</dd></div><div><dt>관측값</dt><dd>${escapeHTML(valueKnown ? formatImpactValue(value, spec.unit || "") : "확인 불가")}</dd></div><div><dt>범위</dt><dd>${escapeHTML(assuranceScope(spec))}</dd></div><div><dt>생성 시각</dt><dd>${escapeHTML(formatDate(spec.createdAt))}</dd></div><div><dt>채택 시각</dt><dd>${escapeHTML(formatDate(spec.adoptedAt))}</dd></div><div><dt>재검증 시각</dt><dd>${escapeHTML(formatDate(spec.reverifiedAt))}</dd></div><div><dt>원본 Quality Run</dt><dd><code>${escapeHTML(spec.sourceRunId || "연결 없음")}</code></dd></div><div><dt>증거 artifact</dt><dd>${escapeHTML((spec.evidenceIds || []).length ? `${spec.evidenceIds.length}개` : "없음")}</dd></div><div><dt>Trace ID</dt><dd><code>${escapeHTML(spec.traceId || id || "연결 없음")}</code></dd></div><div><dt>채택 커밋</dt><dd><code>${escapeHTML(spec.adoptedCommit || "연결 없음")}</code></dd></div><div><dt>재검증 run</dt><dd><code>${escapeHTML(spec.reverificationRunId || (spec.reverified ? "완료" : "없음"))}</code></dd></div><div><dt>재검증 commit</dt><dd><code>${escapeHTML(spec.reverifiedCommit || "연결 없음")}</code></dd></div><div class="wide"><dt>Fingerprint</dt><dd><code>${escapeHTML(spec.fingerprint || "기록 없음")}</code></dd></div></dl></details></article>`;
   }
 
   function renderAssuranceInvocation(item) {
@@ -507,14 +579,152 @@
     const spec = item.spec || {};
     const retention = assuranceRetentionLabels[spec.retention] || spec.retention || "알 수 없음";
     const stateClass = spec.retention === "deleted" ? "bad" : spec.retention === "archived" ? "warn" : "ok";
-    return `<article class="list-item assurance-record"><div class="list-item-header"><div><h3>${escapeHTML(spec.sourceType || "근거 artifact")}</h3><p class="meta">${escapeHTML(spec.sourceId || "출처 미상")} · ${escapeHTML(formatDate(spec.createdAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(retention)}</span></div><p>${escapeHTML(spec.path || "경로가 기록되지 않았습니다.")}</p><details><summary>artifact manifest 보기</summary><dl class="detail-grid"><div><dt>크기</dt><dd>${escapeHTML(formatCount(spec.size))} bytes</dd></div><div><dt>MIME</dt><dd>${escapeHTML(spec.mime || "알 수 없음")}</dd></div><div><dt>보관 상태</dt><dd>${escapeHTML(retention)}</dd></div><div><dt>원본 참조</dt><dd>${escapeHTML(spec.sourceRef || "없음")}</dd></div><div class="wide"><dt>SHA-256</dt><dd><code>${escapeHTML(spec.sha256 || "기록 없음")}</code></dd></div></dl></details></article>`;
+    const id = artifactID(item);
+    const name = item.metadata?.name || spec.name || spec.sourceType || item.name || "근거 artifact";
+    const retentionAction = id && spec.retention === "pinned"
+      ? `<button class="button small" type="button" data-assurance-artifact="retention" data-id="${escapeHTML(id)}" data-retention="active">고정 해제</button>`
+      : id && spec.retention === "active"
+        ? `<button class="button small" type="button" data-assurance-artifact="retention" data-id="${escapeHTML(id)}" data-retention="pinned">근거 고정</button>`
+        : "";
+    const restoreAction = id && spec.retention === "archived"
+      ? `<button class="button small" type="button" data-assurance-artifact="restore" data-id="${escapeHTML(id)}">복원</button>`
+      : "";
+    return `<article class="list-item assurance-record"><div class="list-item-header"><div><h3>${escapeHTML(name)}</h3><p class="meta">${escapeHTML(spec.sourceId || "출처 미상")} · ${escapeHTML(formatDate(spec.createdAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(retention)}</span></div><p class="meta">Artifact ID <code>${escapeHTML(id || "기록 없음")}</code></p><div class="item-actions">${retentionAction}${restoreAction}</div><details><summary>artifact manifest 보기</summary><dl class="detail-grid"><div><dt>크기</dt><dd>${escapeHTML(formatCount(spec.size))} bytes</dd></div><div><dt>MIME</dt><dd>${escapeHTML(spec.mime || "알 수 없음")}</dd></div><div><dt>보관 상태</dt><dd>${escapeHTML(retention)}</dd></div><div><dt>원본 참조</dt><dd>${escapeHTML(spec.sourceRef || "없음")}</dd></div><div class="wide"><dt>SHA-256</dt><dd><code>${escapeHTML(spec.sha256 || "기록 없음")}</code></dd></div></dl></details></article>`;
+  }
+
+  function findImpactMetric(metrics, keys, labelText) {
+    return metrics.find(metric => keys.some(key => String(metric.key || "").toLowerCase().includes(key)))
+      || metrics.find(metric => String(metric.label || "").includes(labelText));
+  }
+
+  function impactMetricValue(metric) {
+    return metric ? formatImpactValue(metric.value, metric.unit) : "확인 불가";
+  }
+
+  function renderAssuranceImpactHeadline(impact) {
+    const container = document.getElementById("assurance-impact-headline");
+    if (!container) return;
+    const metrics = impact?.metrics || [];
+    const trace = impact?.traceability || {};
+    const proofMetric = findImpactMetric(metrics, ["verified", "defect_fixed", "improvement"], "개선");
+    const successMetric = findImpactMetric(metrics, ["reverification_rate"], "재검증률");
+    const durationMetric = findImpactMetric(metrics, ["time_saved"], "시간 절감");
+    const completeness = trace.effectsTotal ? `${formatImpactValue((Number(trace.completeEffects || 0) / Number(trace.effectsTotal)) * 100, "percent")}` : "확인 불가";
+    const cards = [
+      ["검증된 개선", proofMetric, "현재 기간"],
+      ["재검증률", successMetric, "현재 기간"],
+      ["기록된 시간 절감", durationMetric, "이전 기간 비교"],
+      ["근거 완결성", { value: completeness, state: trace.status === "complete" ? "measured" : trace.effectsTotal ? "user_estimated" : "unavailable" }, "trace 연결 상태"],
+    ];
+    container.innerHTML = cards.map(([title, metric, hint]) => {
+      const state = metric?.state || "unavailable";
+      const comparison = metric?.comparison || {};
+      return `<article class="metric-card impact-headline-card ${assuranceImpactStateClass(state)}"><span>${escapeHTML(title)}</span><strong>${escapeHTML(metric?.value === completeness ? completeness : impactMetricValue(metric))}</strong><small>${escapeHTML(metric?.comparison ? formatImpactDelta(comparison, metric.unit) : hint)}</small></article>`;
+    }).join("");
+  }
+
+  function renderAssuranceImpactMetrics(impact) {
+    const container = document.getElementById("assurance-impact-metrics");
+    if (!container) return;
+    if (!impact) {
+      container.innerHTML = `<div class="empty-state"><strong>효과 지표를 표시할 수 없습니다.</strong><span>Impact API가 복구되면 자동으로 다시 불러옵니다.</span></div>`;
+      return;
+    }
+    const metrics = impact.metrics || [];
+    container.innerHTML = metrics.length ? metrics.map(metric => {
+      const state = metric.state || "unavailable";
+      const comparison = metric.comparison || {};
+      const evidence = metric.evidenceCount === null || metric.evidenceCount === undefined ? "근거 수 미상" : `근거 ${formatCount(metric.evidenceCount)}개`;
+      return `<article class="impact-metric-card ${assuranceImpactStateClass(state)}"><div class="list-item-header"><div><h3>${escapeHTML(metric.label || metric.key || "효과 지표")}</h3><p class="meta"><code>${escapeHTML(metric.key || "metric")}</code></p></div><span class="chip ${assuranceImpactStateClass(state)}">${escapeHTML(assuranceImpactStateLabels[state] || state)}</span></div><strong class="impact-metric-value">${escapeHTML(formatImpactValue(metric.value, metric.unit))}</strong><p class="impact-comparison">${escapeHTML(formatImpactDelta(comparison, metric.unit))}</p><p class="meta">${escapeHTML(metric.sampleCount ? `표본 ${formatCount(metric.sampleCount)}개 · ` : "")} ${escapeHTML(evidence)}</p></article>`;
+    }).join("") : '<div class="empty-state"><strong>표시할 효과 지표가 없습니다.</strong><span>Quality Run과 효과 기록이 쌓이면 기간 비교를 시작합니다.</span></div>';
+  }
+
+  function renderAssuranceImpactTrend(impact) {
+    const container = document.getElementById("assurance-impact-trend");
+    if (!container) return;
+    const trend = impact?.trend || [];
+    if (!trend.length) {
+      container.innerHTML = '<div class="empty-state"><strong>추세를 만들 표본이 없습니다.</strong><span>선택한 기간에 실행 기록이 쌓이면 흐름을 표시합니다.</span></div>';
+      return;
+    }
+    const maximum = Math.max(1, ...trend.map(item => Math.max(Number(item.agentInvocations) || 0, Number(item.qualityRuns) || 0, Number(item.effects) || 0)));
+    container.innerHTML = trend.map(item => {
+      const volume = Math.max(Number(item.agentInvocations) || 0, Number(item.qualityRuns) || 0, Number(item.effects) || 0);
+      return `<article class="trend-row"><div class="trend-label"><strong>${escapeHTML(formatDate(item.startAt))}</strong><span>${escapeHTML(formatDate(item.endAt))}</span></div><div class="trend-track" role="img" aria-label="${escapeHTML(`실행 ${item.agentInvocations || 0}건, Quality Run ${item.qualityRuns || 0}건, 효과 ${item.effects || 0}건`) }"><span class="trend-fill" style="width:${safePercentage(volume, maximum)}%"></span></div><p class="meta">Agent ${formatCount(item.agentInvocations)} · 성공 ${formatCount(item.successfulAgents)} · Quality Run ${formatCount(item.qualityRuns)} · 통과 ${formatCount(item.successfulRuns)} · 효과 ${formatCount(item.effects)} · 검증 ${formatCount(item.verifiedEffects)}</p></article>`;
+    }).join("");
+  }
+
+  function renderAssuranceQuality(impact) {
+    const container = document.getElementById("assurance-impact-quality");
+    if (!container) return;
+    const quality = impact?.dataQuality;
+    if (!quality) {
+      container.innerHTML = '<div class="empty-state"><strong>품질 정보를 표시할 수 없습니다.</strong><span>Impact API가 복구되면 데이터 경계를 확인합니다.</span></div>';
+      return;
+    }
+    const rows = [["전체 기록", quality.recordsTotal], ["측정 효과", quality.measuredEffects], ["사용자 추정", quality.userEstimatedEffects], ["AI 추론", quality.aiInferenceEffects], ["확인 불가", quality.unavailableEffects], ["근거 누락", quality.missingEvidence], ["artifact 누락", quality.missingArtifacts]];
+    const baselineLabels = { previous_equal_period: "이전 동일 기간", unavailable: "확인 불가" };
+    container.innerHTML = `<div class="quality-list">${rows.map(([name, value]) => `<div><span>${escapeHTML(name)}</span><strong>${escapeHTML(formatCount(value))}</strong></div>`).join("")}</div><p class="meta">비교 기준 ${escapeHTML(baselineLabels[quality.baselineState] || quality.baselineState || "확인 불가")} · 마지막 기록 ${escapeHTML(formatDate(quality.lastEvidenceAt))}</p>`;
+  }
+
+  function renderAssuranceTraceability(impact) {
+    const container = document.getElementById("assurance-impact-traceability");
+    if (!container) return;
+    const trace = impact?.traceability;
+    if (!trace) {
+      container.innerHTML = '<div class="empty-state"><strong>근거 연결 정보를 표시할 수 없습니다.</strong><span>Impact API가 복구되면 trace 완결성을 확인합니다.</span></div>';
+      return;
+    }
+    const status = trace.status || "unavailable";
+    container.innerHTML = `<div class="trace-score"><strong>${escapeHTML(trace.effectsTotal ? `${formatCount(trace.completeEffects)} / ${formatCount(trace.effectsTotal)}` : "확인 불가")}</strong><span class="chip ${status === "complete" ? "ok" : status === "partial" ? "warn" : "bad"}">${escapeHTML(status === "complete" ? "완결" : status === "partial" ? "부분 연결" : "확인 필요")}</span></div><div class="quality-list"><div><span>부분 연결</span><strong>${escapeHTML(formatCount(trace.partialEffects))}</strong></div><div><span>미해결</span><strong>${escapeHTML(formatCount(trace.unresolvedEffects))}</strong></div><div><span>연결 artifact</span><strong>${escapeHTML(formatCount(trace.linkedArtifacts))}</strong></div><div><span>누락 artifact</span><strong>${escapeHTML(formatCount(trace.missingArtifacts))}</strong></div></div>`;
+  }
+
+  function renderAssuranceArtifactStorage() {
+    const container = document.getElementById("assurance-artifact-storage");
+    if (!container) return;
+    const storage = state.assuranceStorage;
+    if (!storage) {
+      container.innerHTML = `<div class="empty-state"><strong>보관 용량을 표시할 수 없습니다.</strong><span>${escapeHTML(state.assuranceStorageError || "Storage API가 복구되면 보관 상태를 확인합니다.")}</span></div>`;
+      return;
+    }
+    const storageNumber = (shortKey, longKey) => Number(storage[shortKey] ?? storage[longKey]) || 0;
+    const quota = storageNumber("quota", "quotaBytes");
+    const used = storageNumber("used", "usedBytes");
+    const active = storageNumber("active", "activeBytes");
+    const pinned = storageNumber("pinned", "pinnedBytes");
+    const archived = storageNumber("archived", "archivedBytes");
+    const percent = quota ? Math.min(100, Math.round((used / quota) * 100)) : 0;
+    container.innerHTML = `<div class="storage-summary"><div class="storage-meter" role="img" aria-label="보관 용량 ${escapeHTML(formatCount(used))} / ${escapeHTML(formatCount(quota))} bytes"><span style="width:${percent}%"></span></div><strong>${escapeHTML(formatCount(used))} / ${escapeHTML(formatCount(quota))} bytes</strong><span class="meta">활성 ${escapeHTML(formatCount(active))} · 고정 ${escapeHTML(formatCount(pinned))} · 보관 ${escapeHTML(formatCount(archived))} · 누락 ${escapeHTML(formatCount(storage.missingCount))}</span></div>`;
+  }
+
+  function renderAssuranceTrace() {
+    const panel = document.getElementById("assurance-trace-panel");
+    const container = document.getElementById("assurance-trace");
+    if (!panel || !container) return;
+    panel.hidden = !state.assuranceTraceEffectID;
+    if (!state.assuranceTraceEffectID) return;
+    if (state.assuranceTraceError) {
+      container.innerHTML = `<div class="empty-state state-bad"><strong>trace를 불러오지 못했습니다.</strong><span>${escapeHTML(state.assuranceTraceError)}</span></div>`;
+      return;
+    }
+    const trace = state.assuranceTrace;
+    if (!trace) {
+      container.innerHTML = '<div class="loading">trace를 불러오는 중입니다.</div>';
+      return;
+    }
+    const effect = trace.effect?.spec || trace.effect || {};
+    const nodes = trace.nodes || [];
+    const links = trace.links || [];
+    const artifacts = trace.artifacts || [];
+    container.innerHTML = `<div class="trace-overview"><div><strong>${escapeHTML(effect.label || "효과 기록")}</strong><p class="meta">Effect ID <code>${escapeHTML(state.assuranceTraceEffectID)}</code></p></div><span class="chip ${trace.complete ? "ok" : "warn"}">${trace.complete ? "근거 완결" : "부분 연결"}</span></div><div class="trace-flow"><div><p class="eyebrow">NODES</p>${nodes.length ? nodes.map(node => `<article class="trace-node"><strong>${escapeHTML(node.label || node.kind || "기록")}</strong><code>${escapeHTML(node.id || "알 수 없음")}</code><span>${escapeHTML(node.state || node.head || "")}</span></article>`).join("") : '<p class="meta">연결된 노드가 없습니다.</p>'}</div><div><p class="eyebrow">LINKS</p>${links.length ? `<ul class="trace-links">${links.map(link => `<li><code>${escapeHTML(link.from || link.fromId || "?")}</code> → ${escapeHTML(link.relation || "연결")} → <code>${escapeHTML(link.to || link.toId || "?")}</code></li>`).join("")}</ul>` : '<p class="meta">연결 관계가 없습니다.</p>'}</div></div><div class="trace-evidence"><p class="eyebrow">ARTIFACTS</p>${artifacts.length ? `<div class="item-list">${artifacts.map(artifact => `<article class="trace-artifact"><div class="list-item-header"><div><strong>${escapeHTML(artifact.name || "근거 artifact")}</strong><p class="meta">${escapeHTML(artifact.sourceType || "출처 미상")} · <code>${escapeHTML(artifact.id || "알 수 없음")}</code></p></div><span class="chip ${artifact.present ? "ok" : "bad"}">${artifact.present ? escapeHTML(artifact.retention || "확인됨") : "누락"}</span></div><p class="meta">SHA-256 <code>${escapeHTML(artifact.sha256 || "기록 없음")}</code> · ${escapeHTML(formatCount(artifact.size))} bytes</p></article>`).join("")}</div>` : '<p class="meta">연결된 artifact가 없습니다.</p>'}</div>${(trace.missingRefs || []).length ? `<p class="safety-note">누락된 참조 ${escapeHTML(formatCount(trace.missingRefs.length))}개가 있어 효과를 완결된 근거로 볼 수 없습니다.</p>` : ""}`;
   }
 
   function renderAssuranceDashboard() {
     const dashboard = state.assuranceDashboard || {};
     const runs = state.assuranceRuns || [];
     const invocations = dashboard.invocations || [];
-    const effects = state.assuranceEffects?.length ? state.assuranceEffects : dashboard.effects || [];
+    const allEffects = state.assuranceEffects?.length ? state.assuranceEffects : dashboard.effects || [];
+    const effects = allEffects.filter(item => state.assuranceEffectFilter === "all" || assuranceEffectClassification(item.spec || {}) === state.assuranceEffectFilter);
     const artifacts = state.assuranceArtifacts || [];
     const passed = runs.filter(item => ["succeeded", "passed"].includes(item.spec?.state)).length;
     const estimatedCost = dashboard.costState === "estimated" && dashboard.estimatedCost !== null && dashboard.estimatedCost !== undefined
@@ -533,14 +743,28 @@
     ];
     const metricsContainer = document.getElementById("assurance-metrics");
     if (!metricsContainer) return;
+    const impactError = document.getElementById("assurance-impact-error");
+    if (impactError) {
+      impactError.hidden = !state.assuranceImpactError;
+      impactError.innerHTML = state.assuranceImpactError
+        ? `<strong>효과 데이터를 불러오지 못했습니다.</strong><span>${escapeHTML(state.assuranceImpactError)}</span><button class="button small" type="button" data-assurance-retry>다시 시도</button>`
+        : "";
+    }
+    renderAssuranceImpactHeadline(state.assuranceImpact);
+    renderAssuranceImpactMetrics(state.assuranceImpact);
+    renderAssuranceImpactTrend(state.assuranceImpact);
+    renderAssuranceQuality(state.assuranceImpact);
+    renderAssuranceTraceability(state.assuranceImpact);
+    renderAssuranceArtifactStorage();
+    renderAssuranceTrace();
     metricsContainer.innerHTML = metrics.map(([title, value]) => `<article class="metric-card"><span>${escapeHTML(title)}</span><strong>${escapeHTML(value)}</strong></article>`).join("");
     renderAssuranceFilters();
     renderAssuranceBenefits();
     document.getElementById("assurance-filter-note").textContent = state.assuranceFilters.provider || state.assuranceFilters.model
-      ? `Agent 실행 ${formatCount(invocations.length)}건을 표시합니다. Quality Run·효과·artifact는 전체 기록입니다.`
-      : "Quality Run, 효과, artifact는 전체 기록입니다. Provider와 모델은 Agent 실행·비용 집계에 적용합니다.";
+      ? `Agent 실행 ${formatCount(invocations.length)}건을 표시합니다. 효과 headline은 선택한 기간·범위의 Impact API를 사용합니다.`
+      : `최근 ${escapeHTML(state.assuranceFilters.days)}일 효과를 표시합니다. 측정값·추정값·확인 불가를 구분합니다.`;
     document.getElementById("assurance-runs").innerHTML = runs.length ? `<div class="item-list">${runs.map(renderAssuranceRun).join("")}</div>` : '<div class="empty-state"><strong>아직 Quality Run이 없습니다.</strong><span>검증 기준을 실행하면 반복 가능한 결과와 근거가 남습니다.</span></div>';
-    document.getElementById("assurance-effects").innerHTML = effects.length ? `<div class="item-list">${effects.map(renderAssuranceEffect).join("")}</div>` : '<div class="empty-state"><strong>아직 효과 기록이 없습니다.</strong><span>검증 결과를 실제 변화와 연결하면 여기에 남습니다.</span></div>';
+    document.getElementById("assurance-effects").innerHTML = effects.length ? `<div class="item-list">${effects.map(renderAssuranceEffect).join("")}</div>` : `<div class="empty-state"><strong>${allEffects.length ? "선택한 상태의 효과가 없습니다." : "아직 효과 기록이 없습니다."}</strong><span>검증 결과를 실제 변화와 연결하면 여기에 남습니다.</span></div>`;
     document.getElementById("assurance-invocations").innerHTML = invocations.length ? `<div class="item-list">${invocations.map(renderAssuranceInvocation).join("")}</div>` : '<div class="empty-state"><strong>아직 Agent 실행이 없습니다.</strong><span>Provider 실행 후 모델·사용량·상태를 확인합니다.</span></div>';
     document.getElementById("assurance-artifacts").innerHTML = artifacts.length ? `<div class="item-list">${artifacts.map(renderAssuranceArtifact).join("")}</div>` : '<div class="empty-state"><strong>아직 보관된 근거가 없습니다.</strong><span>검증 결과의 manifest가 생성되면 보관 상태를 확인합니다.</span></div>';
   }
@@ -930,6 +1154,79 @@
     renderDiagnostics();
   }
 
+  async function loadAssuranceProductData() {
+    const [impactResult, storageResult] = await Promise.allSettled([
+      request(assuranceImpactPath()),
+      request(assuranceStoragePath()),
+    ]);
+    if (impactResult.status === "fulfilled") {
+      state.assuranceImpact = impactResult.value || null;
+      state.assuranceImpactError = "";
+    } else {
+      state.assuranceImpact = null;
+      state.assuranceImpactError = impactResult.reason?.message || "잠시 후 다시 시도하세요.";
+    }
+    if (storageResult.status === "fulfilled") {
+      state.assuranceStorage = storageResult.value || null;
+      state.assuranceStorageError = "";
+    } else {
+      state.assuranceStorage = null;
+      state.assuranceStorageError = storageResult.reason?.message || "잠시 후 다시 시도하세요.";
+    }
+    renderAssuranceDashboard();
+  }
+
+  async function loadAssuranceTrace(effectID, opener) {
+    if (!effectID) return;
+    state.assuranceTraceEffectID = effectID;
+    state.assuranceTraceOpener = opener;
+    state.assuranceTrace = null;
+    state.assuranceTraceError = "";
+    renderAssuranceTrace();
+    const panel = document.getElementById("assurance-trace-panel");
+    panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      state.assuranceTrace = await request(`/api/assurance/traces/${encode(effectID)}`);
+    } catch (error) {
+      state.assuranceTraceError = error.message || "잠시 후 다시 시도하세요.";
+    }
+    renderAssuranceTrace();
+    panel?.focus({ preventScroll: true });
+  }
+
+  async function exportAssuranceImpact(format, button) {
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/assurance/impact/export?${assuranceImpactQuery(format).toString()}`);
+      if (!response.ok) {
+        let message = `내보내기에 실패했습니다. (${response.status})`;
+        try {
+          const body = await response.json();
+          message = body.error?.message || message;
+        } catch (_) { /* downloadable endpoint may return no JSON on failure */ }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename\*?=(?:UTF-8''|\")?([^;\"]+)/i);
+      const filename = match?.[1] ? decodeURIComponent(match[1].replace(/\"/g, "")) : `assurance-impact.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.hidden = true;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      showNotice(`${format.toUpperCase()} 보고서를 내보냈습니다.`);
+    } catch (error) {
+      showNotice(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function loadRouteData(route, force) {
     if (route === "work") await loadWorkData(force);
     if (route === "diagnostics") await loadDiagnosticsData(force);
@@ -941,10 +1238,15 @@
     assuranceFiltering = true;
     const providerSelect = document.getElementById("assurance-provider-filter");
     const modelSelect = document.getElementById("assurance-model-filter");
+    const projectSelect = document.getElementById("assurance-project-filter");
+    const daysSelect = document.getElementById("assurance-days-filter");
     if (providerSelect) providerSelect.disabled = true;
     if (modelSelect) modelSelect.disabled = true;
+    if (projectSelect) projectSelect.disabled = true;
+    if (daysSelect) daysSelect.disabled = true;
     try {
       state.assuranceDashboard = await request(assuranceDashboardPath());
+      await loadAssuranceProductData();
       renderHome();
       renderAssuranceDashboard();
     } catch (error) {
@@ -953,6 +1255,8 @@
       assuranceFiltering = false;
       if (providerSelect) providerSelect.disabled = false;
       if (modelSelect) modelSelect.disabled = false;
+      if (projectSelect) projectSelect.disabled = false;
+      if (daysSelect) daysSelect.disabled = false;
     }
   }
 
@@ -989,6 +1293,7 @@
       initialized = true;
       await loadRouteData(currentRoute(), true);
       renderAll();
+      await loadAssuranceProductData();
     } catch (error) {
       showNotice(`로컬 서비스에서 상태를 불러오지 못했습니다. ${error.message}`, true);
     } finally {
@@ -1163,6 +1468,50 @@
     }
     if (button.dataset.homeScan !== undefined) {
       document.getElementById("scan").click();
+      return;
+    }
+    if (button.dataset.assuranceRetry !== undefined) {
+      button.disabled = true;
+      await loadAssuranceProductData();
+      button.disabled = false;
+      return;
+    }
+    if (button.dataset.assuranceExport) {
+      await exportAssuranceImpact(button.dataset.assuranceExport, button);
+      return;
+    }
+    if (button.dataset.assuranceTrace !== undefined) {
+      await loadAssuranceTrace(button.dataset.assuranceTrace, button);
+      return;
+    }
+    if (button.dataset.assuranceTraceClose !== undefined) {
+      state.assuranceTraceEffectID = "";
+      state.assuranceTrace = null;
+      state.assuranceTraceError = "";
+      renderAssuranceTrace();
+      state.assuranceTraceOpener?.focus({ preventScroll: true });
+      state.assuranceTraceOpener = null;
+      return;
+    }
+    if (button.dataset.assuranceArtifact) {
+      const id = button.dataset.id;
+      button.disabled = true;
+      try {
+        if (button.dataset.assuranceArtifact === "restore") {
+          await request(`/api/assurance/artifacts/${encode(id)}/restore`, { method: "POST", headers: mutationHeaders(), body: "" });
+          showNotice("artifact를 복원했습니다.");
+        } else {
+          await request(`/api/assurance/artifacts/${encode(id)}/retention`, { method: "POST", headers: mutationHeaders(), body: JSON.stringify({ retention: button.dataset.retention }) });
+          showNotice(button.dataset.retention === "pinned" ? "artifact를 고정했습니다." : "artifact 고정을 해제했습니다.");
+        }
+        await loadAssuranceProductData();
+        state.assuranceArtifacts = await request("/api/assurance/artifacts");
+        renderAssuranceDashboard();
+      } catch (error) {
+        showNotice(error.message, true);
+      } finally {
+        button.disabled = false;
+      }
       return;
     }
     if (button.id === "show-register") {
@@ -1725,8 +2074,11 @@
   });
 
   document.getElementById("assurance-filter-reset").addEventListener("click", () => {
+    state.assuranceFilters.days = "30";
     state.assuranceFilters.provider = "";
     state.assuranceFilters.model = "";
+    state.assuranceFilters.project = "";
+    state.assuranceEffectFilter = "all";
     void refreshAssuranceFilter();
   });
 
@@ -1826,10 +2178,16 @@
       renderProjects();
       document.getElementById("finding-state")?.focus({ preventScroll: true });
     }
-    if (event.target.id === "assurance-provider-filter" || event.target.id === "assurance-model-filter") {
+    if (["assurance-days-filter", "assurance-provider-filter", "assurance-model-filter", "assurance-project-filter"].includes(event.target.id)) {
+      state.assuranceFilters.days = document.getElementById("assurance-days-filter").value;
       state.assuranceFilters.provider = document.getElementById("assurance-provider-filter").value;
       state.assuranceFilters.model = document.getElementById("assurance-model-filter").value;
+      state.assuranceFilters.project = document.getElementById("assurance-project-filter").value;
       void refreshAssuranceFilter();
+    }
+    if (event.target.id === "assurance-effect-filter") {
+      state.assuranceEffectFilter = event.target.value;
+      renderAssuranceDashboard();
     }
   });
 

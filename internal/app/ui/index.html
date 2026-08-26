@@ -198,14 +198,44 @@
             <div id="assurance-benefits" class="assurance-benefits"></div>
           </section>
           <section class="panel assurance-filter-panel">
-            <div class="panel-heading"><div><p class="eyebrow">범위 선택</p><h2>Provider와 모델</h2></div><span class="chip">실행·비용 집계</span></div>
+            <div class="panel-heading"><div><p class="eyebrow">효과 범위</p><h2>Provider와 모델</h2><p class="meta">기간·프로젝트까지 비교합니다.</p></div><span class="chip">근거 기반</span></div>
             <div class="toolbar assurance-filters">
+              <label class="filter-field"><span>기간</span><select id="assurance-days-filter" aria-label="효과 기간 필터"><option value="7">최근 7일</option><option value="30" selected>최근 30일</option><option value="90">최근 90일</option></select></label>
               <label class="filter-field"><span>Provider</span><select id="assurance-provider-filter" aria-label="검증 Provider 필터"><option value="">전체 Provider</option></select></label>
               <label class="filter-field"><span>모델</span><select id="assurance-model-filter" aria-label="검증 모델 필터"><option value="">전체 모델</option></select></label>
+              <label class="filter-field"><span>프로젝트</span><select id="assurance-project-filter" aria-label="효과 프로젝트 필터"><option value="">전체 프로젝트</option></select></label>
+              <label class="filter-field"><span>효과 상태</span><select id="assurance-effect-filter" aria-label="효과 상태 필터"><option value="all">전체 상태</option><option value="measured">측정됨</option><option value="user_estimated">사용자 추정</option><option value="ai_inference">AI 추론</option><option value="unavailable">확인 불가</option></select></label>
               <button id="assurance-filter-reset" class="button" type="button">필터 초기화</button>
+              <span class="item-actions assurance-export-actions"><button class="button" type="button" data-assurance-export="json">JSON 내보내기</button><button class="button" type="button" data-assurance-export="csv">CSV 내보내기</button></span>
             </div>
-            <p id="assurance-filter-note" class="meta">Quality Run, 효과, artifact는 전체 기록입니다. Provider와 모델은 Agent 실행·비용 집계에 적용합니다.</p>
+            <p id="assurance-filter-note" class="meta">기간과 범위를 고르면 현재 값과 이전 기간을 비교합니다. 근거 없는 값은 효과 합계에 섞지 않습니다.</p>
           </section>
+          <section id="assurance-impact-error" class="surface-error" role="alert" hidden></section>
+          <section id="assurance-impact-headline" class="metrics impact-headline" aria-label="효과 요약">
+            <article class="metric-card"><span>검증된 개선</span><strong>불러오는 중</strong><small>현재 기간</small></article>
+            <article class="metric-card"><span>재검증률</span><strong>불러오는 중</strong><small>현재 기간</small></article>
+            <article class="metric-card"><span>기록된 시간 절감</span><strong>불러오는 중</strong><small>이전 기간 비교</small></article>
+            <article class="metric-card"><span>근거 완결성</span><strong>불러오는 중</strong><small>trace 연결 상태</small></article>
+          </section>
+          <div class="dashboard-grid impact-grid">
+            <section class="panel span-two">
+              <div class="panel-heading"><div><p class="eyebrow">PROOF OF IMPACT</p><h2>무엇이 좋아졌는가</h2></div><span class="chip ok">측정값 우선</span></div>
+              <p class="panel-copy">현재값, 이전 기간, 표본 수와 근거 수를 함께 표시합니다. 기준선이 없으면 0이 아니라 확인 불가로 남깁니다.</p>
+              <div id="assurance-impact-metrics" class="impact-metrics" aria-live="polite">효과 지표를 불러오는 중입니다.</div>
+            </section>
+            <section class="panel span-two">
+              <div class="panel-heading"><div><p class="eyebrow">TREND</p><h2>기간별 흐름</h2></div><span class="chip">간단 추세</span></div>
+              <div id="assurance-impact-trend" class="impact-trend" aria-live="polite">추세를 불러오는 중입니다.</div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">DATA QUALITY</p><h2>데이터 품질</h2></div><span class="chip">측정 경계</span></div>
+              <div id="assurance-impact-quality" class="impact-quality">데이터 품질을 불러오는 중입니다.</div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">TRACEABILITY</p><h2>근거 완결성</h2></div><span class="chip">추적 가능성</span></div>
+              <div id="assurance-impact-traceability" class="impact-quality">근거 연결 상태를 불러오는 중입니다.</div>
+            </section>
+          </div>
           <div id="assurance-metrics" class="metrics assurance-metrics" aria-label="검증 요약">
             <article class="metric-card"><span>Quality Run</span><strong>0</strong></article>
             <article class="metric-card"><span>통과</span><strong>0</strong></article>
@@ -221,6 +251,7 @@
             </section>
             <section class="panel">
               <div class="panel-heading"><div><p class="eyebrow">IMPACT</p><h2>효과 기록</h2></div><span class="chip ok">근거 연결</span></div>
+              <p class="panel-copy">측정됨·추정·확인 불가를 섞지 않고 표시합니다.</p>
               <div id="assurance-effects" class="loading">효과 기록을 불러오는 중입니다.</div>
             </section>
             <section class="panel">
@@ -229,7 +260,12 @@
             </section>
             <section class="panel span-two">
               <div class="panel-heading"><div><p class="eyebrow">EVIDENCE RETENTION</p><h2>근거 보관</h2></div><span class="chip">보관 상태</span></div>
+              <div id="assurance-artifact-storage" class="artifact-storage">보관 용량을 불러오는 중입니다.</div>
               <div id="assurance-artifacts" class="loading">근거 artifact를 불러오는 중입니다.</div>
+            </section>
+            <section id="assurance-trace-panel" class="panel span-two" tabindex="-1" hidden>
+              <div class="panel-heading"><div><p class="eyebrow">TRACE DRILL-DOWN</p><h2>효과 근거 흐름</h2></div><button class="button" type="button" data-assurance-trace-close>닫기</button></div>
+              <div id="assurance-trace" class="loading" aria-live="polite">trace를 불러오는 중입니다.</div>
             </section>
           </div>
         </section>

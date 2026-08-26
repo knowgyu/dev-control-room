@@ -297,7 +297,7 @@ func TestAssuranceCLIHelpListsLifecycleCommands(t *testing.T) {
 	if !ok {
 		t.Fatalf("assurance help commands have unexpected type: %#v", (*envelope.Data)["commands"])
 	}
-	for _, want := range []string{"session create", "baseline create", "campaign create", "run", "invocation show", "invocation run"} {
+	for _, want := range []string{"session create", "baseline create", "campaign create", "run", "invocation show", "invocation run", "artifact"} {
 		found := false
 		for _, item := range data {
 			if item == want {
@@ -321,6 +321,31 @@ func TestAssuranceCLIHelpListsLifecycleCommands(t *testing.T) {
 	stderr.Reset()
 	if code := run([]string{"assurance", "invocation", "--help", "--json"}, &stdout, &stderr); code != int(contract.ExitSuccess) || !strings.Contains(stdout.String(), "--prompt") || !strings.Contains(stdout.String(), "codex") {
 		t.Fatalf("invocation help omitted Codex prompt usage: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestAssuranceArtifactCLIExportsVerifiedPack(t *testing.T) {
+	home := t.TempDir()
+	service, err := app.New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := service.SaveAssuranceArtifact(context.Background(), app.ArtifactInput{SourceType: "fixture", SourceID: "cli-artifact", Name: "result.json", MIME: "application/json", Content: []byte(`{"ok":true}`)})
+	if err != nil {
+		_ = service.Close()
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(t.TempDir(), "cli-assurance-pack")
+	exported := runAssuranceJSON[app.ArtifactExportResult](t, "assurance", "artifact", "export", "--ids", artifact.Metadata.ID, "--destination", archive, "--home", home, "--json")
+	if !exported.Verified || exported.Manifest == "" || len(exported.ArtifactIDs) != 1 || !strings.HasSuffix(exported.Destination, "cli-assurance-pack") {
+		t.Fatalf("unexpected artifact export: %#v", exported)
+	}
+	listed := runAssuranceJSON[[]domain.Artifact](t, "assurance", "artifact", "list", "--home", home, "--json")
+	if len(listed) != 1 || listed[0].Spec.Retention != domain.ArtifactRetentionArchived {
+		t.Fatalf("unexpected artifact list after export: %#v", listed)
 	}
 }
 

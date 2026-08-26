@@ -9,15 +9,34 @@ architecture requirements remain canonical in their dedicated documents; this
 file records what is implemented, what is only designed, and how work has been
 accepted so far.
 
-## 2026-08-26 v0.8.0 release handoff
+## 2026-08-26 v0.9.0 effect-proof work
 
-The current `main` is prepared for v0.8.0. It preserves the earlier release
-history and adds the bounded real Codex path, registered local Quality runners,
-GitHub baseline fail-closed handling, an Assurance-value dashboard, first-use/
-return/Provider-recovery journeys, and Korean copy/accessibility refinements.
-Read [VERIFICATION_v0.8.0.md](VERIFICATION_v0.8.0.md) for exact commands and
-release evidence, rather than treating historical v0.6/v0.7 records as the
-current result.
+The working candidate adds the effect-proof surface described in
+[ASSURANCE_EFFECT_DASHBOARD.md](ASSURANCE_EFFECT_DASHBOARD.md). The embedded
+검증 screen now shows a selected period and project/provider/model scope,
+previous-equal-period comparisons, daily/weekly trend, measurement boundaries,
+traceability score, artifact storage, and trace drill-down. JSON/CSV report
+downloads contain safe artifact references and never local storage paths.
+
+Artifact results now carry a manifest version, storage key, masking-policy digest,
+Trace ID, retention metadata, and archive manifest hash. Export uses a staging
+directory and atomic rename; restore checks both the archive manifest and the
+artifact SHA-256. Active/pinned retention changes verify the source bytes, and
+the 512 MiB local quota rejects new results rather than silently dropping them.
+
+The remaining boundary is intentional: this work records adoption and
+reverification metadata but does not materialize patches or let an AI commit,
+push, or claim causal productivity impact. Native Windows runtime and full
+keyboard/dialog acceptance remain separate evidence items.
+
+## Historical 2026-08-26 v0.8.0 release handoff
+
+The v0.8.0 release preserved the earlier release history and added the bounded
+real Codex path, registered local Quality runners, GitHub baseline fail-closed
+handling, an Assurance-value dashboard, first-use/return/Provider-recovery
+journeys, and Korean copy/accessibility refinements. Read
+[VERIFICATION_v0.8.0.md](VERIFICATION_v0.8.0.md) for its exact commands and
+release evidence; the v0.9.0 section above is the current result.
 
 Verified at the v0.8.0 source candidate:
 
@@ -195,7 +214,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.8.0`;
+- binary version: `0.9.0`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;

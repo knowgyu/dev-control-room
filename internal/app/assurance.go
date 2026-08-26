@@ -142,7 +142,14 @@ func (a *App) AssuranceDashboard(ctx context.Context, providerFilter, modelFilte
 		estimated = &cost
 		costState = "estimated"
 	}
-	return AssuranceDashboard{GeneratedAt: time.Now().UTC(), ProviderFilter: providerFilter, ModelFilter: modelFilter, Effects: effects, Invocations: filtered, TotalTokens: total, UsageComplete: complete, EstimatedCost: estimated, CostLabel: "estimated public API list-price equivalent", CostState: costState}, nil
+	// Keep the legacy dashboard usable when the optional impact surface is
+	// unavailable. The dedicated impact endpoint reports that failure to the UI
+	// while the operational invocation/effect lists remain visible.
+	impact, impactErr := a.AssuranceImpact(ctx, AssuranceImpactQuery{Provider: providerFilter, Model: modelFilter, Days: defaultImpactPeriodDays})
+	if impactErr != nil {
+		impact = AssuranceImpactDashboard{}
+	}
+	return AssuranceDashboard{GeneratedAt: time.Now().UTC(), ProviderFilter: providerFilter, ModelFilter: modelFilter, Effects: effects, Invocations: filtered, TotalTokens: total, UsageComplete: complete, EstimatedCost: estimated, CostLabel: "estimated public API list-price equivalent", CostState: costState, Impact: impact, Traceability: impact.Traceability}, nil
 }
 
 func pricingFor(items []domain.ProviderPricingSnapshot, provider, model string, at time.Time) (domain.ProviderPricingSnapshot, bool) {
@@ -423,6 +430,7 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	}
 	now := time.Now().UTC()
 	runnerID := "quality.registry"
+	traceID := assuranceID("trace", campaign.Metadata.ID, input.Technique, now.String())
 	configDigest := digestText(input.Technique)
 	selectionState := string(assurance.QualityRunnerSelectionUnavailable)
 	var unavailable *assurance.QualityRunnerUnavailableReason
@@ -432,7 +440,7 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 		selectionState = string(selection.State)
 		unavailable = selection.Unavailable
 	}
-	run := domain.QualityRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityRunKind}, Metadata: domain.ObjectMeta{ID: assuranceID("run", campaign.Metadata.ID, input.Technique, now.String()), Name: "Quality Run"}, Spec: domain.QualityRunSpec{CampaignID: campaign.Metadata.ID, ProjectID: campaign.Spec.ProjectID, RepositoryID: campaign.Spec.RepositoryID, WorktreeID: campaign.Spec.WorktreeID, Head: worktree.Spec.Head, Technique: input.Technique, Runner: runnerID, ConfigDigest: configDigest, State: domain.AssuranceStateQueued, StartedAt: now, Evidence: map[string]any{"provider": strings.TrimSpace(input.Provider), "model": strings.TrimSpace(input.Model), "selectionState": selectionState, "configDigest": configDigest}}}
+	run := domain.QualityRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityRunKind}, Metadata: domain.ObjectMeta{ID: assuranceID("run", campaign.Metadata.ID, input.Technique, now.String()), Name: "Quality Run"}, Spec: domain.QualityRunSpec{CampaignID: campaign.Metadata.ID, ProjectID: campaign.Spec.ProjectID, RepositoryID: campaign.Spec.RepositoryID, WorktreeID: campaign.Spec.WorktreeID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Technique: input.Technique, Runner: runnerID, ConfigDigest: configDigest, InputDigest: digestText(worktree.Spec.Head, input.Technique, configDigest), TraceID: traceID, State: domain.AssuranceStateQueued, StartedAt: now, Evidence: map[string]any{"provider": strings.TrimSpace(input.Provider), "model": strings.TrimSpace(input.Model), "selectionState": selectionState, "configDigest": configDigest}}}
 	if revalidationErr != nil {
 		run.Spec.Evidence["unavailable"] = &assurance.QualityRunnerUnavailableReason{Code: "worktree.revalidation_failed", Detail: "selected Worktree could not be revalidated"}
 	} else if selectionErr == nil {
@@ -492,13 +500,19 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	if marshalErr != nil {
 		return domain.QualityRun{}, marshalErr
 	}
-	artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".json", MIME: "application/json", Content: report})
+	run.Spec.OutputDigest = digestText(report)
+	artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".json", MIME: "application/json", Content: report, TraceID: traceID})
 	if artifactErr != nil {
 		return domain.QualityRun{}, artifactErr
 	}
 	run.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
 	if err := a.store.UpdateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, 3, run.Spec.State, completed, run); err != nil {
 		return domain.QualityRun{}, err
+	}
+	campaign.Spec.RunIDs = append(campaign.Spec.RunIDs, run.Metadata.ID)
+	campaign.Spec.UpdatedAt = completed
+	if revision, revisionErr := a.store.AssuranceRevision(ctx, domain.QualityCampaignKind, campaign.Metadata.ID); revisionErr == nil {
+		_ = a.store.UpdateAssuranceRevision(ctx, domain.QualityCampaignKind, campaign.Metadata.ID, revision+1, campaign.Spec.State, completed, campaign)
 	}
 	if selectionErr != nil || (selectionErr == nil && selection.State != assurance.QualityRunnerSelectionAvailable) {
 		return run, contract.Unavailable("selected Quality Runner is unavailable")
@@ -600,7 +614,7 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 	}
 	now := time.Now().UTC()
 	id := assuranceID("invocation", session.Metadata.ID, provider, now)
-	invocation := domain.AgentInvocation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Agent invocation"}, Spec: domain.AgentInvocationSpec{SessionID: session.Metadata.ID, WorktreeID: worktree.Metadata.ID, Head: worktree.Spec.Head, Provider: provider, ProfileID: strings.TrimSpace(input.ProfileID), RequestedModel: strings.TrimSpace(input.RequestedModel), SelectionSource: "user", State: domain.AssuranceStateQueued, IdempotencyKey: id, StartedAt: now, RawTranscript: false}}
+	invocation := domain.AgentInvocation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Agent invocation"}, Spec: domain.AgentInvocationSpec{SessionID: session.Metadata.ID, ProjectID: session.Spec.ProjectID, RepositoryID: session.Spec.RepositoryID, WorktreeID: worktree.Metadata.ID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Provider: provider, ProfileID: strings.TrimSpace(input.ProfileID), RequestedModel: strings.TrimSpace(input.RequestedModel), SelectionSource: "user", State: domain.AssuranceStateQueued, IdempotencyKey: id, InputDigest: digestText(strings.TrimSpace(input.Prompt)), TraceID: assuranceID("trace", id), StartedAt: now, RawTranscript: false}}
 	if invocation.Spec.ProfileID == "" {
 		invocation.Spec.ProfileID = provider
 	}
@@ -636,6 +650,11 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 		masked := a.masker.MaskValue(result.Structured)
 		invocation.Spec.Structured, _ = redactInvocationPrompt(masked, input.Prompt).(map[string]any)
 	}
+	if invocation.Spec.Structured != nil {
+		if data, marshalErr := json.Marshal(invocation.Spec.Structured); marshalErr == nil {
+			invocation.Spec.OutputDigest = digestText(data)
+		}
+	}
 	invocation.Spec.FailureCode = result.FailureCode
 	invocation.Spec.ArtifactIDs = nil
 	if result.Usage != nil {
@@ -652,10 +671,15 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 	if result.Summary != "" {
 		invocation.Spec.Structured = map[string]any{"summary": redactInvocationPrompt(a.masker.Mask(result.Summary), input.Prompt), "result": invocation.Spec.Structured}
 	}
+	if invocation.Spec.Structured != nil {
+		if data, marshalErr := json.Marshal(invocation.Spec.Structured); marshalErr == nil {
+			invocation.Spec.OutputDigest = digestText(data)
+		}
+	}
 	artifactPersisted := false
 	report, marshalErr := json.Marshal(map[string]any{"provider": provider, "state": result.State, "failureCode": result.FailureCode, "structured": invocation.Spec.Structured, "rawTranscript": false})
 	if marshalErr == nil {
-		artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "agent_invocation", SourceID: id, Name: id + ".json", MIME: "application/json", Content: report})
+		artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "agent_invocation", SourceID: id, Name: id + ".json", MIME: "application/json", Content: report, TraceID: invocation.Spec.TraceID})
 		if artifactErr == nil {
 			invocation.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
 			artifactPersisted = true
@@ -792,6 +816,9 @@ func (a *App) SaveAssuranceArtifact(ctx context.Context, input ArtifactInput) (d
 		return domain.Artifact{}, contract.InvalidInput("artifact source and content are required")
 	}
 	masked := []byte(a.masker.Mask(string(input.Content)))
+	if storage, err := a.AssuranceArtifactStorage(ctx); err == nil && storage.UsedBytes+int64(len(masked)) > storage.QuotaBytes {
+		return domain.Artifact{}, contract.Conflict("artifact storage quota exceeded; pin or export evidence before retrying")
+	}
 	sum := sha256.Sum256(masked)
 	id := assuranceID("artifact", input.SourceType, input.SourceID, input.Name, time.Now().UTC())
 	directory := filepath.Join(a.home, "artifacts", "assurance")
@@ -803,12 +830,40 @@ func (a *App) SaveAssuranceArtifact(ctx context.Context, input ArtifactInput) (d
 		name = id + ".dat"
 	}
 	path := filepath.Join(directory, id+"-"+name)
-	if err := os.WriteFile(path, masked, 0o600); err != nil {
+	temporary, err := os.CreateTemp(directory, ".artifact-write-*")
+	if err != nil {
 		return domain.Artifact{}, err
 	}
+	temporaryPath := temporary.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return domain.Artifact{}, err
+	}
+	if _, err := temporary.Write(masked); err != nil {
+		_ = temporary.Close()
+		return domain.Artifact{}, err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return domain.Artifact{}, err
+	}
+	if err := temporary.Close(); err != nil {
+		return domain.Artifact{}, err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return domain.Artifact{}, err
+	}
+	committed = true
 	now := time.Now().UTC()
-	item := domain.Artifact{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ArtifactKind}, Metadata: domain.ObjectMeta{ID: id, Name: name}, Spec: domain.ArtifactSpec{SourceType: input.SourceType, SourceID: input.SourceID, Path: path, MIME: input.MIME, Size: int64(len(masked)), SHA256: hex.EncodeToString(sum[:]), Retention: domain.ArtifactRetentionActive, CreatedAt: now, SourceRef: input.SourceID}}
+	item := domain.Artifact{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ArtifactKind}, Metadata: domain.ObjectMeta{ID: id, Name: name}, Spec: domain.ArtifactSpec{ManifestVersion: "devroom/artifact/v1", StorageKey: id + "/" + name, SourceType: input.SourceType, SourceID: input.SourceID, Path: path, MIME: input.MIME, Size: int64(len(masked)), SHA256: hex.EncodeToString(sum[:]), Retention: domain.ArtifactRetentionActive, CreatedAt: now, SourceRef: input.SourceID, TraceID: strings.TrimSpace(input.TraceID), MaskingPolicyDigest: digestText("masking-v1"), RedactionState: "masked"}}
 	if err := a.store.SaveArtifact(ctx, item); err != nil {
+		_ = os.Remove(path)
 		return domain.Artifact{}, err
 	}
 	return item, nil
@@ -820,11 +875,47 @@ func (a *App) CreateEffect(ctx context.Context, input EffectInput) (domain.Effec
 	if fingerprint == "" {
 		fingerprint = digestText(input.SourceRunID, input.Kind, strings.Join(input.EvidenceIDs, ","))
 	}
-	item := domain.Effect{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.EffectKind}, Metadata: domain.ObjectMeta{ID: assuranceID("effect", fingerprint), Name: "Assurance effect"}, Spec: domain.EffectSpec{Fingerprint: fingerprint, ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, Kind: input.Kind, SourceRunID: input.SourceRunID, EvidenceIDs: append([]string(nil), input.EvidenceIDs...), Adopted: input.Adopted, Reverified: input.Reverified, Label: input.Label, Value: input.Value, Unit: input.Unit, CreatedAt: now, UpdatedAt: now}}
+	traceIDs := append([]string(nil), input.TraceIDs...)
+	if strings.TrimSpace(input.SourceRunID) != "" {
+		traceIDs = appendUniqueStrings(traceIDs, input.SourceRunID)
+	}
+	if strings.TrimSpace(input.SourceFindingID) != "" {
+		traceIDs = appendUniqueStrings(traceIDs, input.SourceFindingID)
+	}
+	if strings.TrimSpace(input.ReverificationRunID) != "" {
+		traceIDs = appendUniqueStrings(traceIDs, input.ReverificationRunID)
+	}
+	for _, evidenceID := range input.EvidenceIDs {
+		traceIDs = appendUniqueStrings(traceIDs, evidenceID)
+	}
+	valueKnown := input.ValueKnown || input.Value != 0
+	item := domain.Effect{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.EffectKind}, Metadata: domain.ObjectMeta{ID: assuranceID("effect", fingerprint), Name: "Assurance effect"}, Spec: domain.EffectSpec{Fingerprint: fingerprint, ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, Kind: input.Kind, MetricKey: input.MetricKey, BaselineID: input.BaselineID, SourceRunID: input.SourceRunID, SourceFindingID: input.SourceFindingID, EvidenceIDs: append([]string(nil), input.EvidenceIDs...), TraceIDs: traceIDs, TraceID: strings.TrimSpace(input.TraceID), Adopted: input.Adopted, Reverified: input.Reverified, AdoptedAt: input.AdoptedAt, ReverifiedAt: input.ReverifiedAt, AdoptedCommit: strings.TrimSpace(input.AdoptedCommit), ReverificationRunID: strings.TrimSpace(input.ReverificationRunID), ReverifiedCommit: strings.TrimSpace(input.ReverifiedCommit), Label: input.Label, Value: input.Value, ValueKnown: valueKnown, Unit: input.Unit, BaselineValue: input.BaselineValue, BaselineUnit: input.BaselineUnit, PeriodStart: input.PeriodStart, PeriodEnd: input.PeriodEnd, Outcome: input.Outcome, RecordedBy: strings.TrimSpace(input.RecordedBy), Reason: strings.TrimSpace(input.Reason), Note: input.Note, CreatedAt: now, UpdatedAt: now}}
+	if item.Spec.TraceID == "" {
+		item.Spec.TraceID = assuranceID("trace", fingerprint)
+	}
+	if input.Adopted {
+		if item.Spec.AdoptedAt == nil {
+			item.Spec.AdoptedAt = &now
+		}
+	}
+	if input.Reverified {
+		if item.Spec.ReverifiedAt == nil {
+			item.Spec.ReverifiedAt = &now
+		}
+	}
 	if err := a.store.SaveEffect(ctx, item); err != nil {
 		return domain.Effect{}, err
 	}
 	return item, nil
+}
+
+func appendUniqueStrings(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func (a *App) SavePricingSnapshot(ctx context.Context, item domain.ProviderPricingSnapshot) (domain.ProviderPricingSnapshot, error) {
@@ -841,9 +932,10 @@ func (a *App) SavePricingSnapshot(ctx context.Context, item domain.ProviderPrici
 }
 
 func (a *App) ExportAssuranceArtifacts(ctx context.Context, ids []string, destination string) (ArtifactExportResult, error) {
-	if filepath.IsAbs(destination) == false || strings.TrimSpace(destination) == "" {
+	if strings.TrimSpace(destination) == "" || !filepath.IsAbs(destination) {
 		return ArtifactExportResult{}, contract.InvalidInput("artifact export destination must be an absolute local path")
 	}
+	destination = filepath.Clean(destination)
 	artifacts, err := a.AssuranceArtifacts(ctx)
 	if err != nil {
 		return ArtifactExportResult{}, err
@@ -861,15 +953,31 @@ func (a *App) ExportAssuranceArtifacts(ctx context.Context, ids []string, destin
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return ArtifactExportResult{}, err
 	}
+	if _, err := os.Stat(staging); err == nil {
+		return ArtifactExportResult{}, contract.Conflict("artifact export staging destination already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return ArtifactExportResult{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		return ArtifactExportResult{}, err
+	}
 	if err := os.MkdirAll(staging, 0o700); err != nil {
 		return ArtifactExportResult{}, err
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.RemoveAll(staging)
+		}
+	}()
 	result := ArtifactExportResult{Destination: destination, ArtifactIDs: []string{}}
+	selected := make([]domain.Artifact, 0, len(wanted))
+	manifest := AssuranceArchiveManifest{Schema: "devroom/assurance-archive/v1", CreatedAt: time.Now().UTC(), ArtifactID: []AssuranceArchiveManifestItem{}}
 	for _, item := range artifacts {
 		if !wanted[item.Metadata.ID] {
 			continue
 		}
-		data, err := os.ReadFile(item.Spec.Path)
+		data, err := readRegularFile(item.Spec.Path)
 		if err != nil {
 			return ArtifactExportResult{}, err
 		}
@@ -877,25 +985,46 @@ func (a *App) ExportAssuranceArtifacts(ctx context.Context, ids []string, destin
 		if hex.EncodeToString(sum[:]) != item.Spec.SHA256 {
 			return ArtifactExportResult{}, errors.New("artifact hash verification failed")
 		}
-		if err := os.WriteFile(filepath.Join(staging, filepath.Base(item.Spec.Path)), data, 0o600); err != nil {
+		filename := filepath.Base(item.Spec.Path)
+		if filename == "." || filename == "" || filename == ".." || strings.ContainsAny(filename, `/\\`) {
+			return ArtifactExportResult{}, errors.New("artifact filename is invalid")
+		}
+		if err := os.WriteFile(filepath.Join(staging, filename), data, 0o600); err != nil {
 			return ArtifactExportResult{}, err
 		}
 		result.ArtifactIDs = append(result.ArtifactIDs, item.Metadata.ID)
+		selected = append(selected, item)
+		manifest.ArtifactID = append(manifest.ArtifactID, AssuranceArchiveManifestItem{ArtifactID: item.Metadata.ID, Filename: filename, SHA256: item.Spec.SHA256, Size: item.Spec.Size, MIME: item.Spec.MIME, SourceType: item.Spec.SourceType, SourceID: item.Spec.SourceID})
 	}
 	if len(result.ArtifactIDs) != len(wanted) {
 		return ArtifactExportResult{}, contract.NotFound("one or more artifacts were not found")
 	}
+	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return ArtifactExportResult{}, err
+	}
+	manifestData = append(manifestData, '\n')
+	if err := os.WriteFile(filepath.Join(staging, archiveManifestName), manifestData, 0o600); err != nil {
+		return ArtifactExportResult{}, err
+	}
 	if err := os.Rename(staging, destination); err != nil {
 		return ArtifactExportResult{}, err
 	}
-	for _, item := range artifacts {
-		if !wanted[item.Metadata.ID] {
-			continue
-		}
+	committed = true
+	result.Manifest = archiveManifestName
+	result.ManifestSHA = artifactHash(manifestData)
+	archiveID := assuranceID("archive", destination, result.ManifestSHA)
+	for _, item := range selected {
 		now := time.Now().UTC()
-		item.Spec.Retention = domain.ArtifactRetentionArchived
+		if item.Spec.Retention != domain.ArtifactRetentionPinned {
+			item.Spec.Retention = domain.ArtifactRetentionArchived
+		}
 		item.Spec.ArchivedAt = &now
 		item.Spec.ArchivePath = destination
+		item.Spec.ArchiveManifest = archiveManifestName
+		item.Spec.ArchiveSHA256 = result.ManifestSHA
+		item.Spec.ArchiveID = archiveID
+		item.Spec.ArchiveVerifiedAt = &now
 		if err := a.store.UpdateAssuranceArtifact(ctx, item); err != nil {
 			return ArtifactExportResult{}, err
 		}
@@ -918,6 +1047,9 @@ func (a *App) DeleteAssuranceArtifact(ctx context.Context, id, confirmation stri
 		}
 		if item.Spec.Retention == domain.ArtifactRetentionDeleted {
 			return item, nil
+		}
+		if item.Spec.Retention == domain.ArtifactRetentionPinned {
+			return domain.Artifact{}, contract.Conflict("pinned artifact must be unpinned before deletion")
 		}
 		if err := os.Remove(item.Spec.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return domain.Artifact{}, err

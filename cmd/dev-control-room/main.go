@@ -24,7 +24,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
-const version = "0.8.0"
+const version = "0.9.0"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
@@ -201,6 +201,20 @@ func cliHelpSpecFor(path []string) (cliHelpSpec, bool) {
 		return spec("assurance provider", "Provider 상태를 조회합니다.", "dev-control-room assurance provider [--home <dir>] [--json]", "dev-control-room assurance provider --json", noRequired, nil), true
 	case "assurance dashboard":
 		return spec("assurance dashboard", "검증 결과와 효과를 요약합니다.", "dev-control-room assurance dashboard [--provider <name>] [--model <name>] [--home <dir>] [--json]", "dev-control-room assurance dashboard --json", noRequired, nil), true
+	case "assurance impact":
+		return spec("assurance impact", "기준 기간과 비교한 검증 효과를 조회합니다.", "dev-control-room assurance impact [--days <1-365>] [--project <id>] [--provider <name>] [--model <name>] [--home <dir>] [--json]", "dev-control-room assurance impact --days 30 --json", noRequired, nil), true
+	case "assurance trace":
+		return spec("assurance trace", "효과의 실행·artifact 근거 연결을 조회합니다.", "dev-control-room assurance trace --effect <id> [--home <dir>] [--json]", "dev-control-room assurance trace --effect effect-1 --json", []string{"--effect <id>"}, nil), true
+	case "assurance artifact":
+		return spec("assurance artifact", "검증 결과 artifact를 조회·보관·복원합니다.", "dev-control-room assurance artifact <list|export|retention|restore|delete> [options]", "dev-control-room assurance artifact export --ids artifact-1,artifact-2 --destination D:\\assurance-pack --json", []string{"<command>"}, []string{"list", "export", "retention", "restore", "delete"}), true
+	case "assurance artifact export":
+		return spec("assurance artifact export", "검증 결과 artifact를 검증된 manifest로 내보냅니다.", "dev-control-room assurance artifact export --ids <id,id,...> --destination <absolute-path> [--home <dir>] [--json]", "dev-control-room assurance artifact export --ids artifact-1 --destination D:\\assurance-pack --json", []string{"--ids <id,id,...>", "--destination <absolute-path>"}, nil), true
+	case "assurance artifact retention":
+		return spec("assurance artifact retention", "artifact를 활성 또는 고정 상태로 관리합니다.", "dev-control-room assurance artifact retention --id <id> --retention <active|pinned> [--home <dir>] [--json]", "dev-control-room assurance artifact retention --id artifact-1 --retention pinned --json", []string{"--id <id>", "--retention <active|pinned>"}, nil), true
+	case "assurance artifact restore":
+		return spec("assurance artifact restore", "검증된 archive에서 artifact를 복원합니다.", "dev-control-room assurance artifact restore --id <id> [--home <dir>] [--json]", "dev-control-room assurance artifact restore --id artifact-1 --json", []string{"--id <id>"}, nil), true
+	case "assurance artifact delete":
+		return spec("assurance artifact delete", "확인 문구를 받아 artifact를 삭제합니다.", "dev-control-room assurance artifact delete --id <id> --confirmation DELETE [--home <dir>] [--json]", "dev-control-room assurance artifact delete --id artifact-1 --confirmation DELETE --json", []string{"--id <id>", "--confirmation DELETE"}, nil), true
 	case "assurance sessions":
 		return spec("assurance sessions", "Assurance session 목록을 조회합니다.", "dev-control-room assurance sessions [--home <dir>] [--json]", "dev-control-room assurance sessions --json", noRequired, nil), true
 	case "assurance baselines":
@@ -242,7 +256,7 @@ func cliAssuranceHelpSpec() cliHelpSpec {
 		Summary:      "검증 기준선, Quality Run, Agent 실행을 관리합니다.",
 		Usage:        "dev-control-room assurance <command> [options]",
 		Required:     []string{"<command>"},
-		Commands:     []string{"provider", "dashboard", "sessions", "baselines", "campaigns", "runs", "invocations", "session create", "baseline create", "campaign create", "run", "invocation show", "invocation run"},
+		Commands:     []string{"provider", "dashboard", "impact", "trace", "artifact", "sessions", "baselines", "campaigns", "runs", "invocations", "session create", "baseline create", "campaign create", "run", "invocation show", "invocation run"},
 		Options:      []string{"--json", "--home <dir>"},
 		Example:      "dev-control-room assurance invocation run --session session-1 --provider codex --prompt \"요약\" --json",
 		JSONBehavior: "--json 추가 시 표준 JSON envelope 출력",
@@ -379,6 +393,38 @@ func runAssurance(args []string, stdout, stderr io.Writer) int {
 			return writeCLIErrorTo(stderr, err)
 		}
 		return emitObject(stdout, item, jsonOutput)
+	case "impact":
+		flags := flag.NewFlagSet("assurance impact", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		provider := flags.String("provider", "", "Provider filter")
+		model := flags.String("model", "", "model filter")
+		project := flags.String("project", "", "project filter")
+		days := flags.Int("days", 30, "comparison period in days")
+		if err := flags.Parse(remaining); err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+		}
+		item, err := service.AssuranceImpact(ctx, app.AssuranceImpactQuery{Provider: *provider, Model: *model, ProjectID: *project, Days: *days})
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	case "trace":
+		flags := flag.NewFlagSet("assurance trace", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		effect := flags.String("effect", "", "effect id")
+		if err := flags.Parse(remaining); err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+		}
+		if strings.TrimSpace(*effect) == "" || flags.NArg() != 0 {
+			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance trace requires --effect and no positional arguments"))
+		}
+		item, err := service.AssuranceTrace(ctx, *effect)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	case "artifact":
+		return runAssuranceArtifactCommand(service, ctx, remaining, jsonOutput, stdout, stderr)
 	case "sessions":
 		if len(remaining) != 0 {
 			return writeCLIErrorTo(stderr, contract.InvalidInput("assurance sessions takes no positional arguments"))
@@ -426,6 +472,78 @@ func runAssurance(args []string, stdout, stderr io.Writer) int {
 		return emitObject(stdout, items, jsonOutput)
 	default:
 		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown assurance command: "+subcommand))
+	}
+}
+
+func runAssuranceArtifactCommand(service *app.App, ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance artifact requires list, export, retention, restore, or delete"))
+	}
+	command := args[0]
+	flags := flag.NewFlagSet("assurance artifact "+command, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	id := flags.String("id", "", "artifact id")
+	ids := flags.String("ids", "", "comma-separated artifact ids")
+	destination := flags.String("destination", "", "absolute local archive destination")
+	retention := flags.String("retention", "", "active or pinned")
+	confirmation := flags.String("confirmation", "", "DELETE")
+	if err := flags.Parse(args[1:]); err != nil {
+		return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+	}
+	if err := requireAssurancePositionless(flags, "assurance artifact "+command); err != nil {
+		return writeCLIErrorTo(stderr, err)
+	}
+	switch command {
+	case "list":
+		items, err := service.AssuranceArtifacts(ctx)
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, items, jsonOutput)
+	case "export":
+		values := make([]string, 0)
+		for _, value := range strings.Split(*ids, ",") {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				values = append(values, trimmed)
+			}
+		}
+		if err := requireAssuranceFlags(assuranceFlag{"ids", strings.Join(values, ",")}, assuranceFlag{"destination", *destination}); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		item, err := service.ExportAssuranceArtifacts(ctx, values, strings.TrimSpace(*destination))
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	case "retention":
+		if err := requireAssuranceFlags(assuranceFlag{"id", *id}, assuranceFlag{"retention", *retention}); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		item, err := service.SetAssuranceArtifactRetention(ctx, strings.TrimSpace(*id), strings.TrimSpace(*retention))
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	case "restore":
+		if err := requireAssuranceFlags(assuranceFlag{"id", *id}); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		item, err := service.RestoreAssuranceArtifact(ctx, strings.TrimSpace(*id))
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	case "delete":
+		if err := requireAssuranceFlags(assuranceFlag{"id", *id}, assuranceFlag{"confirmation", *confirmation}); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		item, err := service.DeleteAssuranceArtifact(ctx, strings.TrimSpace(*id), strings.TrimSpace(*confirmation))
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
+	default:
+		return writeCLIErrorTo(stderr, contract.InvalidInput("unknown assurance artifact command: "+command))
 	}
 }
 

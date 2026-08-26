@@ -48,8 +48,9 @@
     details, Repository CRUD, Worktrees, filterable evidence-backed Findings
   - 작업: exact-Worktree discovery, Proposal evidence review, Pre-PR Checkset
     execution/results, and Action planning/approval/execution/results
-  - 검증: Quality Run, Agent 실행, 효과 기록, 사용량·비용 상태, 그리고
-    artifact 보관 근거를 먼저 요약하고 상세 근거는 필요할 때만 엽니다
+  - 검증: Quality Run, Agent 실행, 효과 기록, 효과 지표·기간 비교,
+    사용량·비용 상태, 그리고 artifact 보관 근거를 먼저 요약하고 상세 근거는
+    필요할 때만 엽니다
   - 진단: 개발 환경, Agent Profile CRUD, structured Guidance/Handoff review,
     정리 후보, 반복 실패 safeguard lifecycle과 지표
   - 기록: complete activity history
@@ -169,9 +170,12 @@ Provider status is a separate capability group in diagnostics and the home summa
 Show the decision first. Put revision, digest, command argv, evidence references, pricing basis, and raw diagnostics behind `details` or a focused secondary view. Keep mutation buttons next to the object they affect and show approval or deletion consequences before the action.
 
 The Assurance dashboard starts with repeatability, linked evidence, bounded
-usage/cost, and no-transcript guarantees. Provider/model filters apply only to
-Agent executions and their usage/cost aggregation; Quality Runs, effects, and
-artifact retention remain visibly unfiltered so the scope is not implied.
+usage/cost, and no-transcript guarantees. Its impact surface adds an explicit
+period/project scope, previous-equal-period comparison, measured versus
+estimated/unavailable labels, evidence quality, retention, and trace drill-down.
+Provider/model filters are explicit in the impact scope; legacy lifetime
+invocation lists remain visibly labelled as records rather than being presented
+as causal impact.
 
 ## Copy and accessibility
 

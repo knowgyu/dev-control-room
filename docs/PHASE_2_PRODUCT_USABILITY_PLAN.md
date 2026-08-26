@@ -1,6 +1,8 @@
 # Phase 2 — Product usability and interface plan
 
-Status: v0.8.0 implements the planned first-use, return, Provider recovery, copy, launcher, and Assurance-value surfaces; accessibility/manual gaps remain explicit
+Status: v0.9.0 implements the planned first-use, return, Provider recovery,
+copy, launcher, and evidence-first Assurance impact surface; accessibility and
+native/manual gaps remain explicit
 Updated: 2026-08-26
 Owner: local operator
 Prerequisite: [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md) Phase 1
@@ -224,12 +226,15 @@ Initial measurable targets, to refine during the journey draft:
 - Broad team personalization, multi-user onboarding analytics, and A/B testing
   remain out of scope for this local single-user product.
 
-## Evidence boundary for v0.8.0
+## Evidence boundary for v0.9.0
 
-v0.8.0 extends the earlier dashboard and CLI/loopback gate with a local npm
+v0.9.0 extends the earlier dashboard and CLI/loopback gate with a local npm
 Codex fixture invocation, non-empty Assurance records, registered native Go
 Quality Runs, blocked mutation/action paths, duplicate-warning grouping, and
-secret-canary checks. A separate safe local `scripts/verify-real-codex.ps1`
+secret-canary checks. The Assurance screen now adds period/project/provider/model
+scope, previous-equal-period comparisons, evidence-quality labels, trend rows,
+safe JSON/CSV export, artifact retention/storage state, and effect trace drill-
+down. A separate safe local `scripts/verify-real-codex.ps1`
 run uses the authenticated CLI only against a disposable local Git repository;
 it does not contact a company repository or mutate the fixture. The actual
 GitHub baseline lookup is read-only and preserves provider authority as
