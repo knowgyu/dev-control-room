@@ -14,6 +14,19 @@ troubleshooting, security, and observability guidance; and CLI work through
 Action Broker, masking, Worktree trust, npm Codex launcher boundary, or human
 patch-adoption rule, and they are not runtime dependencies of the binary.
 
+## 2026-08-27 v0.10.2 Home effect proof
+
+The established Home view now surfaces a compact evidence-first Assurance
+summary instead of showing only activity counts. It shows verified effects,
+trace-complete effects, and recorded or user-estimated time saved with explicit
+`확인 불가` states when evidence is missing. A short rule explains that a
+verified effect needs the source, artifact, and successful same-HEAD
+reverification, and `효과 추적 보기` opens the detailed dashboard. The summary
+reuses the existing Impact API and does not change the effect or adoption
+contract. Candidate/final full-gate evidence, browser screenshots, and the
+remaining keyboard boundary are recorded in
+[VERIFICATION_v0.10.2.md](VERIFICATION_v0.10.2.md).
+
 ## 2026-08-27 v0.10.1 UI polish
 
 The v0.10.1 slice keeps the Phase 2 first-use and Assurance flows intact while

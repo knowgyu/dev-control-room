@@ -90,6 +90,29 @@ dev-control-room assurance dashboard --json --home $temp
   not reliably deliver full Tab/Space key traversal, so that criterion remains
   `not run` rather than PASS.
 
+## 2026-08-27 v0.10.2 established Home effect-proof observation
+
+- The populated Home view now shows a compact Assurance summary with Quality
+  Run, Agent 실행, 효과 기록, and 비용 상태, followed by `검증된 효과`,
+  `근거 완결성`, and recorded-or-estimated time. The summary links to
+  `효과 추적 보기` and states that verified effects require source, artifact,
+  and successful same-HEAD reverification.
+- The candidate used the existing fake-provider populated fixture. With one
+  effect record that lacked complete proof, the UI showed `검증된 효과 0건`,
+  `근거 완결성 0 / 1`, and `시간 절감 확인 불가`; it did not present missing
+  evidence as a measured zero or a benefit.
+- Desktop and narrow screenshots, captured from the candidate local server,
+  are kept outside Git under `artifacts/verification-v0.10.2-ui/`:
+  - `home-impact-1280x900.png` —
+    `375C68AB65A445C027F9669B8369DB741FBB47679E049D1207EAC8CC544063DD`
+  - `home-impact-narrow.png` —
+    `75442061D19F8D4359A8F83D22CB3A132C63B5C4AC7ECD6F68500CABC7F5EC9`
+- At the narrow viewport the proof cards stacked without horizontal overflow;
+  the desktop view kept the summary compact and readable. Browser console logs
+  were empty.
+- The in-app Browser driver still did not reliably deliver a real Tab key, so
+  full Tab/Shift+Tab/Space traversal and native dialog Esc remain `not run`.
+
 ## 2026-08-26 검증 기록
 
 - 자동 검증: `pwsh -NoProfile -File .\scripts\verify-phase2-journeys.ps1`가 239 assertions를 통과했습니다. fresh temporary app home과 두 local Git fixture에서 first-use/return, local npm Codex recovery, fake-provider Assurance, registered static Quality Run, blocked mutation/action, duplicate-warning grouping, secret canary non-persistence, restart를 확인했고 만든 임시 root만 정리했습니다.

@@ -43,7 +43,8 @@
 - Core routes/screens: hash-based screens within the embedded UI; Project detail
   is selected from the 프로젝트 screen without adding server-side routes
 - Content hierarchy:
-  - 홈: 지금 확인할 항목, 프로젝트별 상태, 최근 실행 결과
+  - 홈: 지금 확인할 항목, 프로젝트별 상태, 최근 실행 결과, established 상태의 짧은
+    Assurance 효과 증명과 상세 추적 링크
   - 프로젝트: 등록/가져오기/내보내기, Project cards, selected Project
     details, Repository CRUD, Worktrees, filterable evidence-backed Findings
   - 작업: exact-Worktree discovery, Proposal evidence review, Pre-PR Checkset
@@ -83,7 +84,8 @@
 - Existing components to reuse: native buttons, forms, `details`, tables, and
   the current application-service HTTP APIs
 - New/changed components: application shell, navigation links, view headers,
-  Project cards, status chips, evidence disclosure panels, Assurance dashboard
+  Project cards, status chips, evidence disclosure panels, Home effect-proof
+  summary, Assurance dashboard
   filters and metric cards, structured run results, safeguard lifecycle cards,
   empty states, toast, and native `dialog`
 - Variants and states: default, hover, focus-visible, selected, disabled,
@@ -123,6 +125,10 @@
 - Loading: name the data being loaded in Korean
 - Empty: explain what is missing and provide the next relevant action; a trend
   with no activity is one compact empty state, not a page of zero-value rows
+- Effect proof: Home may summarize only the existing Assurance records. Keep
+  measured and user-estimated time separate, show `확인 불가` when evidence is
+  absent, and link to the detailed trace; never turn missing evidence into a
+  zero or a measured benefit.
 - Error: show the safe server message and the retryable action; do not expose
   raw filesystem, SQL, command, or secret-bearing details
 - Success: confirm the completed action using the same verb as its button
