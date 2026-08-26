@@ -152,10 +152,40 @@ func TestEmbeddedUIKeyboardRouteFocusContract(t *testing.T) {
 		"event.preventDefault()",
 		"window.clearTimeout(routeFocusTimer)",
 		"routeFocusTimer = window.setTimeout(() => {",
-		`document.getElementById("main-content").focus({ preventScroll: true })`,
+		"function focusElementByID(id)",
+		`focusElementByID("main-content")`,
+		"if (focusPendingFinding()) return;",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded UI route focus contract missing %q", value)
+		}
+	}
+}
+
+func TestEmbeddedUIDialogFocusAndDescriptionContract(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	html := embeddedUIAsset(t, service, "/", "text/html")
+	for _, value := range []string{
+		`id="unregister-dialog" aria-labelledby="unregister-title" aria-describedby="unregister-description unregister-safety"`,
+		`id="editor-dialog" aria-labelledby="editor-title" aria-describedby="editor-description"`,
+	} {
+		if !strings.Contains(html, value) {
+			t.Errorf("embedded UI dialog contract missing %q", value)
+		}
+	}
+
+	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
+	for _, value := range []string{
+		"let unregisterOpener = null", "let editorOpener = null", "function restoreDialogFocus(opener)",
+		"editorOpener = document.activeElement", "unregisterOpener = button", "restoreDialogFocus(editorOpener)", "restoreDialogFocus(unregisterOpener)",
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded UI dialog JavaScript missing %q", value)
 		}
 	}
 }
@@ -192,7 +222,10 @@ func TestEmbeddedUIProviderCapabilityGroupingContract(t *testing.T) {
 		"진단 세부 정보",
 		"data-provider-recovery",
 		`data-focus-target="provider-statuses"`,
-		"진단 열기",
+		"aria-label=\"${escapeHTML(item.provider)} 진단\"",
+		">진단</a>",
+		`currentRoute() === "diagnostics" && location.hash === "#diagnostics"`,
+		"focusElementByID(focusTarget)",
 		"const providerIDs = new Set",
 		"return !providerFinding",
 	} {
@@ -232,6 +265,14 @@ func TestEmbeddedUIFirstUseAndFindingTargetContract(t *testing.T) {
 		"new URLSearchParams({ finding: findingID })",
 		"data-finding-id=",
 		"pendingFindingID",
+		"visibleFindings.map(item => findingCard(item))",
+		"pendingProjectFocusID",
+		"function focusPendingProject()",
+		"if (active === \"projects\" && initialized) renderProjects();",
+		`aria-pressed="${selected}"`,
+		"startup: \"시작\"",
+		"aria-expanded=\"${expanded}\"",
+		"aria-expanded=\"${resultVisible}\"",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded UI first-use/finding JavaScript missing %q", value)

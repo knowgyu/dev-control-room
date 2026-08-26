@@ -225,8 +225,9 @@
     if (messageTranslations.has(text)) return messageTranslations.get(text);
     const drift = text.match(/^Repository differs from upstream \((\d+) ahead, (\d+) behind\)$/);
     if (drift) return `upstream과 차이가 있습니다. ahead ${drift[1]}, behind ${drift[2]}`;
-    const scans = text.match(/^(manual|scheduled) scan completed for (\d+) project\(s\)$/);
-    if (scans) return `${scans[1] === "manual" ? "수동" : "예약"} 점검을 완료했습니다. 프로젝트 ${scans[2]}개`;
+    const scans = text.match(/^(manual|scheduled|schedule|startup) scan completed for (\d+) project\(s\)$/);
+    if (scans) return `${({ manual: "수동", scheduled: "예약", schedule: "예약", startup: "시작" })[scans[1]]} 점검을 완료했습니다. 프로젝트 ${scans[2]}개`;
+    if (text === "Project added") return "프로젝트를 등록했습니다.";
     const projectAdded = text.match(/^Project added with (\d+) repositories$/);
     if (projectAdded) return `프로젝트와 저장소 ${projectAdded[1]}개를 등록했습니다.`;
     return text;
@@ -270,6 +271,7 @@
   };
   let activeRoute = "home";
   let pendingFindingID = "";
+  let pendingProjectFocusID = "";
   let pendingRouteFocus = "";
   const currentRoute = () => {
     const candidate = routeState().name;
@@ -310,22 +312,41 @@
     document.getElementById("view-title").textContent = routeTitles[active];
     document.title = `${routeTitles[active]} · Dev Control Room`;
     window.scrollTo({ top: 0 });
+    if (active === "projects" && initialized) renderProjects();
     window.clearTimeout(routeFocusTimer);
     const focusTarget = pendingRouteFocus;
     pendingRouteFocus = "";
     routeFocusTimer = window.setTimeout(() => {
-      const targetElement = focusTarget ? document.getElementById(focusTarget) : null;
-      (targetElement || document.getElementById("main-content")).focus({ preventScroll: true });
+      if (focusPendingFinding()) return;
+      if (focusTarget && focusElementByID(focusTarget)) return;
+      focusElementByID("main-content");
     }, 0);
     if (initialized) void loadRouteData(active, false);
   }
 
+  function focusElementByID(id) {
+    const element = id ? document.getElementById(id) : null;
+    if (!element) return false;
+    element.focus({ preventScroll: true });
+    return true;
+  }
+
   function focusPendingFinding() {
-    if (!pendingFindingID) return;
+    if (!pendingFindingID) return false;
     const finding = document.getElementById(`finding-${encode(pendingFindingID)}`);
-    if (!finding) return;
+    if (!finding) return false;
     finding.focus({ preventScroll: true });
     pendingFindingID = "";
+    return true;
+  }
+
+  function focusPendingProject() {
+    if (!pendingProjectFocusID) return false;
+    const project = [...document.querySelectorAll("[data-project]")].find(item => item.dataset.project === pendingProjectFocusID);
+    if (!project) return false;
+    project.focus({ preventScroll: true });
+    pendingProjectFocusID = "";
+    return true;
   }
 
   function surfaceError(message, route) {
@@ -365,7 +386,7 @@
     document.getElementById("m-repos").textContent = repositories.length;
     document.getElementById("m-findings").textContent = findings.length;
     document.getElementById("m-scan").textContent = formatDate(state.snapshot.generated_at);
-    document.getElementById("m-environment").textContent = state.environment.generatedAt ? (environmentReady ? `${readyProviders}개 Provider 사용 가능` : "필수 기능 확인 필요") : "미점검";
+    document.getElementById("m-environment").textContent = state.environment.generatedAt ? (environmentReady ? `Provider ${readyProviders}개` : "필수 기능 확인") : "미점검";
 
     const ordered = findings.slice().sort((left, right) => {
       const rank = { critical: 4, high: 3, attention: 2, info: 1 };
@@ -393,7 +414,7 @@
       : ordered.length
         ? `<div class="list-item state-warn"><strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong><p>다음 단계: ${escapeHTML(localize(ordered[0].spec.recommendedNextAction))}</p>${findingTarget ? `<div class="item-actions"><a class="button small" href="${escapeHTML(findingTarget)}">확인 항목 열기</a></div>` : ""}</div>`
         : environmentNeedsAttention
-          ? '<div class="list-item state-warn"><strong>필수 실행 기능 확인</strong><p>진단에서 차단된 기능과 안전한 복구 방법을 확인합니다.</p><div class="item-actions"><a class="button small" href="#diagnostics">진단 열기</a></div></div>'
+          ? '<div class="list-item state-warn"><strong>필수 실행 기능 확인</strong><p>진단에서 차단된 기능과 안전한 복구 방법을 확인합니다.</p><div class="item-actions"><a class="button small" href="#diagnostics">진단</a></div></div>'
         : '<div class="list-item state-ok"><strong>다음 점검</strong><p>열린 확인 항목이 없습니다. 최신 상태를 확인합니다.</p><div class="item-actions"><button class="button small" type="button" data-home-scan>지금 점검</button></div></div>';
     renderProviderStatuses("home-providers", true);
     const assurance = state.assuranceDashboard || {};
@@ -533,7 +554,8 @@
         const diagnostics = !compact && (item.detail || item.reasonCode || item.resolvedCommand?.length)
           ? `<details><summary>진단 세부 정보</summary><dl class="detail-grid"><div class="wide"><dt>추가 진단</dt><dd>${escapeHTML(providerDiagnostic(item))}</dd></div>${item.reasonCode ? `<div><dt>진단 코드</dt><dd><code>${escapeHTML(item.reasonCode)}</code></dd></div>` : ""}${item.resolvedCommand?.length ? `<div class="wide"><dt>확인된 실행 경로</dt><dd><code>${escapeHTML(item.resolvedCommand.join(" "))}</code></dd></div>` : ""}</dl></details>`
           : "";
-        return `<article class="provider-card" data-provider-capability="${escapeHTML(item.provider)}"><div class="list-item-header"><div><h3>${escapeHTML(item.provider)}</h3><p class="meta">${escapeHTML(providerSummary(item.state))}</p></div><span class="chip ${providerStateClass(item.state)}">${escapeHTML(providerLabel(item.state))}</span></div>${diagnostics}${item.state !== "ready" ? '<div class="item-actions"><a class="button small" data-provider-recovery data-focus-target="provider-statuses" href="#diagnostics">진단 열기</a></div>' : ""}</article>`;
+        const recovery = item.state !== "ready" ? `<div class="item-actions"><a class="button small" data-provider-recovery data-focus-target="provider-statuses" href="#diagnostics" aria-label="${escapeHTML(item.provider)} 진단">진단</a></div>` : "";
+        return `<article class="provider-card" data-provider-capability="${escapeHTML(item.provider)}"><div class="list-item-header"><div><h3>${escapeHTML(item.provider)}</h3><p class="meta">${escapeHTML(providerSummary(item.state))}</p></div><span class="chip ${providerStateClass(item.state)}">${escapeHTML(providerLabel(item.state))}</span></div>${diagnostics}${recovery}</article>`;
       }).join("")}</div>`
       : '<div class="empty-state"><strong>Provider 상태가 없습니다.</strong><span>진단을 실행하면 선택 가능한 Provider를 확인합니다.</span></div>';
   }
@@ -553,7 +575,8 @@
     document.getElementById("project-list").innerHTML = projects.length
       ? `<div class="project-list">${projects.map(project => {
         const count = findings.filter(item => item.spec.projectId === project.id).length;
-        return `<button class="project-card ${project.id === state.activeProjectID ? "selected" : ""}" type="button" data-project="${escapeHTML(project.id)}"><strong>${escapeHTML(project.name)}</strong><span>${escapeHTML(project.id)}</span><span class="project-counts"><span class="chip">저장소 ${project.repos.length}</span><span class="chip ${count ? "warn" : "ok"}">확인 항목 ${count}</span></span></button>`;
+        const selected = project.id === state.activeProjectID;
+        return `<button class="project-card ${selected ? "selected" : ""}" type="button" data-project="${escapeHTML(project.id)}" aria-pressed="${selected}"><strong>${escapeHTML(project.name)}</strong><span>${escapeHTML(project.id)}</span><span class="project-counts"><span class="chip">저장소 ${project.repos.length}</span><span class="chip ${count ? "warn" : "ok"}">확인 항목 ${count}</span></span></button>`;
       }).join("")}</div>`
       : '<div class="empty-state"><strong>등록된 프로젝트가 없습니다.</strong><span>‘프로젝트 등록’에서 첫 범위를 추가하세요.</span></div>';
 
@@ -584,7 +607,8 @@
         </article>`;
       }).join("")}</div>
       <div class="panel-heading section-heading"><div><p class="eyebrow">확인할 항목</p><h2>이 프로젝트의 확인할 항목</h2></div><div class="toolbar"><select id="finding-severity" aria-label="심각도 필터"><option value="">모든 심각도</option>${Object.entries(severityLabels).map(([value, text]) => `<option value="${value}" ${state.findingFilters.severity === value ? "selected" : ""}>${text}</option>`).join("")}</select><select id="finding-state" aria-label="상태 필터"><option value="active" ${state.findingFilters.state === "active" ? "selected" : ""}>열림 및 확인함</option><option value="">모든 상태</option>${["open", "acknowledged", "resolved", "suppressed", "expired"].map(value => `<option value="${value}" ${state.findingFilters.state === value ? "selected" : ""}>${escapeHTML(label(value))}</option>`).join("")}</select></div></div>
-      ${visibleFindings.length ? `<div class="finding-list">${visibleFindings.map(findingCard).join("")}</div>` : '<div class="empty-state"><strong>조건에 맞는 확인 항목이 없습니다.</strong><span>필터를 바꾸거나 새 점검을 실행하세요.</span></div>'}`;
+      ${visibleFindings.length ? `<div class="finding-list">${visibleFindings.map(item => findingCard(item)).join("")}</div>` : '<div class="empty-state"><strong>조건에 맞는 확인 항목이 없습니다.</strong><span>필터를 바꾸거나 새 점검을 실행하세요.</span></div>'}`;
+    focusPendingProject();
   }
 
   function renderCheckRun(run) {
@@ -594,7 +618,9 @@
   function checksetCard(checkset, repository) {
     const runs = state.checkRuns.get(checkset.metadata.id) || [];
     const expanded = state.expandedChecks.has(checkset.metadata.id);
-    return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(checkset.metadata.name)}</h3><p class="meta">${escapeHTML(repository.projectName)} / ${escapeHTML(repository.id)} / ${escapeHTML(checkset.spec.worktreeId)}</p></div><span class="chip">${escapeHTML(label(checkset.spec.state))}</span></div><details><summary>점검 단계와 근거</summary><dl class="detail-grid"><div><dt>HEAD</dt><dd><code>${escapeHTML(checkset.spec.head)}</code></dd></div><div><dt>제안</dt><dd>${escapeHTML(checkset.spec.proposalId)}</dd></div></dl>${(checkset.spec.steps || []).map(step => `<div class="command-card"><strong>${escapeHTML(step.name)}</strong><code>${escapeHTML([step.command.executable, ...(step.command.arguments || [])].join(" "))}</code><span class="meta">제한 시간 ${escapeHTML(step.command.timeoutSeconds)}초</span></div>`).join("")}</details><div class="item-actions"><button class="button small" type="button" data-checkset="apply" data-id="${escapeHTML(checkset.metadata.id)}" ${checkset.spec.state === "draft" ? "" : "disabled"}>적용</button><button class="button primary small" type="button" data-checkset="run" data-id="${escapeHTML(checkset.metadata.id)}" ${checkset.spec.state === "applied" ? "" : "disabled"}>실행</button><button class="button small" type="button" data-checkset="results" data-id="${escapeHTML(checkset.metadata.id)}">${expanded ? "결과 닫기" : "결과 보기"}</button></div>${expanded ? `<div class="result-box">${runs.length ? runs.slice().reverse().map(renderCheckRun).join("") : "아직 실행 결과가 없습니다."}</div>` : runs.length ? `<p class="meta">최근 결과 ${escapeHTML(label(runs[runs.length - 1].spec.status))}</p>` : ""}</article>`;
+    const resultsID = `checkset-results-${encode(checkset.metadata.id)}`;
+    const resultContent = runs.length ? runs.slice().reverse().map(renderCheckRun).join("") : "아직 실행 결과가 없습니다.";
+    return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(checkset.metadata.name)}</h3><p class="meta">${escapeHTML(repository.projectName)} / ${escapeHTML(repository.id)} / ${escapeHTML(checkset.spec.worktreeId)}</p></div><span class="chip">${escapeHTML(label(checkset.spec.state))}</span></div><details><summary>점검 단계와 근거</summary><dl class="detail-grid"><div><dt>HEAD</dt><dd><code>${escapeHTML(checkset.spec.head)}</code></dd></div><div><dt>제안</dt><dd>${escapeHTML(checkset.spec.proposalId)}</dd></div></dl>${(checkset.spec.steps || []).map(step => `<div class="command-card"><strong>${escapeHTML(step.name)}</strong><code>${escapeHTML([step.command.executable, ...(step.command.arguments || [])].join(" "))}</code><span class="meta">제한 시간 ${escapeHTML(step.command.timeoutSeconds)}초</span></div>`).join("")}</details><div class="item-actions"><button class="button small" type="button" data-checkset="apply" data-id="${escapeHTML(checkset.metadata.id)}" ${checkset.spec.state === "draft" ? "" : "disabled"}>적용</button><button class="button primary small" type="button" data-checkset="run" data-id="${escapeHTML(checkset.metadata.id)}" ${checkset.spec.state === "applied" ? "" : "disabled"}>실행</button><button class="button small" type="button" data-checkset="results" data-id="${escapeHTML(checkset.metadata.id)}" aria-expanded="${expanded}" aria-controls="${resultsID}">${expanded ? "결과 닫기" : "결과 보기"}</button></div><div id="${resultsID}" class="result-box" role="region" aria-label="${escapeHTML(checkset.metadata.name)} 결과" ${expanded ? "" : "hidden"}>${resultContent}</div>${!expanded && runs.length ? `<p class="meta">최근 결과 ${escapeHTML(label(runs[runs.length - 1].spec.status))}</p>` : ""}</article>`;
   }
 
   function proposalCard(proposal, item) {
@@ -696,12 +722,14 @@
       const admission = detail.status.admission;
       const latest = detail.runs?.[0];
       const resultVisible = state.expandedActions.has(detail.plan.metadata.id);
+      const resultsID = `action-results-${encode(detail.plan.metadata.id)}`;
+      const resultContent = detail.runs.length ? detail.runs.map(run => renderActionRun(run, detail.status.events)).join("") : "아직 실행 결과가 없습니다.";
       const actionButtons = admission === "approval_required"
         ? `<button class="button small" data-action="approve" data-id="${escapeHTML(detail.plan.metadata.id)}">승인 요청</button>`
         : admission === "eligible"
           ? `<button class="button primary small" data-action="execute" data-id="${escapeHTML(detail.plan.metadata.id)}">실행</button>`
           : "";
-      return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(detail.plan.metadata.name)}</h3><p class="meta">${escapeHTML(detail.plan.spec.projectId)} / ${escapeHTML(detail.plan.spec.repositoryId)} / ${escapeHTML(detail.plan.spec.worktreeId)}</p></div><span class="chip ${admission === "eligible" ? "ok" : admission === "approval_required" ? "warn" : "bad"}">${escapeHTML(label(admission))}</span></div><details><summary>계획과 승인 근거</summary><dl class="detail-grid"><div><dt>Action</dt><dd><code>${escapeHTML(detail.plan.spec.actionType)}</code></dd></div><div><dt>위험 등급</dt><dd>${escapeHTML(label(detail.plan.spec.risk))}</dd></div><div><dt>정책 판단</dt><dd>${escapeHTML(label(detail.plan.spec.policyDecision))}</dd></div><div><dt>요청 시각</dt><dd>${escapeHTML(formatDate(detail.plan.spec.requestedAt))}</dd></div><div class="wide"><dt>실행 명령</dt><dd><code>${escapeHTML([detail.plan.spec.execution?.executable, ...(detail.plan.spec.execution?.arguments || [])].join(" "))}</code></dd></div><div class="wide"><dt>승인 기록</dt><dd>${detail.status.approvals?.length ? detail.status.approvals.map(approval => `${escapeHTML(label(approval.spec.status))} · ${escapeHTML(formatDate(approval.spec.decidedAt))}`).join("<br>") : "없음"}</dd></div><div class="wide"><dt>감사 이벤트</dt><dd>${detail.status.events?.length ? detail.status.events.map(item => `${escapeHTML(item.spec.eventType)} · ${escapeHTML(formatDate(item.spec.occurredAt))}`).join("<br>") : "없음"}</dd></div></dl></details><div class="item-actions"><button class="button small" type="button" data-action="trust" data-id="${escapeHTML(detail.plan.metadata.id)}">실행 대상으로 표시</button>${actionButtons}<button class="button small" type="button" data-action="runs" data-id="${escapeHTML(detail.plan.metadata.id)}">${resultVisible ? "결과 닫기" : "결과 보기"}</button></div>${resultVisible ? `<div class="result-box">${detail.runs.length ? detail.runs.map(run => renderActionRun(run, detail.status.events)).join("") : "아직 실행 결과가 없습니다."}</div>` : latest ? `<p class="meta">최근 결과 ${escapeHTML(label(latest.spec.status))}</p>` : ""}</article>`;
+      return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(detail.plan.metadata.name)}</h3><p class="meta">${escapeHTML(detail.plan.spec.projectId)} / ${escapeHTML(detail.plan.spec.repositoryId)} / ${escapeHTML(detail.plan.spec.worktreeId)}</p></div><span class="chip ${admission === "eligible" ? "ok" : admission === "approval_required" ? "warn" : "bad"}">${escapeHTML(label(admission))}</span></div><details><summary>계획과 승인 근거</summary><dl class="detail-grid"><div><dt>Action</dt><dd><code>${escapeHTML(detail.plan.spec.actionType)}</code></dd></div><div><dt>위험 등급</dt><dd>${escapeHTML(label(detail.plan.spec.risk))}</dd></div><div><dt>정책 판단</dt><dd>${escapeHTML(label(detail.plan.spec.policyDecision))}</dd></div><div><dt>요청 시각</dt><dd>${escapeHTML(formatDate(detail.plan.spec.requestedAt))}</dd></div><div class="wide"><dt>실행 명령</dt><dd><code>${escapeHTML([detail.plan.spec.execution?.executable, ...(detail.plan.spec.execution?.arguments || [])].join(" "))}</code></dd></div><div class="wide"><dt>승인 기록</dt><dd>${detail.status.approvals?.length ? detail.status.approvals.map(approval => `${escapeHTML(label(approval.spec.status))} · ${escapeHTML(formatDate(approval.spec.decidedAt))}`).join("<br>") : "없음"}</dd></div><div class="wide"><dt>감사 이벤트</dt><dd>${detail.status.events?.length ? detail.status.events.map(item => `${escapeHTML(item.spec.eventType)} · ${escapeHTML(formatDate(item.spec.occurredAt))}`).join("<br>") : "없음"}</dd></div></dl></details><div class="item-actions"><button class="button small" type="button" data-action="trust" data-id="${escapeHTML(detail.plan.metadata.id)}">실행 대상으로 표시</button>${actionButtons}<button class="button small" type="button" data-action="runs" data-id="${escapeHTML(detail.plan.metadata.id)}" aria-expanded="${resultVisible}" aria-controls="${resultsID}">${resultVisible ? "결과 닫기" : "결과 보기"}</button></div><div id="${resultsID}" class="result-box" role="region" aria-label="${escapeHTML(detail.plan.metadata.name)} 결과" ${resultVisible ? "" : "hidden"}>${resultContent}</div>${!resultVisible && latest ? `<p class="meta">최근 결과 ${escapeHTML(label(latest.spec.status))}</p>` : ""}</article>`;
     }).join("");
     const projects = state.snapshot.projects || [];
     document.getElementById("action-ui").innerHTML = `${state.surfaceErrors.actions ? surfaceError(state.surfaceErrors.actions, "work") : ""}<div class="toolbar"><select id="sync-project" aria-label="전체 최신화 대상 프로젝트">${projects.length ? projects.map(project => `<option value="${escapeHTML(project.id)}">${escapeHTML(project.name)} · ${escapeHTML(project.repos.length)}개 저장소</option>`).join("") : '<option value="">등록된 프로젝트 없음</option>'}</select><button id="repository-sync-plan" class="button primary" type="button" ${projects.length ? "" : "disabled"}>프로젝트 저장소 전체 최신화 계획</button></div>${renderRepositorySyncPlan()}<div class="toolbar"><select id="action-target" aria-label="Action 대상 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button id="action-plan" class="button" type="button" ${targets.length ? "" : "disabled"}>단일 저장소 새로고침 계획</button></div>${plans ? `<div class="item-list">${plans}</div>` : '<div class="empty-state"><strong>검토된 Action 계획이 없습니다.</strong><span>대상 Worktree를 선택해 저장소 새로고침 계획을 만들 수 있습니다.</span></div>'}`;
@@ -974,11 +1002,24 @@
   const editorFields = document.getElementById("editor-fields");
   let unregisterTarget = null;
   let editorTarget = null;
+  let unregisterOpener = null;
+  let editorOpener = null;
+
+  function restoreDialogFocus(opener) {
+    window.setTimeout(() => {
+      if (opener?.isConnected && !opener.disabled) {
+        opener.focus({ preventScroll: true });
+        return;
+      }
+      focusElementByID("main-content");
+    }, 0);
+  }
 
   const editorInput = (id, labelText, value = "", options = {}) => `<label class="${options.wide ? "wide" : ""}"><span>${escapeHTML(labelText)}</span><input id="${id}" ${options.type ? `type="${options.type}"` : ""} ${options.required === false ? "" : "required"} ${options.readonly ? "readonly" : ""} value="${escapeHTML(value)}"></label>`;
   const editorTextarea = (id, labelText, value = "") => `<label class="wide"><span>${escapeHTML(labelText)}</span><textarea id="${id}" rows="3">${escapeHTML(value)}</textarea></label>`;
 
   function openEditor(kind, context = {}) {
+    editorOpener = document.activeElement;
     editorTarget = { kind, ...context };
     const title = document.getElementById("editor-title");
     const description = document.getElementById("editor-description");
@@ -1077,6 +1118,7 @@
   }
 
   function openUnregister(button) {
+    unregisterOpener = button;
     unregisterTarget = {
       kind: button.dataset.unregister,
       projectID: button.dataset.project,
@@ -1186,6 +1228,7 @@
     }
     if (button.dataset.project !== undefined && !button.dataset.unregister) {
       state.activeProjectID = button.dataset.project;
+      pendingProjectFocusID = button.dataset.project;
       renderProjects();
       return;
     }
@@ -1614,7 +1657,16 @@
 
   document.addEventListener("click", event => {
     const recoveryLink = event.target.closest("a[data-provider-recovery]");
-    if (recoveryLink) pendingRouteFocus = recoveryLink.dataset.focusTarget || "";
+    if (!recoveryLink) return;
+    const focusTarget = recoveryLink.dataset.focusTarget || "";
+    pendingRouteFocus = focusTarget;
+    if (currentRoute() === "diagnostics" && location.hash === "#diagnostics") {
+      event.preventDefault();
+      window.clearTimeout(routeFocusTimer);
+      routeFocusTimer = window.setTimeout(() => {
+        if (!focusElementByID(focusTarget)) focusElementByID("main-content");
+      }, 0);
+    }
   });
 
   document.getElementById("scan").addEventListener("click", async event => {
@@ -1722,6 +1774,7 @@
     try {
       const project = await request("/api/projects/import", { method: "POST", headers: mutationHeaders(), body: await file.text() });
       state.activeProjectID = project.metadata.id;
+      pendingProjectFocusID = project.metadata.id;
       showNotice("프로젝트 설정을 가져왔습니다. 비밀 값은 포함되지 않습니다.");
       await refreshAll();
     } catch (error) {
@@ -1748,6 +1801,7 @@
         body: JSON.stringify(input),
       });
       state.activeProjectID = project.metadata.id;
+      pendingProjectFocusID = project.metadata.id;
       event.target.reset();
       candidates.dataset.discovered = "false";
       candidates.textContent = "폴더를 선택하면 아래의 Git 저장소를 읽기 전용으로 찾습니다.";
@@ -1765,10 +1819,12 @@
     if (event.target.id === "finding-severity") {
       state.findingFilters.severity = event.target.value;
       renderProjects();
+      document.getElementById("finding-severity")?.focus({ preventScroll: true });
     }
     if (event.target.id === "finding-state") {
       state.findingFilters.state = event.target.value;
       renderProjects();
+      document.getElementById("finding-state")?.focus({ preventScroll: true });
     }
     if (event.target.id === "assurance-provider-filter" || event.target.id === "assurance-model-filter") {
       state.assuranceFilters.provider = document.getElementById("assurance-provider-filter").value;
@@ -1783,7 +1839,10 @@
     submit.disabled = event.target.value.trim() === "";
   });
 
-  document.getElementById("editor-cancel").addEventListener("click", () => editorDialog.close());
+  document.getElementById("editor-cancel").addEventListener("click", () => {
+    editorDialog.close();
+    restoreDialogFocus(editorOpener);
+  });
   document.getElementById("editor-form").addEventListener("submit", async event => {
     event.preventDefault();
     const submit = document.getElementById("editor-submit");
@@ -1793,6 +1852,7 @@
       editorDialog.close();
       showNotice(message);
       await refreshAll();
+      restoreDialogFocus(editorOpener);
     } catch (error) {
       showNotice(error.message, true);
     } finally {
@@ -1803,7 +1863,10 @@
   unregisterInput.addEventListener("input", () => {
     document.getElementById("unregister-submit").disabled = unregisterInput.value !== unregisterTarget?.name;
   });
-  document.getElementById("unregister-cancel").addEventListener("click", () => unregisterDialog.close());
+  document.getElementById("unregister-cancel").addEventListener("click", () => {
+    unregisterDialog.close();
+    restoreDialogFocus(unregisterOpener);
+  });
   document.getElementById("unregister-form").addEventListener("submit", async event => {
     event.preventDefault();
     if (!unregisterTarget || unregisterInput.value !== unregisterTarget.name) return;
@@ -1826,7 +1889,7 @@
       unregisterDialog.close();
       showNotice(unregisterTarget.kind === "profile" ? "Agent Profile을 제거했습니다." : unregisterTarget.kind === "integration" ? "연동 설정을 제거했습니다." : unregisterTarget.kind === "external-group" ? "Jenkins 대상 그룹을 제거했습니다." : unregisterTarget.kind === "runbook" ? "PowerShell runbook을 제거했습니다." : "등록을 해제했습니다. 원본 저장소 파일은 변경하지 않았습니다.");
       await refreshAll();
-      document.getElementById(unregisterTarget.kind === "profile" ? "add-profile" : unregisterTarget.kind === "integration" ? "add-integration" : unregisterTarget.kind === "external-group" ? "add-external-group" : unregisterTarget.kind === "runbook" ? "add-runbook" : "project-list-panel").focus();
+      restoreDialogFocus(unregisterOpener);
     } catch (error) {
       showNotice(error.message, true);
       submit.disabled = false;
