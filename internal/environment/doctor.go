@@ -165,9 +165,18 @@ func (r ProcessRunner) RunInDirectory(parent context.Context, executable string,
 	command := exec.CommandContext(ctx, executable, args...)
 	prepareCommand(command)
 	// Provider and diagnostic commands must observe an immediate EOF rather
-	// than an inherited console or an interactive prompt. This keeps the
-	// non-TTY boundary explicit even when the caller itself has a console.
-	command.Stdin = bytes.NewReader(nil)
+	// than an inherited console or an interactive prompt. Close the writer
+	// before Start so the child receives a real EOF without the os/exec
+	// pipe-copy path or platform-specific null-device read behavior.
+	stdin, stdinWriter, stdinErr := os.Pipe()
+	if stdinErr != nil {
+		return Result{}, fmt.Errorf("open closed stdin: %w", stdinErr)
+	}
+	defer stdin.Close()
+	if stdinErr := stdinWriter.Close(); stdinErr != nil {
+		return Result{}, fmt.Errorf("close closed stdin: %w", stdinErr)
+	}
+	command.Stdin = stdin
 	var cancelMu sync.RWMutex
 	cancelProcess := func() error { return terminateProcessTree(command) }
 	command.Cancel = func() error {

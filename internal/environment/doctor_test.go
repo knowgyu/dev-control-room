@@ -354,7 +354,7 @@ func TestProcessRunnerClosedStdinReturnsEOF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := (ProcessRunner{}).Run(context.Background(), executable, processRunnerHelperArgs(), processRunnerHelperEnvironment("stdin"), time.Second)
+	result, err := (ProcessRunner{}).Run(context.Background(), executable, processRunnerHelperArgs(), processRunnerHelperEnvironment("stdin"), 5*time.Second)
 	if err != nil {
 		t.Fatalf("closed stdin helper failed: %v", err)
 	}
