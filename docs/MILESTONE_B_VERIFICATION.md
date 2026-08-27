@@ -1,7 +1,7 @@
 # Milestone B verification
 
-Status: partial; automated/fake scope, restart-boundary recovery, and real local Codex acceptance are verified, native resilience remains active work
-Updated: 2026-08-27
+Status: partial; automated/fake scope, native process resilience, restart-boundary recovery, and real local Codex acceptance are verified; provider-specific authority and old-process resume remain bounded
+Updated: 2026-08-28
 
 ## Delivered
 
@@ -39,6 +39,22 @@ reopens the same local state. It verifies the interrupted state, failure code,
 cleared lease, pending invocation ID, and actionable Resume Brief. Reopening
 the service a second time does not create another transition or provider run.
 
+## v0.11.0 native resilience status
+
+`scripts/verify-native-resilience.ps1` ran on native Windows and passed 15
+assertions. Its real child-process fixtures prove that the ProcessRunner gives
+the child an immediate EOF instead of an inherited console, terminates the
+full process tree on timeout, and terminates the full process tree when the
+context is cancelled. The same native run rechecked restart-boundary recovery
+and the idempotent user-directed retry child attempt.
+
+The Windows implementation uses a Job Object with kill-on-close for the
+attached process tree. The service never discovers or resumes an old Provider
+PID after a crash or reboot; an interrupted read-only run requires a fresh
+user-directed child attempt. Expired authentication and unexpected Provider
+approval prompts remain fake-matrix or explicit real-provider acceptance
+cases, not a company-endpoint claim.
+
 ## v0.10.3 status update
 
 The explicit retry boundary is focused-verified with the fake Provider. A
@@ -61,11 +77,11 @@ Focused commands:
 - `go test -count=1 ./cmd/dev-control-room -run 'TestNestedCLIHelpIncludesUsageAndRequiredArguments|TestAssuranceLifecycleCLIUsesNamedFlagsAndStableEnvelopes'` — PASS
 - `node --check internal/app/ui/app.js` and `git diff --check` — PASS
 
-This slice is an explicit new attempt, not old-process resume. Native process
-existence/tree inspection after crash or reboot, non-TTY/closed-stdin behavior,
-expired authentication or approval-prompt handling, and native timeout/
-cancellation acceptance remain under
-[`#3`](https://github.com/knowgyu/dev-control-room/issues/3).
+This slice is an explicit new attempt, not old-process resume. The v0.11.0
+native acceptance covers process existence/tree termination and non-TTY/
+closed-stdin behavior plus native timeout/cancellation. Provider-specific
+expired authentication or approval-prompt handling and any old-process resume
+remain bounded under [`#3`](https://github.com/knowgyu/dev-control-room/issues/3).
 
 ## v0.8.0 status update
 
@@ -76,8 +92,7 @@ invocation, structured-only result, bounded evidence, clean Git status, and
 prompt non-persistence. No company repository was contacted.
 
 The remaining [#3](https://github.com/knowgyu/dev-control-room/issues/3) scope
-is non-TTY/closed stdin, expired auth/approval prompt, explicit process-tree
-cancellation/timeout, native crash/reboot process inspection, and resuming an
-old provider process. The new user-directed retry is idempotent as a fresh
-child attempt; it does not claim to inspect or resume a provider process that
-may have survived outside the service.
+is provider-specific expired auth/approval prompt acceptance and any explicit
+old-process resume policy. The new user-directed retry is idempotent as a
+fresh child attempt; it does not claim to inspect or resume a provider process
+that may have survived outside the service.

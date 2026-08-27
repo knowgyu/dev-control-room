@@ -1,4 +1,4 @@
-# Dev Control Room 0.10.3
+# Dev Control Room 0.11.0
 
 Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만 관찰하고,
 근거가 있는 점검과 Action을 계획·승인·실행합니다. 서비스는 loopback에만
@@ -49,11 +49,11 @@ ZIP과 SHA-256 목록을 만듭니다. 실제 Jenkins, production, Scheduler, �
 작업은 패키징에 포함되지 않습니다.
 
 ```powershell
-pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.10.3
+pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.11.0
 ```
 
-이 명령은 `docs/RELEASE_NOTES_v0.10.3.md`와
-`docs/VERIFICATION_v0.10.3.md`가 모두 있을 때 패키지를 만듭니다.
+이 명령은 `docs/RELEASE_NOTES_v0.11.0.md`와
+`docs/VERIFICATION_v0.11.0.md`가 모두 있을 때 패키지를 만듭니다.
 
 검증까지 포함한 후보 확인은 다음 명령을 먼저 실행합니다.
 
@@ -61,13 +61,16 @@ pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.10.3
 pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 ```
 
-## 0.10.3 범위와 경계
+## 0.11.0 범위와 경계
 
 - 중단된 Agent 실행은 검증 대시보드에서 새 prompt를 입력해 명시적으로
   재시도할 수 있습니다. 원본 prompt는 저장하지 않으며, 새 실행은 원본
   실행 ID와 deterministic idempotency key로 연결합니다.
 - CLI의 `assurance invocation retry`와 보호된 retry API도 같은 경계를
   사용합니다. 같은 retry 요청을 반복해도 Provider를 다시 실행하지 않습니다.
+- Provider·진단 프로세스에는 상속 console 대신 명시적 EOF stdin을 전달합니다.
+  Windows timeout/cancellation은 Job Object로 child process tree까지 종료합니다.
+  `scripts/verify-native-resilience.ps1`가 native Windows에서 이 경계를 확인합니다.
 
 - Established 홈에서 Quality Run·Agent·효과 기록뿐 아니라 검증된 효과,
   근거 완결성, 기록/예상 시간 절감을 함께 보여줍니다. 확인되지 않은 효과는
@@ -93,9 +96,10 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 - Codex npm launcher는 로컬 `node.exe`와 검증된
   `@openai/codex\bin\codex.js`를 typed argv로 실행합니다. `cmd.exe`, 임의
   `.cmd`, `.bat`, bare `codex`는 실행하지 않습니다.
-- 안전한 로컬 Git fixture에서 실제 authenticated Codex invocation을 확인했지만,
-  회사 CI endpoint·credential·production과 full non-TTY/resume resilience는
-  별도 이슈와 acceptance로 남습니다.
+- 안전한 로컬 Git fixture에서 실제 authenticated Codex invocation과 native
+  process resilience를 확인했지만, 회사 CI endpoint·credential·production,
+  만료 인증·approval prompt, old Provider process 재개는 별도 acceptance와
+  이슈 경계로 남습니다.
 
 ## 경계와 현재 확인 범위
 
@@ -106,8 +110,9 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
   승인이 필요합니다.
 - `FallbackRunbookID`는 참조만 저장하며 자동으로 PowerShell을 이어 실행하지
   않습니다. 이어 실행은 별도 계약과 승인이 필요합니다.
-- 0.10.3의 확인 범위는 자동화, 로컬 Windows Browser 관찰, disposable local
-  Git fixture의 실제 Codex invocation입니다. 회사 Jenkins/GitHub/Kubernetes,
+- 0.11.0의 확인 범위는 자동화, native Windows process acceptance, 로컬
+  Windows Browser 관찰, disposable local Git fixture의 실제 Codex invocation입니다.
+  회사 Jenkins/GitHub/Kubernetes,
   proxy, production, second-device, full Tab/Space, native dialog Esc driver
   acceptance는 실행하지 않았습니다.
 
@@ -115,6 +120,8 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 
 - [현재 상태와 handoff](docs/HANDOFF.md)
 - [효과 대시보드와 trace 계약](docs/ASSURANCE_EFFECT_DASHBOARD.md)
+- [v0.11.0 검증 기록](docs/VERIFICATION_v0.11.0.md)
+- [v0.11.0 릴리즈 노트](docs/RELEASE_NOTES_v0.11.0.md)
 - [v0.10.3 검증 기록](docs/VERIFICATION_v0.10.3.md)
 - [v0.10.3 릴리즈 노트](docs/RELEASE_NOTES_v0.10.3.md)
 - [v0.10.2 검증 기록](docs/VERIFICATION_v0.10.2.md)

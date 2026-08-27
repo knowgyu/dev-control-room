@@ -1,6 +1,6 @@
 # Current state and implementation handoff
 
-Updated: 2026-08-27
+Updated: 2026-08-28
 
 ## 2026-08-27 AI 작업 harness
 
@@ -13,6 +13,22 @@ troubleshooting, security, and observability guidance; and CLI work through
 [AI_WORK_HARNESS.md](AI_WORK_HARNESS.md). These skills do not weaken the
 Action Broker, masking, Worktree trust, npm Codex launcher boundary, or human
 patch-adoption rule, and they are not runtime dependencies of the binary.
+
+## 2026-08-28 v0.11.0 native process resilience
+
+The native process boundary now sends an explicit EOF stdin to Provider and
+diagnostic commands. On Windows, timeout and cancellation terminate the full
+child tree through a Job Object; the test helper proves that a spawned child
+does not survive either path. `scripts/verify-native-resilience.ps1` runs the
+native Windows acceptance and passed 15 assertions, including closed stdin,
+timeout, cancellation, restart-boundary recovery, and the idempotent retry
+child attempt.
+
+The service still does not discover or resume an old Provider PID after a
+crash/reboot. That is an intentional fail-closed boundary. Provider-specific
+expired-auth or approval-prompt acceptance, company endpoints, full keyboard
+traversal, and second-device acceptance remain separate evidence items. The
+full release record is [VERIFICATION_v0.11.0.md](VERIFICATION_v0.11.0.md).
 
 ## 2026-08-27 v0.10.3 explicit interrupted retry
 
@@ -329,7 +345,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.10.3`;
+- binary version: `0.11.0`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;

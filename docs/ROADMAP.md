@@ -1,7 +1,7 @@
 # Roadmap
 
 Status: active status index
-Updated: 2026-08-27
+Updated: 2026-08-28
 
 The active detailed feature plan is Phase 1,
 [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md). Its follow-on Phase 2
@@ -15,7 +15,7 @@ instructions to rerun completed work.
 | P0 local control plane | implemented and accepted | milestone verification documents and docs/HANDOFF.md |
 | P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
 | P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |
-| AI-assisted Code Assurance | v0.10.3 adds an explicit interrupted-invocation retry child attempt across UI/CLI/protected API with prompt non-persistence and deterministic idempotency; native process resilience, provider authority, mutation, patch adoption, and causal attribution remain partial | docs/AI_CODE_ASSURANCE_PLAN.md, docs/MILESTONE_B_VERIFICATION.md, docs/VERIFICATION_v0.10.3.md, and milestone verification documents |
+| AI-assisted Code Assurance | v0.11.0 adds explicit EOF stdin and native Windows timeout/cancellation process-tree acceptance on top of the v0.10.3 retry child attempt; provider authority, mutation, patch adoption, causal attribution, and old-process resume remain partial or intentionally fail-closed | docs/AI_CODE_ASSURANCE_PLAN.md, docs/MILESTONE_B_VERIFICATION.md, docs/VERIFICATION_v0.11.0.md, and milestone verification documents |
 | Product usability and interface | v0.10.3 adds a concise Assurance retry form with execution/parent trace IDs; v0.10.2 Home effect-proof and v0.10.1 focus polish remain; full Tab/Space, native dialog Esc, and second-device acceptance remain #7 | docs/PHASE_2_PRODUCT_USABILITY_PLAN.md and ../DESIGN.md |
 | AI 작업 harness | user-scoped frontend, Vercel UI review, Go reliability, browser, screenshot, and CLI skills are installed; routing and evidence rules are active, with no runtime dependency | docs/AI_WORK_HARNESS.md |
 
