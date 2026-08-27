@@ -181,20 +181,25 @@ and its boundary is fixed by
 The B restart-boundary slice now persists a two-hour invocation lease,
 transitions queued/running/cancelling invocations to `interrupted` on service
 startup, clears the lease, records `provider.interrupted`, updates the owning
-Resume Brief, and never relaunches a provider automatically. Its focused
-evidence is recorded in [MILESTONE_B_VERIFICATION.md](MILESTONE_B_VERIFICATION.md).
-Native process-tree inspection after crash/reboot and user-directed resume
-remain open under issue #3.
+Resume Brief, and never relaunches a provider automatically. The UI, CLI, and
+protected API now provide an explicit user-directed retry as a new child
+invocation: the operator supplies a new bounded one-line prompt, the original
+prompt is not persisted, and a deterministic idempotency key prevents duplicate
+provider launches. Its focused evidence is recorded in
+[MILESTONE_B_VERIFICATION.md](MILESTONE_B_VERIFICATION.md). Native process-tree
+inspection after crash/reboot, non-TTY/closed-stdin acceptance, and resuming an
+old provider process remain open under issue #3.
 
 Sessions and runs have a fail-closed state machine: draft, awaiting answer,
 ready, queued, running, cancelling, interrupted, succeeded, failed, timed out,
 cancelled, stale, or expired. A persisted lease and idempotency key identify
 each invocation. On service startup, an active persisted invocation becomes
 interrupted at the restart boundary and is never silently retried. Native
-process-state inspection after crash/reboot and user-directed resume remain
-open work. Read-only work can be explicitly resumed or retried as a new
-invocation. Any write requires fresh Worktree observation, exact plan/scope
-validation, and the normal Broker boundary. Artifact writes use a staging
+process-state inspection after crash/reboot and resuming an old provider
+process remain open work. Read-only work can be explicitly retried as a new
+invocation through the user-directed child-attempt contract. Any write requires
+fresh Worktree observation, exact plan/scope validation, and the normal Broker
+boundary. Artifact writes use a staging
 directory, hash/validation, then an atomic local manifest transition so partial
 output is never presented as completed evidence.
 
@@ -339,7 +344,7 @@ or reruns an uncertain external/high-impact Action.
 | Milestone | Scope | Exit evidence | Status |
 | --- | --- | --- |
 | A — plan/persistence | status markers, ADRs, migrations for sessions/runs/artifacts/pricing, durable Unattended Approval Scope contract | migration/lifecycle tests, revision CAS, exact Plan/Admit/Execute matching, protected API, and no duplicate active plan | verified for the approval-scope vertical slice; full A foundation remains accepted historical evidence in [VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md](VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md) |
-| B — providers/continuity | Doctor, Codex adapter, structured schema, profiles/model picker, fake Claude/Gemini, Resume Brief | fake matrix; masking; cancellation; non-TTY, closed-stdin, auth/prompt/output/usage failure cases; no raw transcript default; separate native real-CLI acceptance | partial: bounded prompt, real authenticated local Codex invocation, typed `node.exe` launcher, JSONL reduction, and no-transcript evidence are verified; native resilience cases remain [#3](https://github.com/knowgyu/dev-control-room/issues/3) |
+| B — providers/continuity | Doctor, Codex adapter, structured schema, profiles/model picker, fake Claude/Gemini, Resume Brief | fake matrix; masking; cancellation; non-TTY, closed-stdin, auth/prompt/output/usage failure cases; no raw transcript default; separate native real-CLI acceptance | partial: bounded prompt, real authenticated local Codex invocation, typed `node.exe` launcher, JSONL reduction, no-transcript evidence, and explicit idempotent user-directed retry are verified; native process resilience and old-process resume remain [#3](https://github.com/knowgyu/dev-control-room/issues/3) |
 | C — CI/runner | gh/Jenkins baseline discovery and typed Quality Runs | fixture proves required/observed/local equivalent/unknown and stale detection | partial: local discovery and read-only GitHub branch/rules lookup are verified; unavailable provider rules stay unknown, while successful provider/Jenkins authority remains [#4](https://github.com/knowgyu/dev-control-room/issues/4) |
 | D — assurance authoring | Q&A, Assurance Spec, test/property/mutation/fuzz proposals, isolated patch, critic | tests prove AI cannot adopt/commit/push and stale specs/runs surface | partial: authoring/review boundary is accepted; isolated patch materialization, human adoption, and re-verification remain [#10](https://github.com/knowgyu/dev-control-room/issues/10) |
 | E — techniques/artifacts | v1 static/security, mutation, property, fuzz, and targeted-E2E adapters; reports; archive/export/cleanup | three-repo fixture creates/verifies/exports/restores artifacts and deletion warning | partial: registered native Go static/property/fuzz/targeted-E2E runners and bounded reports are verified; mutation adapter remains [#5](https://github.com/knowgyu/dev-control-room/issues/5). Manifest export/restore, pinning, hash checks, and the 512 MiB quota are now verified. |
@@ -369,9 +374,10 @@ success never proves real provider CLI operation.
 ## First implementation action
 
 Milestone A's approval-scope vertical slice is focused-verified without changing
-Checkset semantics or weakening the Action Broker. Continue with the first
-remaining partial provider/continuity slice, beginning with deterministic fake
-resilience cases before any real Provider invocation.
+Checkset semantics or weakening the Action Broker. The explicit interrupted
+invocation retry slice is now focused-verified; continue with the remaining
+native provider-resilience cases, beginning with non-TTY and process-tree
+acceptance before any broader unattended claim.
 
 ## Next-session assignment prompt
 
@@ -387,6 +393,9 @@ Use the following as a new ChatGPT/Codex task for the active Phase 1 work:
 > the rule that AI patches require human adoption. Milestone A's approval-scope
 > slice is already recorded in `docs/VERIFICATION_MILESTONE_A_APPROVAL_SCOPE.md`;
 > begin at the first remaining partial milestone and preserve that contract.
+> The explicit interrupted-invocation retry child-attempt slice is already
+> verified; next inspect native provider resilience and old-process recovery
+> without adding automatic relaunch.
 > Implement exactly one
 > milestone or coherent vertical slice at a time. For an explicit unattended
 > “continue Phase 1 to completion” request, do not stop after a successful

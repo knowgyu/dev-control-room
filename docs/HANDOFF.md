@@ -14,6 +14,28 @@ troubleshooting, security, and observability guidance; and CLI work through
 Action Broker, masking, Worktree trust, npm Codex launcher boundary, or human
 patch-adoption rule, and they are not runtime dependencies of the binary.
 
+## 2026-08-27 v0.10.3 explicit interrupted retry
+
+중단된 Agent 실행을 자동 재개하지 않는 경계를 유지하면서, 사용자가 새
+prompt를 입력해 명시적으로 새 시도를 시작할 수 있게 했습니다. Assurance
+화면은 `interrupted` 기록에만 retry form을 보여주고 실행 ID와 원본 실행 ID를
+함께 표시합니다. CLI의 `assurance invocation retry`와 보호된 API도 같은
+계약을 사용합니다.
+
+재시도는 원본 prompt를 저장하지 않습니다. 새 child invocation은
+`parentId`와 deterministic idempotency key로 원본에 연결되며, 같은 요청을
+반복해도 Provider를 다시 실행하지 않습니다. 개행 또는 2000 UTF-8 byte를
+넘는 prompt는 실행 전에 거부합니다. 성공 시 Session의 원본 pending 항목을
+정리하고 새 결과를 검토 대상으로 표시합니다.
+
+Focused service, UI contract, API protection, CLI help, JavaScript syntax
+검증이 통과했습니다. 전체 release gate와 패키지 smoke 결과는
+[VERIFICATION_v0.10.3.md](VERIFICATION_v0.10.3.md)에 기록합니다. 이 slice는
+기존 Provider process를 찾거나 재개하지 않으며, native process-tree,
+non-TTY/closed-stdin, 만료 인증·approval prompt acceptance는
+[issue #3](https://github.com/knowgyu/dev-control-room/issues/3)에 남아
+있습니다.
+
 ## 2026-08-27 v0.10.2 Home effect proof
 
 The established Home view now surfaces a compact evidence-first Assurance
@@ -307,7 +329,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.10.0`;
+- binary version: `0.10.3`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;

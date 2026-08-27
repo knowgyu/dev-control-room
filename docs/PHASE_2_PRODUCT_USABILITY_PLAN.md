@@ -1,9 +1,9 @@
 # Phase 2 — Product usability and interface plan
 
-Status: v0.10.2 implements the planned first-use, return, Provider recovery,
-copy, launcher, and evidence-first Assurance impact surface; the established
-Home view now exposes a compact effect-proof summary linked to trace details;
-accessibility and native/manual gaps remain explicit
+Status: v0.10.3 adds a concise Assurance retry form with execution and parent
+trace IDs; v0.10.2 implements the planned first-use, return, Provider recovery,
+copy, launcher, and evidence-first Assurance impact surface; accessibility and
+native/manual gaps remain explicit
 Updated: 2026-08-27
 Owner: local operator
 Prerequisite: [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md) Phase 1
@@ -210,13 +210,17 @@ Initial measurable targets, to refine during the journey draft:
 5. **P2.4 Validation and release decision** — [partially verified] the repeatable
    CLI/loopback gate passes 239 assertions for first-use, return, Provider
    grouping/recovery, local npm Codex recovery, Assurance data, blocked actions,
-   duplicate-warning grouping, and secret non-persistence. v0.10.2 also shows
-   verified effects, trace completeness, and recorded or estimated time on the
-   established Home view without converting missing evidence into a result.
-   Browser evidence covers first-use/return/narrow screenshots, registration,
-   finding deep-link focus, Provider recovery focus, project-card Enter, and the
-   Home effect-proof summary. Full Tab/Space traversal, native dialog Esc
-   delivery, company endpoints, and a second clean Windows device remain
+    duplicate-warning grouping, and secret non-persistence. v0.10.2 also shows
+    verified effects, trace completeness, and recorded or estimated time on the
+    established Home view without converting missing evidence into a result.
+    v0.10.3 adds an interrupted-invocation retry form with explicit prompt
+    re-entry and execution/parent IDs.
+    Browser evidence covers first-use/return/narrow screenshots, registration,
+    finding deep-link focus, Provider recovery focus, project-card Enter, and the
+    Home effect-proof summary. Retry UI has static and protected-route contract
+    coverage; a browser session with a seeded interrupted invocation was not
+    available. Full Tab/Space traversal, native dialog Esc delivery, company
+    endpoints, and a second clean Windows device remain
    [#7](https://github.com/knowgyu/dev-control-room/issues/7).
 
 ## Non-goals and deferred work
