@@ -24,6 +24,11 @@ import (
 
 const agentInvocationLease = 2 * time.Hour
 
+type retryInvocationLock struct {
+	available  chan struct{}
+	references int
+}
+
 func (a *App) AssuranceSessions(ctx context.Context) ([]domain.AssuranceSession, error) {
 	return a.store.ListAssuranceSessions(ctx)
 }
@@ -622,6 +627,12 @@ func (a *App) RetryAgentInvocation(ctx context.Context, invocationID, prompt str
 	if err != nil {
 		return domain.AgentInvocation{}, contract.InvalidInput("retry prompt must be one line and at most 2000 UTF-8 bytes")
 	}
+	releaseRetry, lockErr := a.acquireRetryInvocation(ctx, invocationID)
+	if lockErr != nil {
+		return domain.AgentInvocation{}, lockErr
+	}
+	defer releaseRetry()
+
 	var original domain.AgentInvocation
 	if err := a.store.GetAssurance(ctx, domain.AgentInvocationKind, invocationID, &original); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -632,18 +643,46 @@ func (a *App) RetryAgentInvocation(ctx context.Context, invocationID, prompt str
 	if original.Spec.State != domain.AssuranceStateInterrupted {
 		return domain.AgentInvocation{}, contract.Conflict("only an interrupted invocation can be retried")
 	}
-	retry, err := a.runAgentInvocation(ctx, AgentInvocationInput{
+	retry, providerErr := a.runAgentInvocation(ctx, AgentInvocationInput{
 		SessionID: original.Spec.SessionID, Provider: original.Spec.Provider,
 		ProfileID: original.Spec.ProfileID, RequestedModel: original.Spec.RequestedModel,
 		Prompt: normalizedPrompt,
 	}, original.Metadata.ID, "retry:"+original.Metadata.ID)
-	if err != nil {
-		return retry, err
+	if providerErr != nil {
+		return retry, providerErr
 	}
 
-	var session domain.AssuranceSession
-	if err := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, original.Spec.SessionID, &session); err != nil {
-		return retry, err
+	if sessionErr := a.reconcileRetrySession(ctx, original, retry); sessionErr != nil {
+		// The child invocation is durable even though its Resume Brief could
+		// not be reconciled. Return both values so the caller can surface this
+		// as a partial retry rather than confusing it with provider execution.
+		return retry, sessionErr
+	}
+	return retry, nil
+}
+
+func (a *App) reconcileRetrySession(ctx context.Context, original, retry domain.AgentInvocation) error {
+	return reconcileRetrySession(ctx, original, retry,
+		func(ctx context.Context, sessionID string) (domain.AssuranceSession, error) {
+			var session domain.AssuranceSession
+			err := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, sessionID, &session)
+			return session, err
+		},
+		a.updateAssuranceSession,
+	)
+}
+
+func reconcileRetrySession(
+	ctx context.Context,
+	original, retry domain.AgentInvocation,
+	readSession func(context.Context, string) (domain.AssuranceSession, error),
+	updateSession func(context.Context, domain.AssuranceSession) error,
+) error {
+	session, sessionErr := readSession(ctx, original.Spec.SessionID)
+	if sessionErr != nil {
+		// Keep the actual read failure. RetryAgentInvocation returns the already
+		// persisted child alongside this error to make partial success explicit.
+		return sessionErr
 	}
 	session.Spec.ResumeBrief.Pending = removeAssuranceValue(session.Spec.ResumeBrief.Pending, original.Metadata.ID)
 	if retry.Spec.State == domain.AssuranceStateSucceeded {
@@ -655,10 +694,50 @@ func (a *App) RetryAgentInvocation(ctx context.Context, invocationID, prompt str
 		session.Spec.ResumeBrief.NextSafeAction = "실패한 재시도의 원인과 다음 범위를 검토합니다."
 	}
 	session.Spec.UpdatedAt = time.Now().UTC()
-	if err := a.updateAssuranceSession(ctx, session); err != nil {
-		return retry, err
+	if updateErr := updateSession(ctx, session); updateErr != nil {
+		// The actual revision/update failure is also part of the partial retry
+		// result; do not replace it with the provider execution error.
+		return updateErr
 	}
-	return retry, nil
+	return nil
+}
+
+func (a *App) acquireRetryInvocation(ctx context.Context, invocationID string) (func(), error) {
+	a.retryLocksMu.Lock()
+	if a.retryLocks == nil {
+		a.retryLocks = make(map[string]*retryInvocationLock)
+	}
+	lock := a.retryLocks[invocationID]
+	if lock == nil {
+		lock = &retryInvocationLock{available: make(chan struct{}, 1)}
+		lock.available <- struct{}{}
+		a.retryLocks[invocationID] = lock
+	}
+	lock.references++
+	a.retryLocksMu.Unlock()
+
+	select {
+	case <-lock.available:
+		return func() { a.releaseRetryInvocation(invocationID, lock) }, nil
+	case <-ctx.Done():
+		a.retryLocksMu.Lock()
+		lock.references--
+		if lock.references == 0 && a.retryLocks[invocationID] == lock {
+			delete(a.retryLocks, invocationID)
+		}
+		a.retryLocksMu.Unlock()
+		return func() {}, ctx.Err()
+	}
+}
+
+func (a *App) releaseRetryInvocation(invocationID string, lock *retryInvocationLock) {
+	lock.available <- struct{}{}
+	a.retryLocksMu.Lock()
+	lock.references--
+	if lock.references == 0 && a.retryLocks[invocationID] == lock {
+		delete(a.retryLocks, invocationID)
+	}
+	a.retryLocksMu.Unlock()
 }
 
 func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput, parentID, idempotencyKey string) (domain.AgentInvocation, error) {

@@ -455,6 +455,140 @@ func TestRetryInterruptedInvocationCreatesIdempotentChildWithoutPromptPersistenc
 	}
 }
 
+func TestReconcileRetrySessionPreservesActualSessionFailure(t *testing.T) {
+	original := domain.AgentInvocation{Metadata: domain.ObjectMeta{ID: "interrupted"}, Spec: domain.AgentInvocationSpec{SessionID: "session-1"}}
+	retry := domain.AgentInvocation{Metadata: domain.ObjectMeta{ID: "retry-child"}, Spec: domain.AgentInvocationSpec{State: domain.AssuranceStateSucceeded}}
+	now := time.Now().UTC()
+	baseSession := domain.AssuranceSession{Metadata: domain.ObjectMeta{ID: "session-1"}, Spec: domain.AssuranceSessionSpec{State: domain.AssuranceStateInterrupted, UpdatedAt: now, ResumeBrief: domain.ResumeBrief{Pending: []string{original.Metadata.ID}}}}
+	sessionErr := errors.New("session read failed")
+	updateErr := errors.New("session update failed")
+	tests := []struct {
+		name       string
+		readErr    error
+		updateErr  error
+		wantCalled bool
+	}{
+		{name: "session read", readErr: sessionErr},
+		{name: "session update", updateErr: updateErr, wantCalled: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var updated domain.AssuranceSession
+			called := false
+			gotErr := reconcileRetrySession(
+				context.Background(), original, retry,
+				func(_ context.Context, sessionID string) (domain.AssuranceSession, error) {
+					if sessionID != original.Spec.SessionID {
+						t.Fatalf("session id = %q, want %q", sessionID, original.Spec.SessionID)
+					}
+					if test.readErr != nil {
+						return domain.AssuranceSession{}, test.readErr
+					}
+					return baseSession, nil
+				},
+				func(_ context.Context, session domain.AssuranceSession) error {
+					called = true
+					updated = session
+					return test.updateErr
+				},
+			)
+			wantErr := test.readErr
+			if wantErr == nil {
+				wantErr = test.updateErr
+			}
+			if gotErr != wantErr {
+				t.Fatalf("reconcile error = %v, want exact error %v", gotErr, wantErr)
+			}
+			if called != test.wantCalled {
+				t.Fatalf("update called = %v, want %v", called, test.wantCalled)
+			}
+			if test.wantCalled && (updated.Spec.State != domain.AssuranceStateReady || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, original.Metadata.ID)) {
+				t.Fatalf("retry session transition was not prepared before update failure: %#v", updated)
+			}
+		})
+	}
+}
+
+func TestConcurrentRetriesDoNotOverwriteSessionOrCreateChildren(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Concurrent retry", Path: tempGitRepository(t, "concurrent-retry")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "fake", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := service.Worktree(context.Background(), project.Metadata.ID, "repo-1", "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	original := domain.AgentInvocation{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind},
+		Metadata: domain.ObjectMeta{ID: "concurrent-interrupted", Name: "Interrupted invocation"},
+		Spec: domain.AgentInvocationSpec{
+			SessionID: session.Metadata.ID, ProjectID: project.Metadata.ID, RepositoryID: "repo-1",
+			WorktreeID: "primary", Branch: worktree.Spec.Branch, Head: worktree.Spec.Head,
+			Provider: "fake", ProfileID: "fake", RequestedModel: "fixture-model",
+			SelectionSource: "user", State: domain.AssuranceStateInterrupted,
+			IdempotencyKey: "concurrent-interrupted", InputDigest: digestText("original prompt"),
+			TraceID: "trace-concurrent-interrupted", StartedAt: now.Add(-time.Minute), RawTranscript: false,
+			FailureCode: "provider.interrupted",
+		},
+	}
+	if err := service.store.SaveAgentInvocation(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	session.Spec.State = domain.AssuranceStateInterrupted
+	session.Spec.UpdatedAt = now
+	session.Spec.ResumeBrief.Pending = []string{original.Metadata.ID}
+	session.Spec.ResumeBrief.NextSafeAction = "중단된 실행의 상태와 재시도 범위를 검토합니다."
+	if err := service.updateAssuranceSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	type outcome struct {
+		item domain.AgentInvocation
+		err  error
+	}
+	start := make(chan struct{})
+	results := make(chan outcome, 2)
+	for range 2 {
+		go func() {
+			<-start
+			item, retryErr := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry prompt")
+			results <- outcome{item: item, err: retryErr}
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	if first.err != nil || second.err != nil {
+		t.Fatalf("concurrent retries failed: first=%v second=%v", first.err, second.err)
+	}
+	if first.item.Metadata.ID == "" || first.item.Metadata.ID != second.item.Metadata.ID || first.item.Spec.State != domain.AssuranceStateSucceeded || second.item.Spec.State != domain.AssuranceStateSucceeded {
+		t.Fatalf("concurrent retry children = %#v and %#v", first.item, second.item)
+	}
+	invocations, err := service.AgentInvocations(context.Background())
+	if err != nil || len(invocations) != 2 {
+		t.Fatalf("concurrent retries created duplicate children: %#v, err=%v", invocations, err)
+	}
+	updated, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Spec.State != domain.AssuranceStateReady || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, original.Metadata.ID) || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, first.item.Metadata.ID) || len(updated.Spec.ResumeBrief.Completed) != 1 || updated.Spec.ResumeBrief.Completed[0] != first.item.Metadata.ID {
+		t.Fatalf("concurrent retry session state was overwritten: %#v", updated.Spec.ResumeBrief)
+	}
+}
+
 func TestAgentInvocationFailsClosedWhenEvidenceArtifactCannotPersist(t *testing.T) {
 	home := t.TempDir()
 	service, err := New(home, "127.0.0.1:38471")

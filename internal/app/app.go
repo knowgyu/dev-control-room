@@ -54,6 +54,8 @@ type App struct {
 	scanMu                 sync.Mutex
 	environmentMu          sync.Mutex
 	safeguardMu            sync.Mutex
+	retryLocksMu           sync.Mutex
+	retryLocks             map[string]*retryInvocationLock
 }
 
 func New(home, listen string) (*App, error) {

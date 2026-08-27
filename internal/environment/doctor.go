@@ -207,9 +207,15 @@ func (r ProcessRunner) RunInDirectory(parent context.Context, executable string,
 	if err == nil {
 		var attachErr error
 		var attachedCancel func() error
-		cleanup, attachedCancel, attachErr = attachProcessTree(command)
+		// CREATE_SUSPENDED keeps the child from running while it is being
+		// attached. Hold the cancellation read lock across the attach/resume
+		// boundary so a context cancellation cannot race the handoff from the
+		// process fallback to the Job Object terminator.
 		cancelMu.Lock()
-		cancelProcess = attachedCancel
+		cleanup, attachedCancel, attachErr = attachProcessTree(command)
+		if attachErr == nil {
+			cancelProcess = attachedCancel
+		}
 		cancelMu.Unlock()
 		if attachErr != nil {
 			_ = command.Process.Kill()

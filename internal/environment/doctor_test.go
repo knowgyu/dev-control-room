@@ -369,9 +369,24 @@ func TestProcessRunnerTimeoutKillsProcessTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(t.TempDir(), "timeout-tree")
-	result, err := (ProcessRunner{}).Run(context.Background(), executable, processRunnerHelperArgs(), processRunnerHelperEnvironmentWithMarker("spawn-parent", marker), 100*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("expected bounded timeout, result=%#v err=%v", result, err)
+	resultCh := make(chan struct {
+		result Result
+		err    error
+	}, 1)
+	go func() {
+		result, runErr := (ProcessRunner{}).Run(context.Background(), executable, processRunnerHelperArgs(), processRunnerHelperEnvironmentWithMarker("spawn-parent", marker), time.Second)
+		resultCh <- struct {
+			result Result
+			err    error
+		}{result: result, err: runErr}
+	}()
+	started := waitForProcessMarker(t, marker+".started", 2*time.Second)
+	if pid, parseErr := strconv.Atoi(strings.TrimSpace(string(started))); parseErr != nil || pid <= 0 {
+		t.Fatalf("spawned child marker did not contain a PID: %q", started)
+	}
+	outcome := <-resultCh
+	if outcome.err == nil || !strings.Contains(outcome.err.Error(), "timed out") {
+		t.Fatalf("expected bounded timeout, result=%#v err=%v", outcome.result, outcome.err)
 	}
 	assertProcessTreeDidNotSurvive(t, marker)
 }
@@ -442,8 +457,13 @@ func TestProcessRunnerHelper(_ *testing.T) {
 			os.Exit(6)
 		}
 		_ = os.WriteFile(marker+".started", []byte(strconv.Itoa(os.Getpid())), 0o600)
-		time.Sleep(300 * time.Millisecond)
-		_ = os.WriteFile(marker+".survived", []byte(strconv.Itoa(os.Getpid())), 0o600)
+		for {
+			if _, err := os.Stat(marker + ".check"); err == nil {
+				_ = os.WriteFile(marker+".survived", []byte(strconv.Itoa(os.Getpid())), 0o600)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	case "output":
 		_, _ = os.Stdout.WriteString(strings.Repeat("x", 1024))
 	case "":
@@ -481,6 +501,9 @@ func waitForProcessMarker(t *testing.T, path string, timeout time.Duration) []by
 
 func assertProcessTreeDidNotSurvive(t *testing.T, marker string) {
 	t.Helper()
+	if err := os.WriteFile(marker+".check", []byte("check"), 0o600); err != nil {
+		t.Fatalf("could not ask child to report survival: %v", err)
+	}
 	survivedPath := marker + ".survived"
 	var survived []byte
 	deadline := time.Now().Add(750 * time.Millisecond)
