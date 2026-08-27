@@ -110,6 +110,7 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 		"const hasActivity = trend.some", "추세를 만들 표본이 없습니다.",
 		"rawTranscript", "usageComplete", "estimatedCost", "configDigest", "artifactIds", "evidenceIds",
 		"function renderHomeAssurance(dashboard, runs)", "home-assurance-proof", "효과 추적 보기", "원본·artifact·재검증 연결",
+		"invocation-retry", "data-assurance-retry", "/retry", "원래 prompt는 저장하지 않습니다.", "중단 실행을 재시도했습니다.",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded Assurance dashboard JavaScript missing %q", value)
@@ -335,6 +336,19 @@ func TestEmbeddedUIChecksetProtectedHandlerFlow(t *testing.T) {
 		t.Fatalf("review results = %#v", runs)
 	}
 	assertUIError(t, service, http.MethodGet, "/api/checksets/missing/runs", nil, "", "", http.StatusNotFound, contract.ErrorNotFound)
+}
+
+func TestEmbeddedUIAssuranceInvocationRetryRouteRequiresMutationToken(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	body := []byte("{\"prompt\":\"retry\"}")
+	assertUIError(t, service, http.MethodPost, "/api/assurance/invocations/interrupted/retry", body, "", "", http.StatusForbidden, contract.ErrorForbidden)
+	assertUIError(t, service, http.MethodPost, "/api/assurance/invocations/interrupted/retry", body, service.mutationToken, "http://example.invalid", http.StatusForbidden, contract.ErrorForbidden)
+	assertUIError(t, service, http.MethodPost, "/api/assurance/invocations/missing/retry", body, service.mutationToken, "http://127.0.0.1:38471", http.StatusNotFound, contract.ErrorNotFound)
 }
 
 func TestEmbeddedUIUnregisterRoutesPreserveRepositoryFiles(t *testing.T) {

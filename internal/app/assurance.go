@@ -602,6 +602,66 @@ func qualityRunArtifact(run domain.QualityRun, executed bool) map[string]any {
 }
 
 func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput) (domain.AgentInvocation, error) {
+	return a.runAgentInvocation(ctx, input, "", "")
+}
+
+// RetryAgentInvocation is an explicit, user-directed new attempt after the
+// service marked an invocation interrupted. The original prompt is
+// intentionally not persisted, so the caller must provide it again. A retry
+// has a deterministic idempotency key and parent link; repeating the request
+// returns the existing child instead of launching another provider process.
+func (a *App) RetryAgentInvocation(ctx context.Context, invocationID, prompt string) (domain.AgentInvocation, error) {
+	invocationID = strings.TrimSpace(invocationID)
+	if invocationID == "" {
+		return domain.AgentInvocation{}, contract.InvalidInput("interrupted invocation id is required")
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return domain.AgentInvocation{}, contract.InvalidInput("retry prompt is required because the original prompt is not stored")
+	}
+	normalizedPrompt, err := assurance.ValidateCodexPrompt(prompt)
+	if err != nil {
+		return domain.AgentInvocation{}, contract.InvalidInput("retry prompt must be one line and at most 2000 UTF-8 bytes")
+	}
+	var original domain.AgentInvocation
+	if err := a.store.GetAssurance(ctx, domain.AgentInvocationKind, invocationID, &original); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.AgentInvocation{}, contract.NotFound("agent invocation not found")
+		}
+		return domain.AgentInvocation{}, err
+	}
+	if original.Spec.State != domain.AssuranceStateInterrupted {
+		return domain.AgentInvocation{}, contract.Conflict("only an interrupted invocation can be retried")
+	}
+	retry, err := a.runAgentInvocation(ctx, AgentInvocationInput{
+		SessionID: original.Spec.SessionID, Provider: original.Spec.Provider,
+		ProfileID: original.Spec.ProfileID, RequestedModel: original.Spec.RequestedModel,
+		Prompt: normalizedPrompt,
+	}, original.Metadata.ID, "retry:"+original.Metadata.ID)
+	if err != nil {
+		return retry, err
+	}
+
+	var session domain.AssuranceSession
+	if err := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, original.Spec.SessionID, &session); err != nil {
+		return retry, err
+	}
+	session.Spec.ResumeBrief.Pending = removeAssuranceValue(session.Spec.ResumeBrief.Pending, original.Metadata.ID)
+	if retry.Spec.State == domain.AssuranceStateSucceeded {
+		session.Spec.State = domain.AssuranceStateReady
+		session.Spec.ResumeBrief.NextSafeAction = "새 실행의 구조화된 결과와 제안을 검토합니다."
+	} else {
+		session.Spec.State = domain.AssuranceStateInterrupted
+		session.Spec.ResumeBrief.Pending = appendUniqueStrings(session.Spec.ResumeBrief.Pending, retry.Metadata.ID)
+		session.Spec.ResumeBrief.NextSafeAction = "실패한 재시도의 원인과 다음 범위를 검토합니다."
+	}
+	session.Spec.UpdatedAt = time.Now().UTC()
+	if err := a.updateAssuranceSession(ctx, session); err != nil {
+		return retry, err
+	}
+	return retry, nil
+}
+
+func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput, parentID, idempotencyKey string) (domain.AgentInvocation, error) {
 	session, err := a.AssuranceSession(ctx, input.SessionID)
 	if err != nil {
 		return domain.AgentInvocation{}, err
@@ -615,14 +675,40 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 		return domain.AgentInvocation{}, contract.InvalidInput("provider is required")
 	}
 	now := time.Now().UTC()
+	inputDigest := digestText(strings.TrimSpace(input.Prompt))
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	id := assuranceID("invocation", session.Metadata.ID, provider, now)
+	if idempotencyKey != "" {
+		id = assuranceID("invocation", session.Metadata.ID, provider, idempotencyKey)
+		var existing domain.AgentInvocation
+		if err := a.store.GetAssurance(ctx, domain.AgentInvocationKind, id, &existing); err == nil {
+			if !sameInvocationRequest(existing, session.Metadata.ID, provider, worktree.Metadata.ID, input.RequestedModel, inputDigest, idempotencyKey) {
+				return domain.AgentInvocation{}, contract.Conflict("idempotency key is already bound to a different invocation")
+			}
+			return existing, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return domain.AgentInvocation{}, err
+		}
+	}
+	if idempotencyKey == "" {
+		idempotencyKey = id
+	}
 	leaseExpiresAt := now.Add(agentInvocationLease)
-	invocation := domain.AgentInvocation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Agent invocation"}, Spec: domain.AgentInvocationSpec{SessionID: session.Metadata.ID, ProjectID: session.Spec.ProjectID, RepositoryID: session.Spec.RepositoryID, WorktreeID: worktree.Metadata.ID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Provider: provider, ProfileID: strings.TrimSpace(input.ProfileID), RequestedModel: strings.TrimSpace(input.RequestedModel), SelectionSource: "user", State: domain.AssuranceStateQueued, IdempotencyKey: id, InputDigest: digestText(strings.TrimSpace(input.Prompt)), TraceID: assuranceID("trace", id), StartedAt: now, RawTranscript: false}}
+	invocation := domain.AgentInvocation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Agent invocation"}, Spec: domain.AgentInvocationSpec{SessionID: session.Metadata.ID, ParentID: strings.TrimSpace(parentID), ProjectID: session.Spec.ProjectID, RepositoryID: session.Spec.RepositoryID, WorktreeID: worktree.Metadata.ID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Provider: provider, ProfileID: strings.TrimSpace(input.ProfileID), RequestedModel: strings.TrimSpace(input.RequestedModel), SelectionSource: "user", State: domain.AssuranceStateQueued, IdempotencyKey: idempotencyKey, InputDigest: inputDigest, TraceID: assuranceID("trace", id), StartedAt: now, RawTranscript: false}}
 	invocation.Spec.LeaseExpiresAt = &leaseExpiresAt
 	if invocation.Spec.ProfileID == "" {
 		invocation.Spec.ProfileID = provider
 	}
 	if err := a.store.SaveAgentInvocation(ctx, invocation); err != nil {
+		if idempotencyKey != id {
+			var existing domain.AgentInvocation
+			if readErr := a.store.GetAssurance(ctx, domain.AgentInvocationKind, id, &existing); readErr == nil {
+				if !sameInvocationRequest(existing, session.Metadata.ID, provider, worktree.Metadata.ID, input.RequestedModel, inputDigest, idempotencyKey) {
+					return domain.AgentInvocation{}, contract.Conflict("idempotency key is already bound to a different invocation")
+				}
+				return existing, nil
+			}
+		}
 		return domain.AgentInvocation{}, err
 	}
 	invocation.Spec.State = domain.AssuranceStateRunning
@@ -717,6 +803,22 @@ func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput
 		return invocation, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "agent invocation evidence could not be persisted"}
 	}
 	return invocation, nil
+}
+
+func sameInvocationRequest(item domain.AgentInvocation, sessionID, provider, worktreeID, model, inputDigest, idempotencyKey string) bool {
+	return item.Spec.SessionID == sessionID && item.Spec.Provider == provider &&
+		item.Spec.WorktreeID == worktreeID && item.Spec.RequestedModel == strings.TrimSpace(model) &&
+		item.Spec.InputDigest == inputDigest && item.Spec.IdempotencyKey == idempotencyKey
+}
+
+func removeAssuranceValue(values []string, target string) []string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != target {
+			filtered = append(filtered, value)
+		}
+	}
+	return filtered
 }
 
 // recoverInterruptedInvocations makes a restart an explicit boundary. The

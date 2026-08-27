@@ -147,6 +147,7 @@ type CommandService interface {
 	CreateQualityCampaign(context.Context, QualityCampaignInput) (domain.QualityCampaign, error)
 	RunQuality(context.Context, QualityRunInput) (domain.QualityRun, error)
 	RunAgentInvocation(context.Context, AgentInvocationInput) (domain.AgentInvocation, error)
+	RetryAgentInvocation(context.Context, string, string) (domain.AgentInvocation, error)
 	SaveAssuranceArtifact(context.Context, ArtifactInput) (domain.Artifact, error)
 	CreateEffect(context.Context, EffectInput) (domain.Effect, error)
 	CreateUnattendedApprovalScope(context.Context, UnattendedApprovalScopeInput) (domain.UnattendedApprovalScope, error)

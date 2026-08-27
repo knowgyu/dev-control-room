@@ -133,6 +133,7 @@ func TestNestedCLIHelpIncludesUsageAndRequiredArguments(t *testing.T) {
 		{name: "project help compatibility", args: []string{"project", "help", "--home", "ignored", "--json"}, want: []string{"project", "<command>", "표준 JSON envelope"}},
 		{name: "environment help compatibility", args: []string{"env", "help", "--home", "ignored", "--json"}, want: []string{"env", "doctor", "status", "표준 JSON envelope"}},
 		{name: "assurance session create", args: []string{"assurance", "session", "create", "--help", "--json"}, want: []string{"assurance session create", "--project <id>", "--repository <id>", "--worktree <id>", "표준 JSON envelope"}},
+		{name: "assurance invocation retry", args: []string{"assurance", "invocation", "retry", "--help", "--json"}, want: []string{"assurance invocation retry", "--id <id>", "--prompt <한 줄>", "표준 JSON envelope"}},
 		{name: "help path", args: []string{"help", "project", "add", "--json"}, want: []string{"project add", "--name <name>", "--path <path>"}},
 	}
 	for _, test := range cases {

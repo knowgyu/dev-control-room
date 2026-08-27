@@ -358,6 +358,103 @@ func hasAssuranceValue(values []string, want string) bool {
 	return false
 }
 
+func TestRetryInterruptedInvocationCreatesIdempotentChildWithoutPromptPersistence(t *testing.T) {
+	home := t.TempDir()
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Retry", Path: tempGitRepository(t, "retry")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "fake", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := service.Worktree(context.Background(), project.Metadata.ID, "repo-1", "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	original := domain.AgentInvocation{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind},
+		Metadata: domain.ObjectMeta{ID: "interrupted-for-retry", Name: "Interrupted invocation"},
+		Spec: domain.AgentInvocationSpec{
+			SessionID: session.Metadata.ID, ProjectID: project.Metadata.ID, RepositoryID: "repo-1",
+			WorktreeID: "primary", Branch: worktree.Spec.Branch, Head: worktree.Spec.Head,
+			Provider: "fake", ProfileID: "fake", RequestedModel: "fixture-model",
+			SelectionSource: "user", State: domain.AssuranceStateInterrupted,
+			IdempotencyKey: "interrupted-for-retry", InputDigest: digestText("original prompt"),
+			TraceID: "trace-interrupted-for-retry", StartedAt: now.Add(-time.Minute), RawTranscript: false,
+			FailureCode: "provider.interrupted",
+		},
+	}
+	if err := service.store.SaveAgentInvocation(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	session.Spec.State = domain.AssuranceStateInterrupted
+	session.Spec.UpdatedAt = now
+	session.Spec.ResumeBrief.Pending = []string{original.Metadata.ID}
+	session.Spec.ResumeBrief.NextSafeAction = "중단된 실행의 상태와 재시도 범위를 검토합니다."
+	if err := service.updateAssuranceSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	retry, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.Metadata.ID == original.Metadata.ID || retry.Spec.ParentID != original.Metadata.ID ||
+		retry.Spec.State != domain.AssuranceStateSucceeded || retry.Spec.InputDigest != digestText("retry prompt") ||
+		retry.Spec.IdempotencyKey == original.Spec.IdempotencyKey {
+		t.Fatalf("retry invocation = %#v", retry)
+	}
+	persisted, err := json.Marshal(retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(persisted), "retry prompt") || strings.Contains(string(persisted), "original prompt") {
+		t.Fatalf("retry prompt crossed the persistence boundary: %s", persisted)
+	}
+	invocations, err := service.AgentInvocations(context.Background())
+	if err != nil || len(invocations) != 2 {
+		t.Fatalf("invocations after retry = %#v, err=%v", invocations, err)
+	}
+	updated, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Spec.State != domain.AssuranceStateReady || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, original.Metadata.ID) {
+		t.Fatalf("retry did not resolve the interrupted pending item: %#v", updated.Spec.ResumeBrief)
+	}
+
+	again, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Metadata.ID != retry.Metadata.ID {
+		t.Fatalf("idempotent retry changed child: first=%s again=%s", retry.Metadata.ID, again.Metadata.ID)
+	}
+	invocations, err = service.AgentInvocations(context.Background())
+	if err != nil || len(invocations) != 2 {
+		t.Fatalf("idempotent retry created another invocation: %#v, err=%v", invocations, err)
+	}
+	if _, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "different prompt"); err == nil || !strings.Contains(err.Error(), "idempotency key") {
+		t.Fatalf("different retry prompt was not rejected: %v", err)
+	}
+	if _, err := service.RetryAgentInvocation(context.Background(), retry.Metadata.ID, "another retry"); err == nil || !strings.Contains(err.Error(), "only an interrupted invocation") {
+		t.Fatalf("succeeded child was retryable: %v", err)
+	}
+	if _, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry\nwith newline"); err == nil || !strings.Contains(err.Error(), "one line") {
+		t.Fatalf("newline retry prompt was accepted: %v", err)
+	}
+}
+
 func TestAgentInvocationFailsClosedWhenEvidenceArtifactCannotPersist(t *testing.T) {
 	home := t.TempDir()
 	service, err := New(home, "127.0.0.1:38471")

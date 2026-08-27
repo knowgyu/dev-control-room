@@ -582,7 +582,12 @@
     const usage = spec.usage || {};
     const model = spec.requestedModel || spec.resolvedModel || "모델 미상";
     const stateClass = assuranceStateClass(spec.state);
-    return `<article class="list-item assurance-record ${stateClass}"><div class="list-item-header"><div><h3>${escapeHTML(spec.provider || "Provider 미상")}</h3><p class="meta">${escapeHTML(model)} · ${escapeHTML(formatDate(spec.startedAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(label(spec.state))}</span></div><dl class="detail-grid"><div><dt>입력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.inputTokens))}</dd></div><div><dt>출력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.outputTokens))}</dd></div><div><dt>전체 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.totalTokens))}</dd></div><div><dt>원문 상태</dt><dd>${spec.rawTranscript ? "정책 확인 필요" : "수집하지 않음"}</dd></div>${spec.failureCode ? `<div class="wide"><dt>실패 코드</dt><dd><code>${escapeHTML(spec.failureCode)}</code></dd></div>` : ""}</dl><details><summary>선택 근거 보기</summary><dl class="detail-grid"><div><dt>요청 모델</dt><dd>${escapeHTML(spec.requestedModel || "없음")}</dd></div><div><dt>확정 모델</dt><dd>${escapeHTML(spec.resolvedModel || "없음")}</dd></div><div><dt>선택 출처</dt><dd>${escapeHTML(spec.selectionSource || "알 수 없음")}</dd></div><div><dt>artifact</dt><dd>${escapeHTML((spec.artifactIds || []).length ? `${spec.artifactIds.length}개` : "없음")}</dd></div></dl></details></article>`;
+    const id = item.metadata?.id || "";
+    const retryForm = id && spec.state === "interrupted"
+      ? `<details class="invocation-retry"><summary>중단 실행 재시도</summary><p class="meta">원래 prompt는 저장하지 않습니다. 새 prompt를 입력합니다.</p><form data-assurance-retry="${escapeHTML(id)}"><label><span>새 prompt</span><input name="prompt" maxlength="2000" autocomplete="off" required></label><div class="item-actions"><button class="button small primary" type="submit">재시도</button></div></form></details>`
+      : "";
+    const parent = spec.parentId ? `<div><dt>원본 실행</dt><dd><code>${escapeHTML(spec.parentId)}</code></dd></div>` : "";
+    return `<article class="list-item assurance-record ${stateClass}"><div class="list-item-header"><div><h3>${escapeHTML(spec.provider || "Provider 미상")}</h3><p class="meta">${escapeHTML(model)} · ${escapeHTML(formatDate(spec.startedAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(label(spec.state))}</span></div><dl class="detail-grid"><div><dt>실행 ID</dt><dd><code>${escapeHTML(id || "기록 없음")}</code></dd></div>${parent}<div><dt>입력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.inputTokens))}</dd></div><div><dt>출력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.outputTokens))}</dd></div><div><dt>전체 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.totalTokens))}</dd></div><div><dt>원문 상태</dt><dd>${spec.rawTranscript ? "정책 확인 필요" : "수집하지 않음"}</dd></div>${spec.failureCode ? `<div class="wide"><dt>실패 코드</dt><dd><code>${escapeHTML(spec.failureCode)}</code></dd></div>` : ""}</dl><details><summary>선택 근거 보기</summary><dl class="detail-grid"><div><dt>요청 모델</dt><dd>${escapeHTML(spec.requestedModel || "없음")}</dd></div><div><dt>확정 모델</dt><dd>${escapeHTML(spec.resolvedModel || "없음")}</dd></div><div><dt>선택 출처</dt><dd>${escapeHTML(spec.selectionSource || "알 수 없음")}</dd></div><div><dt>artifact</dt><dd>${escapeHTML((spec.artifactIds || []).length ? `${spec.artifactIds.length}개` : "없음")}</dd></div></dl></details>${retryForm}</article>`;
   }
 
   function renderAssuranceArtifact(item) {
@@ -2208,6 +2213,34 @@
       showNotice(error.message, true);
     } finally {
       submit.disabled = false;
+    }
+  });
+
+  document.addEventListener("submit", async event => {
+    const form = event.target.closest?.("form[data-assurance-retry]");
+    if (!form) return;
+    event.preventDefault();
+    const input = form.querySelector('input[name="prompt"]');
+    const submit = event.submitter || form.querySelector('button[type="submit"]');
+    const prompt = input?.value.trim() || "";
+    if (!prompt) {
+      showNotice("새 prompt를 입력하세요.", true);
+      input?.focus();
+      return;
+    }
+    if (submit) submit.disabled = true;
+    try {
+      await request(`/api/assurance/invocations/${encode(form.dataset.assuranceRetry)}/retry`, {
+        method: "POST",
+        headers: mutationHeaders(),
+        body: JSON.stringify({ prompt }),
+      });
+      showNotice("중단 실행을 재시도했습니다.");
+      await refreshAll();
+    } catch (error) {
+      showNotice(error.message, true);
+    } finally {
+      if (submit) submit.disabled = false;
     }
   });
 

@@ -1303,6 +1303,21 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusCreated, contract.Success(item))
 	}))
+	mux.HandleFunc("POST /api/assurance/invocations/{invocationID}/retry", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input struct {
+			Prompt string `json:"prompt"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.RetryAgentInvocation(request.Context(), request.PathValue("invocationID"), input.Prompt)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
 	mux.HandleFunc("POST /api/assurance/runs", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input QualityRunInput
 		if err := decodeBody(response, request, &input); err != nil {

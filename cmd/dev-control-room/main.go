@@ -248,11 +248,13 @@ func cliHelpSpecFor(path []string) (cliHelpSpec, bool) {
 	case "assurance run":
 		return spec("assurance run", "Quality 검증을 실행합니다.", "dev-control-room assurance run --campaign <id> --technique <technique> [--provider <name>] [--model <name>] [--home <dir>] [--json]", "dev-control-room assurance run --campaign campaign-1 --technique static_security --json", []string{"--campaign <id>", "--technique <technique>"}, nil), true
 	case "assurance invocation":
-		return spec("assurance invocation", "Agent 실행을 조회하거나 시작합니다.", "dev-control-room assurance invocation <show|run> [options]", "dev-control-room assurance invocation run --session session-1 --provider codex --prompt \"요약\" --json", []string{"show 또는 run"}, []string{"show", "run"}), true
+		return spec("assurance invocation", "Agent 실행을 조회하거나 시작합니다.", "dev-control-room assurance invocation <show|run|retry> [options]", "dev-control-room assurance invocation run --session session-1 --provider codex --prompt \"요약\" --json", []string{"show, run 또는 retry"}, []string{"show", "run", "retry"}), true
 	case "assurance invocation show":
 		return spec("assurance invocation show", "Agent 실행 하나를 조회합니다.", "dev-control-room assurance invocation show --id <id> [--home <dir>] [--json]", "dev-control-room assurance invocation show --id invocation-1 --json", []string{"--id <id>"}, nil), true
 	case "assurance invocation run":
 		return spec("assurance invocation run", "허용된 Provider로 Agent 실행을 시작합니다.", "dev-control-room assurance invocation run --session <id> --provider <fake|claude|gemini|codex> [--prompt <한 줄>] [--profile <id>] [--model <name>] [--scenario <fixture>] [--home <dir>] [--json]", "dev-control-room assurance invocation run --session session-1 --provider codex --prompt \"요약\" --json", []string{"--session <id>", "--provider <name>"}, nil), true
+	case "assurance invocation retry":
+		return spec("assurance invocation retry", "중단된 Agent 실행을 새 시도로 재개합니다.", "dev-control-room assurance invocation retry --id <id> --prompt <한 줄> [--home <dir>] [--json]", "dev-control-room assurance invocation retry --id invocation-1 --prompt \"다시 확인\" --json", []string{"--id <id>", "--prompt <한 줄>"}, nil), true
 	default:
 		return cliHelpSpec{}, false
 	}
@@ -264,7 +266,7 @@ func cliAssuranceHelpSpec() cliHelpSpec {
 		Summary:      "검증 기준선, Quality Run, Agent 실행을 관리합니다.",
 		Usage:        "dev-control-room assurance <command> [options]",
 		Required:     []string{"<command>"},
-		Commands:     []string{"provider", "dashboard", "impact", "trace", "artifact", "sessions", "baselines", "campaigns", "runs", "invocations", "session create", "baseline create", "campaign create", "run", "invocation show", "invocation run"},
+		Commands:     []string{"provider", "dashboard", "impact", "trace", "artifact", "sessions", "baselines", "campaigns", "runs", "invocations", "session create", "baseline create", "campaign create", "run", "invocation show", "invocation run", "invocation retry"},
 		Options:      []string{"--json", "--home <dir>"},
 		Example:      "dev-control-room assurance invocation run --session session-1 --provider codex --prompt \"요약\" --json",
 		JSONBehavior: "--json 추가 시 표준 JSON envelope 출력",
@@ -960,7 +962,7 @@ func runAssuranceQualityRunCommand(service *app.App, ctx context.Context, args [
 
 func runAssuranceInvocationCommand(service *app.App, ctx context.Context, args []string, jsonOutput bool, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance invocation requires show or run"))
+		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance invocation requires show, run, or retry"))
 	}
 	switch args[0] {
 	case "show", "inspect":
@@ -1029,8 +1031,27 @@ func runAssuranceInvocationCommand(service *app.App, ctx context.Context, args [
 			return writeCLIErrorTo(stderr, err)
 		}
 		return emitObject(stdout, item, jsonOutput)
+	case "retry":
+		flags := flag.NewFlagSet("assurance invocation retry", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		id := flags.String("id", "", "interrupted agent invocation id")
+		prompt := flags.String("prompt", "", "new one-line prompt; the original prompt is not stored")
+		if err := flags.Parse(args[1:]); err != nil {
+			return writeCLIErrorTo(stderr, contract.InvalidInput(err.Error()))
+		}
+		if err := requireAssurancePositionless(flags, "assurance invocation retry"); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		if err := requireAssuranceFlags(assuranceFlag{"id", *id}, assuranceFlag{"prompt", *prompt}); err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		item, err := service.RetryAgentInvocation(ctx, strings.TrimSpace(*id), strings.TrimSpace(*prompt))
+		if err != nil {
+			return writeCLIErrorTo(stderr, err)
+		}
+		return emitObject(stdout, item, jsonOutput)
 	default:
-		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance invocation requires show or run"))
+		return writeCLIErrorTo(stderr, contract.InvalidInput("assurance invocation requires show, run, or retry"))
 	}
 }
 

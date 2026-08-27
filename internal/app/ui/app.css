@@ -232,6 +232,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: clamp(20px, 4vw, 44px)
 .item-actions, .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
 .toolbar { margin: 0 0 14px; }
 .toolbar select { min-width: 190px; }
+.invocation-retry { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.invocation-retry form { display: grid; gap: 8px; margin-top: 8px; }
 .owner-input { width: min(240px, 100%); }
 .result-box { margin-top: 10px; padding: 10px; border-radius: 8px; background: #f4f6f9; white-space: pre-wrap; overflow-wrap: anywhere; }
 .workflow-note { display: flex; gap: 10px; align-items: baseline; margin-bottom: 12px; padding: 10px 12px; border-left: 3px solid var(--blue); background: var(--blue-soft); font-size: 12px; }
