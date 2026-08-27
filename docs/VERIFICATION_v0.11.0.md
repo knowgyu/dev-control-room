@@ -1,9 +1,9 @@
 # v0.11.0 verification record
 
-Status: focused native resilience acceptance passed; final full gate and
+Status: focused native resilience acceptance and final full gate passed;
 publication assets are recorded by the generated summary/log
 Date: 2026-08-28
-Implementation source commit: `943119e`
+Implementation source commits: `943119e`, `0848b36`
 
 ## Scope
 
@@ -27,6 +27,16 @@ existing output-boundary/timeout test, terminated a spawned child tree after
 timeout, and terminated a spawned child tree after context cancellation. The
 application fixture rechecked restart-boundary recovery and the idempotent
 user-directed retry child attempt without launching a second Provider.
+
+The first full-gate race run exposed a one-second startup-boundary flake in the
+race-instrumented helper. The focused test now allows the documented bounded
+five-second child-start window; the second focused native/race run passed.
+
+The final Full gate passed on the same native Windows checkout. It covered the
+repository-wide Go test and race suites, vet, module verification, package
+build, Windows amd64/arm64 cross-builds, UI JavaScript syntax, and diff checks.
+The Phase 2 first-use, returning-user, Provider recovery, dashboard evidence,
+environment diagnosis, and npm launcher journey passed 239 assertions.
 
 ## Required final gate
 
