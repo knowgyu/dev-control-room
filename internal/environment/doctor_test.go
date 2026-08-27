@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -345,6 +349,65 @@ func TestProcessRunnerTimeoutCancellationAndBoundedStreams(t *testing.T) {
 	}
 }
 
+func TestProcessRunnerClosedStdinReturnsEOF(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := (ProcessRunner{}).Run(context.Background(), executable, processRunnerHelperArgs(), processRunnerHelperEnvironment("stdin"), time.Second)
+	if err != nil {
+		t.Fatalf("closed stdin helper failed: %v", err)
+	}
+	if strings.TrimSpace(result.Stdout) != "stdin-bytes=0" {
+		t.Fatalf("child did not observe immediate EOF: %q", result.Stdout)
+	}
+}
+
+func TestProcessRunnerTimeoutKillsProcessTree(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "timeout-tree")
+	result, err := (ProcessRunner{}).Run(context.Background(), executable, processRunnerHelperArgs(), processRunnerHelperEnvironmentWithMarker("spawn-parent", marker), 100*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected bounded timeout, result=%#v err=%v", result, err)
+	}
+	assertProcessTreeDidNotSurvive(t, marker)
+}
+
+func TestProcessRunnerCancellationKillsProcessTree(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "cancel-tree")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resultCh := make(chan struct {
+		result Result
+		err    error
+	}, 1)
+	go func() {
+		result, runErr := (ProcessRunner{}).Run(ctx, executable, processRunnerHelperArgs(), processRunnerHelperEnvironmentWithMarker("spawn-parent", marker), 5*time.Second)
+		resultCh <- struct {
+			result Result
+			err    error
+		}{result: result, err: runErr}
+	}()
+	waitForProcessMarker(t, marker+".started", time.Second)
+	cancel()
+	select {
+	case outcome := <-resultCh:
+		if outcome.err == nil || !errors.Is(outcome.err, context.Canceled) {
+			t.Fatalf("expected context cancellation, result=%#v err=%v", outcome.result, outcome.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("process runner did not return after cancellation")
+	}
+	assertProcessTreeDidNotSurvive(t, marker)
+}
+
 func TestProcessRunnerHelper(_ *testing.T) {
 	if os.Getenv("DEVROOM_PROCESS_RUNNER_HELPER") != "1" && !strings.Contains(strings.Join(os.Args, "\x00"), "-test.run=^TestProcessRunnerHelper$") {
 		return
@@ -354,6 +417,33 @@ func TestProcessRunnerHelper(_ *testing.T) {
 		for {
 			time.Sleep(time.Hour)
 		}
+	case "stdin":
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			os.Exit(3)
+		}
+		_, _ = os.Stdout.WriteString("stdin-bytes=" + strconv.Itoa(len(data)))
+	case "spawn-parent":
+		marker := os.Getenv("DEVROOM_PROCESS_RUNNER_MARKER")
+		if marker == "" {
+			os.Exit(4)
+		}
+		child := exec.Command(os.Args[0], processRunnerHelperArgs()...)
+		child.Env = processRunnerHelperEnvironmentWithMarker("spawn-child", marker)
+		if err := child.Start(); err != nil {
+			os.Exit(5)
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
+	case "spawn-child":
+		marker := os.Getenv("DEVROOM_PROCESS_RUNNER_MARKER")
+		if marker == "" {
+			os.Exit(6)
+		}
+		_ = os.WriteFile(marker+".started", []byte(strconv.Itoa(os.Getpid())), 0o600)
+		time.Sleep(300 * time.Millisecond)
+		_ = os.WriteFile(marker+".survived", []byte(strconv.Itoa(os.Getpid())), 0o600)
 	case "output":
 		_, _ = os.Stdout.WriteString(strings.Repeat("x", 1024))
 	case "":
@@ -370,4 +460,43 @@ func processRunnerHelperArgs() []string {
 
 func processRunnerHelperEnvironment(mode string) []string {
 	return []string{"DEVROOM_PROCESS_RUNNER_HELPER=1", "DEVROOM_PROCESS_RUNNER_MODE=" + mode}
+}
+
+func processRunnerHelperEnvironmentWithMarker(mode, marker string) []string {
+	return append(processRunnerHelperEnvironment(mode), "DEVROOM_PROCESS_RUNNER_MARKER="+marker)
+}
+
+func waitForProcessMarker(t *testing.T, path string, timeout time.Duration) []byte {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(path); err == nil {
+			return data
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("process marker was not written: %s", path)
+	return nil
+}
+
+func assertProcessTreeDidNotSurvive(t *testing.T, marker string) {
+	t.Helper()
+	survivedPath := marker + ".survived"
+	var survived []byte
+	deadline := time.Now().Add(750 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(survivedPath); err == nil {
+			survived = data
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(survived) > 0 {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(survived))); err == nil {
+			if process, findErr := os.FindProcess(pid); findErr == nil {
+				_ = process.Kill()
+			}
+		}
+		t.Fatalf("child process survived tree termination: pid=%s", strings.TrimSpace(string(survived)))
+	}
 }

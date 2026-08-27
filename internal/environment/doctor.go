@@ -164,6 +164,10 @@ func (r ProcessRunner) RunInDirectory(parent context.Context, executable string,
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, args...)
 	prepareCommand(command)
+	// Provider and diagnostic commands must observe an immediate EOF rather
+	// than an inherited console or an interactive prompt. This keeps the
+	// non-TTY boundary explicit even when the caller itself has a console.
+	command.Stdin = bytes.NewReader(nil)
 	var cancelMu sync.RWMutex
 	cancelProcess := func() error { return terminateProcessTree(command) }
 	command.Cancel = func() error {
