@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -75,9 +76,114 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".app-shell", ".side-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums"} {
+	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums"} {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded UI CSS missing %q", value)
+		}
+	}
+}
+
+func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	html := embeddedUIAsset(t, service, "/", "text/html")
+	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
+	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
+
+	if strings.Contains(html, "page-context") || strings.Contains(html, `id="view-title"`) {
+		t.Error("embedded UI must not keep the duplicated page context or view-title heading")
+	}
+	primaryNav := regexp.MustCompile(`(?is)<nav\b[^>]*\bclass="[^"]*\bprimary-nav\b[^"]*"[^>]*>`)
+	if !primaryNav.MatchString(html) {
+		t.Error("embedded UI is missing the primary-nav")
+	}
+	if strings.Contains(html, "side-nav") || strings.Contains(css, "side-nav") {
+		t.Error("embedded UI must not keep the retired side-nav")
+	}
+	mainTag := regexp.MustCompile(`(?is)<main\b[^>]*>`).FindString(html)
+	if !strings.Contains(mainTag, `id="main-content"`) || !strings.Contains(mainTag, `aria-label="홈"`) {
+		t.Error("embedded UI main must have the initial home aria-label")
+	}
+
+	routes := map[string]bool{
+		"home": false, "projects": false, "work": false,
+		"assurance": false, "diagnostics": false, "activity": false,
+	}
+	view := regexp.MustCompile(`(?is)<section\b[^>]*\bdata-view="([^"]+)"[^>]*>`)
+	h1 := regexp.MustCompile(`(?is)<h1\b[^>]*>(.*?)</h1>`)
+	matches := view.FindAllStringSubmatchIndex(html, -1)
+	if len(matches) != len(routes) {
+		t.Fatalf("embedded UI has %d data-view sections, want %d", len(matches), len(routes))
+	}
+	for index, match := range matches {
+		route := html[match[2]:match[3]]
+		if _, ok := routes[route]; !ok {
+			t.Errorf("embedded UI has unexpected data-view %q", route)
+			continue
+		}
+		if routes[route] {
+			t.Errorf("embedded UI repeats data-view %q", route)
+		}
+		routes[route] = true
+
+		start := match[0]
+		end := len(html)
+		if index+1 < len(matches) {
+			end = matches[index+1][0]
+		} else if mainEnd := strings.Index(html[start:], "</main>"); mainEnd >= 0 {
+			end = start + mainEnd
+		}
+		headings := h1.FindAllStringSubmatch(html[start:end], -1)
+		if len(headings) != 1 {
+			t.Errorf("data-view %q has %d h1 headings, want exactly one", route, len(headings))
+			continue
+		}
+		if strings.TrimSpace(headings[0][1]) == "" {
+			t.Errorf("data-view %q has an empty h1 heading", route)
+		}
+	}
+	for route, found := range routes {
+		if !found {
+			t.Errorf("embedded UI is missing data-view %q", route)
+		}
+	}
+
+	for _, value := range []string{
+		`const routeTitles = {`,
+		`const main = document.getElementById("main-content");`,
+		`main.setAttribute("aria-label", routeTitles[active]);`,
+		"document.title = `${routeTitles[active]} · Dev Control Room`;",
+		`document.querySelectorAll("[data-route]")`,
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded UI route contract missing %q", value)
+		}
+	}
+	if strings.Contains(javascript, "view-title") {
+		t.Error("embedded UI route handling must not access view-title")
+	}
+
+	root := regexp.MustCompile(`:root\s*\{`)
+	if count := len(root.FindAllString(css, -1)); count != 1 {
+		t.Errorf("embedded UI CSS has %d :root blocks, want exactly one", count)
+	}
+
+	for _, value := range []string{
+		`const editorFieldName = id => id.replace(/^edit-/, "");`,
+		`name="${escapeHTML(options.name || editorFieldName(id))}"`,
+		`autocomplete="off" value="${escapeHTML(value)}"`,
+		`name="${escapeHTML(editorFieldName(id))}" autocomplete="off" rows="3"`,
+		`id="edit-integration-kind" name="kind" autocomplete="off"`,
+		`id="edit-launch-mode" name="launchMode" autocomplete="off"`,
+		`id="edit-data-boundary" name="dataBoundary" autocomplete="off"`,
+		`value === "unavailable" ? "unknown"`,
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded UI dynamic editor contract missing %q", value)
 		}
 	}
 }
@@ -91,7 +197,7 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`data-route="assurance"`, `data-view="assurance" hidden`, "검증 대시보드", "왜 확인하나요",
+		`data-route="assurance"`, `data-view="assurance" hidden`, "검증 기준과 효과 집계 방식",
 		"Provider와 모델", `id="assurance-provider-filter"`, `id="assurance-model-filter"`,
 		`id="assurance-runs"`, `id="assurance-invocations"`, `id="assurance-effects"`, `id="assurance-artifacts"`,
 		"대시보드 보기", "원문 미수집", "보관 상태",
@@ -138,13 +244,15 @@ func TestEmbeddedUIKeyboardRouteFocusContract(t *testing.T) {
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
 		`<a class="skip-link" href="#main-content">`,
-		`<h1 id="view-title">`,
-		`<main id="main-content" tabindex="-1" aria-labelledby="view-title">`,
 		`data-home-established-only hidden`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI keyboard contract missing %q", value)
 		}
+	}
+	mainTag := regexp.MustCompile(`(?is)<main\b[^>]*>`).FindString(html)
+	if !strings.Contains(mainTag, `id="main-content"`) || !strings.Contains(mainTag, `aria-label="홈"`) {
+		t.Error("embedded UI main must retain the initial home aria-label")
 	}
 
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")

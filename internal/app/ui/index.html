@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#e7edef">
+  <meta name="theme-color" content="#f4f6f6">
   <meta name="control-room-token" content="__MUTATION_TOKEN__">
   <title>Dev Control Room</title>
   <link rel="stylesheet" href="/ui/app.css">
@@ -18,7 +18,7 @@
             <span class="brand-mark" aria-hidden="true">DC</span>
             <span><strong>Dev Control Room</strong></span>
           </a>
-          <nav class="side-nav" aria-label="주 탐색">
+          <nav class="primary-nav" aria-label="주 탐색">
             <a href="#home" data-route="home">홈</a>
             <a href="#projects" data-route="projects">프로젝트</a>
             <a href="#work" data-route="work">작업</a>
@@ -33,14 +33,12 @@
         </div>
       </header>
 
-      <div class="page-context"><div><p class="eyebrow">로컬 개발 제어실</p><h1 id="view-title">홈</h1></div></div>
-
-      <main id="main-content" tabindex="-1" aria-labelledby="view-title">
+      <main id="main-content" tabindex="-1" aria-label="홈">
         <section class="view" data-view="home">
           <div class="hero">
             <div>
-              <p class="eyebrow">오늘의 상태</p>
-              <h2 id="home-title">먼저 확인할 일만 모았습니다.</h2>
+              <p class="eyebrow">운영 개요</p>
+              <h1 id="home-title">오늘의 상태</h1>
               <p id="home-subtitle">프로젝트 상태와 근거를 검토한 뒤 필요한 작업으로 이동하세요.</p>
             </div>
             <div class="scan-time" data-home-established-only hidden><span>마지막 점검</span><strong id="m-scan">아직 없음</strong></div>
@@ -90,7 +88,7 @@
 
         <section class="view" data-view="projects" hidden>
           <div class="page-heading">
-            <div><p class="eyebrow">등록 범위</p><h2>프로젝트</h2><p>등록한 범위와 각 Worktree의 현재 상태를 관리합니다.</p></div>
+            <div><p class="eyebrow">등록 범위</p><h1>프로젝트</h1><p>등록한 범위와 각 Worktree의 현재 상태를 관리합니다.</p></div>
             <div class="item-actions"><button id="import-project" class="button" type="button">프로젝트 가져오기</button><button id="show-register" class="button primary" type="button">프로젝트 등록</button></div>
             <input id="import-project-file" type="file" accept="application/json,.json" hidden>
           </div>
@@ -115,7 +113,7 @@
         </section>
 
         <section class="view" data-view="work" hidden>
-          <div class="page-heading"><div><p class="eyebrow">점검과 실행</p><h2>작업</h2><p>검토된 점검과 Action만 명시된 Worktree에서 실행합니다.</p></div></div>
+          <div class="page-heading"><div><p class="eyebrow">점검과 실행</p><h1>작업</h1><p>검토된 점검과 Action만 명시된 Worktree에서 실행합니다.</p></div></div>
           <div class="work-grid">
             <section class="panel span-two">
               <div class="panel-heading"><div><p class="eyebrow">외부 변경</p><h2>외부 작업과 릴리스</h2></div><span class="chip warn">승인 필요</span></div>
@@ -139,7 +137,7 @@
         </section>
 
         <section class="view" data-view="diagnostics" hidden>
-          <div class="page-heading"><div><p class="eyebrow">상태 점검</p><h2>진단</h2><p>개발 환경과 지침, 안전한 정리 가능성을 한곳에서 점검합니다.</p></div></div>
+          <div class="page-heading"><div><p class="eyebrow">상태 점검</p><h1>진단</h1><p>개발 환경과 지침, 안전한 정리 가능성을 한곳에서 점검합니다.</p></div></div>
           <div class="diagnostic-grid">
             <section class="panel span-two">
               <div class="panel-heading"><div><p class="eyebrow">도구와 설정</p><h2>개발 환경</h2></div><button id="env-doctor" class="button" type="button">환경 다시 점검</button></div>
@@ -155,48 +153,54 @@
               <p class="panel-copy">선택한 Worktree의 지침을 점검하거나, 대화 기록을 포함하지 않는 Agent Handoff를 미리 봅니다.</p>
               <div id="guidance-ui" class="loading">지침 점검 대상을 불러오는 중입니다.</div>
             </section>
-            <section class="panel span-two">
-              <div class="panel-heading"><div><p class="eyebrow">실행 프로필</p><h2>Agent Profile 관리</h2></div><button id="add-profile" class="button" type="button">Agent Profile 추가</button></div>
-              <p class="panel-copy">Agent 실행 명령, 데이터 경계, 허용 환경 변수만 저장합니다. 비밀 값은 저장하지 않습니다.</p>
-              <div id="profile-list" class="loading">Agent Profile을 불러오는 중입니다.</div>
-            </section>
-            <section class="panel span-two">
-              <div class="panel-heading"><div><p class="eyebrow">외부 연결</p><h2>연동 설정</h2></div><button id="add-integration" class="button" type="button">연동 추가</button></div>
-              <p class="panel-copy">GitHub, Jenkins, Kubernetes의 주소와 대상 정보만 저장합니다. 토큰은 환경 변수나 Windows 자격 증명 참조로만 연결하세요.</p>
-              <div id="integration-list" class="loading">연동 설정을 불러오는 중입니다.</div>
-            </section>
-            <section class="panel span-two">
-              <div class="panel-heading"><div><p class="eyebrow">외부 작업 묶음</p><h2>Jenkins 대상 그룹</h2></div><button id="add-external-group" class="button" type="button">대상 그룹 추가</button></div>
-              <p class="panel-copy">완료된 Jenkins build URL을 기준으로 대상과 parameter를 묶습니다. 비밀 값은 저장하지 않으며 credential reference만 사용합니다.</p>
-              <div id="external-groups" class="loading">Jenkins 대상 그룹을 불러오는 중입니다.</div>
-            </section>
-            <section class="panel span-two">
-              <div class="panel-heading"><div><p class="eyebrow">PowerShell</p><h2>PowerShell runbook</h2></div><button id="add-runbook" class="button" type="button">runbook 추가</button></div>
-              <p class="panel-copy">검토한 .ps1 파일과 허용된 named parameter만 저장합니다. 실행은 선택한 Worktree에서 Action Broker 승인 후 typed argv로 처리합니다.</p>
-              <div id="runbook-list" class="loading">PowerShell runbook을 불러오는 중입니다.</div>
-            </section>
-            <section class="panel">
-              <div class="panel-heading"><div><p class="eyebrow">안전 검토</p><h2>정리 후보</h2></div></div>
-              <p class="panel-copy">현재는 읽기 전용 평가만 제공합니다. 안전 근거가 부족하면 항상 차단됩니다.</p>
-              <div id="cleanup-queue" class="loading">정리 후보를 불러오는 중입니다.</div>
-            </section>
-            <section class="panel">
-              <div class="panel-heading"><div><p class="eyebrow">재발 방지</p><h2>반복된 실패</h2></div></div>
-              <p class="panel-copy">반복 실패를 담당자가 모의 적용으로 검토하고, 일치·오탐 근거를 확인한 뒤 활성화하거나 되돌립니다.</p>
-              <div id="safeguards" class="loading">반복된 실패를 불러오는 중입니다.</div>
-            </section>
+            <details class="disclosure span-two">
+              <summary><span><span class="eyebrow">선택 기능</span><strong>실행 설정</strong></span><span class="chip">상세 보기</span></summary>
+              <div class="disclosure-body">
+                <section class="panel">
+                  <div class="panel-heading"><div><p class="eyebrow">실행 프로필</p><h2>Agent Profile 관리</h2></div><button id="add-profile" class="button" type="button">Agent Profile 추가</button></div>
+                  <p class="panel-copy">Agent 실행 명령, 데이터 경계, 허용 환경 변수만 저장합니다. 비밀 값은 저장하지 않습니다.</p>
+                  <div id="profile-list" class="loading">Agent Profile을 불러오는 중입니다.</div>
+                </section>
+                <section class="panel">
+                  <div class="panel-heading"><div><p class="eyebrow">외부 연결</p><h2>연동 설정</h2></div><button id="add-integration" class="button" type="button">연동 추가</button></div>
+                  <p class="panel-copy">GitHub, Jenkins, Kubernetes의 주소와 대상 정보만 저장합니다. 토큰은 환경 변수나 Windows 자격 증명 참조로만 연결하세요.</p>
+                  <div id="integration-list" class="loading">연동 설정을 불러오는 중입니다.</div>
+                </section>
+                <section class="panel">
+                  <div class="panel-heading"><div><p class="eyebrow">외부 작업 묶음</p><h2>Jenkins 대상 그룹</h2></div><button id="add-external-group" class="button" type="button">대상 그룹 추가</button></div>
+                  <p class="panel-copy">완료된 Jenkins build URL을 기준으로 대상과 parameter를 묶습니다. 비밀 값은 저장하지 않으며 credential reference만 사용합니다.</p>
+                  <div id="external-groups" class="loading">Jenkins 대상 그룹을 불러오는 중입니다.</div>
+                </section>
+                <section class="panel">
+                  <div class="panel-heading"><div><p class="eyebrow">PowerShell</p><h2>PowerShell runbook</h2></div><button id="add-runbook" class="button" type="button">runbook 추가</button></div>
+                  <p class="panel-copy">검토한 .ps1 파일과 허용된 named parameter만 저장합니다. 실행은 선택한 Worktree에서 Action Broker 승인 후 typed argv로 처리합니다.</p>
+                  <div id="runbook-list" class="loading">PowerShell runbook을 불러오는 중입니다.</div>
+                </section>
+              </div>
+            </details>
+            <details class="disclosure span-two">
+              <summary><span><span class="eyebrow">정리와 재발 방지</span><strong>안전 검토</strong></span><span class="chip warn">주의해서 확인</span></summary>
+              <div class="disclosure-body disclosure-body--split">
+                <section class="panel">
+                  <div class="panel-heading"><div><p class="eyebrow">정리 후보</p><h2>정리 후보</h2></div></div>
+                  <p class="panel-copy">현재는 읽기 전용 평가만 제공합니다. 안전 근거가 부족하면 항상 차단됩니다.</p>
+                  <div id="cleanup-queue" class="loading">정리 후보를 불러오는 중입니다.</div>
+                </section>
+                <section class="panel">
+                  <div class="panel-heading"><div><p class="eyebrow">재발 방지</p><h2>반복된 실패</h2></div></div>
+                  <p class="panel-copy">반복 실패를 담당자가 모의 적용으로 검토하고, 일치·오탐 근거를 확인한 뒤 활성화하거나 되돌립니다.</p>
+                  <div id="safeguards" class="loading">반복된 실패를 불러오는 중입니다.</div>
+                </section>
+              </div>
+            </details>
           </div>
         </section>
 
         <section class="view" data-view="assurance" hidden>
           <div class="page-heading">
-            <div><p class="eyebrow">근거와 결과</p><h2>검증 대시보드</h2><p>무엇을 확인했고, 어떤 근거와 효과가 남았는지 봅니다.</p></div>
+            <div><p class="eyebrow">근거와 결과</p><h1>검증</h1><p>재실행 가능성, 효과, 근거 연결을 한 화면에서 확인합니다.</p></div>
             <button id="assurance-refresh" class="button" type="button">새로 고침</button>
           </div>
-          <section class="panel assurance-hero">
-            <div><p class="eyebrow">왜 확인하나요</p><h2>검증을 반복하고, 효과를 근거로 남깁니다.</h2><p>같은 기준의 재실행과 사용량 경계를 한 화면에서 확인합니다.</p></div>
-            <div id="assurance-benefits" class="assurance-benefits"></div>
-          </section>
           <section class="panel assurance-filter-panel">
             <div class="panel-heading"><div><p class="eyebrow">범위 좁히기</p><h2>Provider와 모델</h2><p class="meta">기간·프로젝트까지 비교합니다.</p></div><span class="chip">근거 기반</span></div>
             <div class="toolbar assurance-filters">
@@ -210,6 +214,13 @@
             </div>
             <p id="assurance-filter-note" class="meta">기간과 범위를 고르면 현재 값과 이전 기간을 비교합니다. 근거 없는 값은 효과 합계에 섞지 않습니다.</p>
           </section>
+          <details class="panel disclosure assurance-hero">
+            <summary><span><span class="eyebrow">검증 원칙</span><strong>검증 기준과 효과 집계 방식</strong></span><span class="chip">상세 보기</span></summary>
+            <div class="disclosure-body assurance-hero-body">
+              <p class="panel-copy">같은 기준의 재실행과 사용량 경계를 확인하고, 효과는 원본·artifact·재검증이 연결된 기록만 집계합니다.</p>
+              <div id="assurance-benefits" class="assurance-benefits"></div>
+            </div>
+          </details>
           <section id="assurance-impact-error" class="surface-error" role="alert" hidden></section>
           <section id="assurance-impact-headline" class="metrics impact-headline" aria-label="효과 요약">
             <article class="metric-card"><span>검증된 개선</span><strong>불러오는 중</strong><small>현재 기간</small></article>
@@ -271,7 +282,7 @@
         </section>
 
         <section class="view" data-view="activity" hidden>
-          <div class="page-heading"><div><p class="eyebrow">감사 기록</p><h2>전체 활동 기록</h2><p>점검, 등록 변경, 계획과 실행의 감사 기록입니다.</p></div></div>
+          <div class="page-heading"><div><p class="eyebrow">감사 기록</p><h1>활동 기록</h1><p>점검, 등록 변경, 계획과 실행의 감사 기록입니다.</p></div></div>
           <section class="panel"><div id="events" class="loading">활동 기록을 불러오는 중입니다.</div></section>
         </section>
       </main>

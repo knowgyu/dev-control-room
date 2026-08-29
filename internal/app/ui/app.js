@@ -233,7 +233,7 @@
     ai_inference: "AI 추론",
     unavailable: "확인 불가",
   };
-  const assuranceImpactStateClass = value => ["measured", "prevented_regression"].includes(value) ? "ok" : ["user_estimated", "ai_inference"].includes(value) ? "warn" : value === "unavailable" ? "bad" : "";
+  const assuranceImpactStateClass = value => ["measured", "prevented_regression"].includes(value) ? "ok" : ["user_estimated", "ai_inference"].includes(value) ? "warn" : value === "unavailable" ? "unknown" : "";
   const assuranceEffectClassification = spec => ["measured", "prevented_regression", "user_estimated", "ai_inference", "unavailable"].includes(spec.kind) ? spec.kind : "unavailable";
   const assuranceComparisonLabels = { increase: "증가", decrease: "감소", neutral: "변화 없음", unavailable: "비교 불가" };
   const assuranceUnitLabels = { count: "건", percent: "%", seconds: "초", minutes: "분", hours: "시간", milliseconds: "ms" };
@@ -367,7 +367,8 @@
       if (link.dataset.route === active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
-    document.getElementById("view-title").textContent = routeTitles[active];
+    const main = document.getElementById("main-content");
+    if (main) main.setAttribute("aria-label", routeTitles[active]);
     document.title = `${routeTitles[active]} · Dev Control Room`;
     window.scrollTo({ top: 0 });
     if (active === "projects" && initialized) renderProjects();
@@ -1365,8 +1366,9 @@
     }, 0);
   }
 
-  const editorInput = (id, labelText, value = "", options = {}) => `<label class="${options.wide ? "wide" : ""}"><span>${escapeHTML(labelText)}</span><input id="${id}" ${options.type ? `type="${options.type}"` : ""} ${options.required === false ? "" : "required"} ${options.readonly ? "readonly" : ""} value="${escapeHTML(value)}"></label>`;
-  const editorTextarea = (id, labelText, value = "") => `<label class="wide"><span>${escapeHTML(labelText)}</span><textarea id="${id}" rows="3">${escapeHTML(value)}</textarea></label>`;
+  const editorFieldName = id => id.replace(/^edit-/, "");
+  const editorInput = (id, labelText, value = "", options = {}) => `<label class="${options.wide ? "wide" : ""}"><span>${escapeHTML(labelText)}</span><input id="${id}" name="${escapeHTML(options.name || editorFieldName(id))}" ${options.type ? `type="${options.type}"` : ""} ${options.required === false ? "" : "required"} ${options.readonly ? "readonly" : ""} autocomplete="off" value="${escapeHTML(value)}"></label>`;
+  const editorTextarea = (id, labelText, value = "") => `<label class="wide"><span>${escapeHTML(labelText)}</span><textarea id="${id}" name="${escapeHTML(editorFieldName(id))}" autocomplete="off" rows="3">${escapeHTML(value)}</textarea></label>`;
 
   function openEditor(kind, context = {}) {
     editorOpener = document.activeElement;
@@ -1394,7 +1396,7 @@
       const integration = context.integration;
       title.textContent = integration ? "연동 설정 변경" : "연동 설정 추가";
       description.textContent = "토큰 값은 입력하지 말고 env:이름 또는 credential_manager:이름 형태의 참조만 저장하세요.";
-      editorFields.innerHTML = `${integration ? "" : editorInput("edit-id", "연동 ID")}${editorInput("edit-name", "표시 이름", integration?.name || "")}<label><span>종류</span><select id="edit-integration-kind"><option value="github" ${integration?.kind === "github" ? "selected" : ""}>GitHub</option><option value="jenkins" ${integration?.kind === "jenkins" ? "selected" : ""}>Jenkins</option><option value="kubernetes" ${integration?.kind === "kubernetes" ? "selected" : ""}>Kubernetes</option></select></label>${editorInput("edit-endpoint", "API 주소", integration?.endpoint || "", { wide: true })}${editorInput("edit-credential", "Credential reference", integration?.credentialRef || "", { required: false })}${editorTextarea("edit-values", "대상 값 · key=value 한 줄에 하나", Object.entries(integration?.values || {}).map(([key, value]) => `${key}=${value}`).join("\n"))}`;
+      editorFields.innerHTML = `${integration ? "" : editorInput("edit-id", "연동 ID")}${editorInput("edit-name", "표시 이름", integration?.name || "")}<label><span>종류</span><select id="edit-integration-kind" name="kind" autocomplete="off"><option value="github" ${integration?.kind === "github" ? "selected" : ""}>GitHub</option><option value="jenkins" ${integration?.kind === "jenkins" ? "selected" : ""}>Jenkins</option><option value="kubernetes" ${integration?.kind === "kubernetes" ? "selected" : ""}>Kubernetes</option></select></label>${editorInput("edit-endpoint", "API 주소", integration?.endpoint || "", { wide: true })}${editorInput("edit-credential", "Credential reference", integration?.credentialRef || "", { required: false })}${editorTextarea("edit-values", "대상 값 · key=value 한 줄에 하나", Object.entries(integration?.values || {}).map(([key, value]) => `${key}=${value}`).join("\n"))}`;
     } else if (kind === "external-group") {
       const group = context.group;
       title.textContent = group ? "Jenkins 대상 그룹 변경" : "Jenkins 대상 그룹 추가";
@@ -1404,7 +1406,7 @@
       const profile = context.profile;
       title.textContent = profile ? "Agent Profile 변경" : "Agent Profile 추가";
       description.textContent = "명령과 인자는 분리해 저장하고, 허용한 환경 변수 이름만 전달합니다.";
-      editorFields.innerHTML = `${profile ? "" : editorInput("edit-id", "Profile ID")}${editorInput("edit-name", "표시 이름", profile?.metadata.name || "")}${editorInput("edit-command", "실행 명령", profile?.spec.command || "")}${editorTextarea("edit-version-probe", "버전 확인 인자 · 한 줄에 하나", (profile?.spec.versionProbe || []).join("\n"))}${editorInput("edit-timeout", "제한 시간(초)", profile?.spec.timeoutSeconds || 10, { type: "number" })}${editorInput("edit-model-template", "모델 인자 템플릿", profile?.spec.modelArgumentTemplate || "", { required: false })}${editorTextarea("edit-environment", "허용 환경 변수 · 한 줄에 하나", (profile?.spec.environmentAllowlist || []).join("\n"))}<label><span>실행 방식</span><select id="edit-launch-mode"><option value="direct" ${profile?.spec.launchMode === "direct" ? "selected" : ""}>직접 실행</option><option value="powershell_profile" ${profile?.spec.launchMode === "powershell_profile" ? "selected" : ""}>PowerShell profile</option></select></label><label><span>데이터 경계</span><select id="edit-data-boundary"><option value="enterprise" ${profile?.spec.dataBoundary === "enterprise" ? "selected" : ""}>기업 경계</option><option value="local" ${profile?.spec.dataBoundary === "local" ? "selected" : ""}>로컬 전용</option></select></label>`;
+      editorFields.innerHTML = `${profile ? "" : editorInput("edit-id", "Profile ID")}${editorInput("edit-name", "표시 이름", profile?.metadata.name || "")}${editorInput("edit-command", "실행 명령", profile?.spec.command || "")}${editorTextarea("edit-version-probe", "버전 확인 인자 · 한 줄에 하나", (profile?.spec.versionProbe || []).join("\n"))}${editorInput("edit-timeout", "제한 시간(초)", profile?.spec.timeoutSeconds || 10, { type: "number" })}${editorInput("edit-model-template", "모델 인자 템플릿", profile?.spec.modelArgumentTemplate || "", { required: false, name: "modelArgumentTemplate" })}${editorTextarea("edit-environment", "허용 환경 변수 · 한 줄에 하나", (profile?.spec.environmentAllowlist || []).join("\n"))}<label><span>실행 방식</span><select id="edit-launch-mode" name="launchMode" autocomplete="off"><option value="direct" ${profile?.spec.launchMode === "direct" ? "selected" : ""}>직접 실행</option><option value="powershell_profile" ${profile?.spec.launchMode === "powershell_profile" ? "selected" : ""}>PowerShell profile</option></select></label><label><span>데이터 경계</span><select id="edit-data-boundary" name="dataBoundary" autocomplete="off"><option value="enterprise" ${profile?.spec.dataBoundary === "enterprise" ? "selected" : ""}>기업 경계</option><option value="local" ${profile?.spec.dataBoundary === "local" ? "selected" : ""}>로컬 전용</option></select></label>`;
     }
     editorDialog.showModal();
     editorFields.querySelector("input, select, textarea")?.focus();

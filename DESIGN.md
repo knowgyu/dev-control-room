@@ -1,195 +1,204 @@
-# Design
+# Dev Control Room design system
 
-## Source of truth
+Status: active
+Refreshed: 2026-08-30
 
-- Status: Active
-- Last refreshed: 2026-08-27
-- Primary product surfaces: embedded loopback browser UI on native Windows 11
-- Evidence reviewed: `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`,
-  `docs/IMPLEMENTATION_PLAN.md`, `docs/HANDOFF.md`, `internal/app/web.go`, and
-  GitHub issue #1
+This document is the source of truth for the embedded loopback UI. It describes
+the small visual and interaction system implemented in
+`internal/app/ui/index.html` and `internal/app/ui/app.css`. It does not create a
+runtime dependency or require a frontend framework.
 
-## Brand
+## Product job
 
-- Personality: calm, precise, local-first engineering control room
-- Trust signals: explicit scope, visible evidence, clear risk language, and
-  honest unavailable states
-- Avoid: generic admin-dashboard decoration, raw-log-first layouts, excessive
-  animation, unexplained English labels, and destructive wording for registry
-  changes
+Dev Control Room is a Windows local-first control room for one developer. Every
+screen should make the following order clear:
 
-## Product goals
+1. current state;
+2. consequence or evidence quality;
+3. the next safe action.
 
-- Goals: show what needs attention, keep project context visible, and make
-  deterministic checks and Actions easy to find and review
-- Non-goals: chat UI, agent orchestration, generic shell access, and a complete
-  replacement for GitHub, Jenkins, or an IDE
-- Success signals: the user can register or edit a project, review and
-  acknowledge a Finding, complete `discover -> proposal -> review -> apply ->
-  run`, inspect bounded Check/Action and Assurance evidence, prepare a masked
-  Handoff, and unregister an item without scanning one long page
-
-## Personas and jobs
-
-- Primary personas: one developer maintaining several local projects on Windows
-- User jobs: review current Findings, inspect a Project or Worktree, run a
-  reviewed check or Action, diagnose the environment, and review activity
-- Key contexts of use: a morning overview, pre-PR work, local diagnosis, and
-  Windows acceptance testing
+The UI is an operational surface, not a chat, raw-log viewer, marketing
+dashboard, or replacement for an IDE, GitHub, Jenkins, or a deployment tool.
 
 ## Information architecture
 
-- Primary navigation: 홈, 프로젝트, 작업, 검증, 진단, 기록
-- Core routes/screens: hash-based screens within the embedded UI; Project detail
-  is selected from the 프로젝트 screen without adding server-side routes
-- Content hierarchy:
-  - 홈: 지금 확인할 항목, 프로젝트별 상태, 최근 실행 결과, established 상태의 짧은
-    Assurance 효과 증명과 상세 추적 링크
-  - 프로젝트: 등록/가져오기/내보내기, Project cards, selected Project
-    details, Repository CRUD, Worktrees, filterable evidence-backed Findings
-  - 작업: exact-Worktree discovery, Proposal evidence review, Pre-PR Checkset
-    execution/results, and Action planning/approval/execution/results
-  - 검증: Quality Run, Agent 실행, 효과 기록, 효과 지표·기간 비교,
-    사용량·비용 상태, 그리고 artifact 보관 근거를 먼저 요약하고 상세 근거는
-    필요할 때만 엽니다
-  - 진단: 개발 환경, Agent Profile CRUD, structured Guidance/Handoff review,
-    정리 후보, 반복 실패 safeguard lifecycle과 지표
-  - 기록: complete activity history
+The shell uses one compact top navigation with six routes. A persistent sidebar
+is intentionally not part of the product shape.
 
-## Design principles
+| Route | Visible page `h1` | Main job |
+| --- | --- | --- |
+| `home` | 첫 프로젝트 등록 / 오늘의 개발 상태 | first-use registration or the current project state and one useful next action |
+| `projects` | 프로젝트 | registered scope, repositories, and Worktrees |
+| `work` | 작업 | discovery, reviewed checks, and approved Actions |
+| `assurance` | 검증 | repeatability, effects, usage, and linked evidence |
+| `diagnostics` | 진단 | environment and optional execution capabilities |
+| `activity` | 활동 기록 | immutable operational history |
 
-- Findings and next actions come before raw evidence.
-- Keep the selected Project and Worktree explicit wherever scope matters.
-- Use Korean for navigation and explanations while retaining established terms
-  such as Worktree, Pre-PR, Action, MCP, HEAD, and Agent Profile.
-- Registration changes use `등록 해제`; they never imply repository files are
-  deleted.
-- Tradeoff: use lightweight client-side views instead of a frontend framework
-  so the local binary remains small and auditable.
+The navigation markup uses `.primary-nav`. The old `.side-nav` and global
+`.page-context` patterns are retired. Each route owns its single visible `h1`;
+section headings use `h2` and detail headings use `h3`. `main` keeps
+`id="main-content"` and `tabindex="-1"`, starts with `aria-label="홈"`, and the
+route adapter updates that label when the hash route changes.
 
-## Visual language
+## Visual direction
 
-- Color: Control Navy `#101826`, Slate `#1B2638`, Paper `#F5F7FA`, Signal Blue
-  `#2F6FEB`, Amber `#B7791F`, and Critical Red `#C2414D`
-- Typography: `Segoe UI` for interface text, `Malgun Gothic` for Korean fallback,
-  and the system monospace face for paths, identifiers, and evidence
-- Spacing/layout rhythm: 4 px base, 16-24 px content rhythm, compact data rows
-- Shape/radius/elevation: restrained 8-12 px radii, borders before shadows
-- Motion: short view transitions only when motion is allowed; no ambient motion
-- Imagery/iconography: text and small inline symbols only; status color is never
-  the sole carrier of meaning
+The visual language is a quiet operations desk: restrained, readable, and
+evidence-led. Borders and spacing establish hierarchy; decoration must not
+compete with state or action.
 
-## Components
+### Tokens
 
-- Existing components to reuse: native buttons, forms, `details`, tables, and
-  the current application-service HTTP APIs
-- New/changed components: application shell, navigation links, view headers,
-  Project cards, status chips, evidence disclosure panels, Home effect-proof
-  summary, Assurance dashboard
-  filters and metric cards, structured run results, safeguard lifecycle cards,
-  empty states, toast, and native `dialog`
-- Variants and states: default, hover, focus-visible, selected, disabled,
-  loading, empty, warning, error, and success
-- Token/component ownership: CSS custom properties and semantic classes in the
-  embedded UI stylesheet; no separate design-system package
+`internal/app/ui/app.css` has exactly one `:root` token block. Components use
+these semantic tokens rather than introducing local hex values for routine
+states.
 
-## Accessibility
+| Token | Value | Use |
+| --- | --- | --- |
+| `--canvas` | `#F4F6F6` | page background |
+| `--surface` | `#FFFFFF` | panels and controls |
+| `--surface-muted` | `#F7F9F9` | secondary evidence surfaces |
+| `--ink` | `#202B2F` | primary text |
+| `--muted` | `#687579` | supporting text and metadata |
+| `--rule` | `#D7E0E0` | borders and dividers |
+| `--accent` | `#146C70` | navigation, primary actions, and evidence rail |
+| `--accent-soft` | `#E5F1F0` | selected and hover surfaces |
+| `--success` / `--success-soft` | `#2D6B52` / `#E8F3ED` | successful or ready state |
+| `--warning` / `--warning-soft` | `#8A5B24` / `#FBF1E3` | attention or approval state |
+| `--danger` / `--danger-soft` | `#A3424B` / `#F9E9EB` | blocked, failed, or destructive state |
+| `--neutral` / `--neutral-soft` / `--neutral-rule` | `#687579` / `#EDF1F1` / `#B9C8CA` | unavailable or not-yet-measured state |
 
-- Target standard: practical WCAG 2.2 AA baseline
-- Keyboard/focus behavior: the first page load does not steal focus, so the skip
-  link is the first keyboard target; route changes move reading focus to `main`
-  or a requested finding; Provider recovery moves focus to its status group;
-  project selection keeps an explicit selected state; dialogs and collapsible
-  registration return focus to their opener or `main` after a re-render. The
-  programmatic `main` target uses `tabindex="-1"` and is not a second tab stop.
-  Focus is visible. Full Tab/Space and native-dialog Esc acceptance remain a
-  separately recorded manual gap.
-- Contrast/readability: text and status labels meet readable contrast; status
-  meaning is written as text
-- Screen-reader semantics: landmarks, headings, current navigation state,
-  labelled forms, live status messages, and descriptive confirmation text
-- Reduced motion and sensory considerations: respect `prefers-reduced-motion`
-  and avoid flashing or color-only cues
+The only signature accent is a 3px status/evidence rail on the left or top of
+the object it qualifies. Status always includes text; color is never the only
+carrier of meaning. There are no gradients, decorative background shapes, or
+large panel shadows. Pills are limited to compact status chips.
 
-## Responsive behavior
+### Typography
 
-- Supported breakpoints/devices: desktop Windows browsers first; usable down to
-  a narrow mobile-sized viewport for remote inspection
-- Layout adaptations: fixed side navigation becomes a compact top navigation;
-  cards and toolbars collapse to one column; wide tables scroll horizontally
-- Touch/hover differences: controls keep a minimum practical touch target and
-  do not require hover to reveal an action
+The UI font stack is:
 
-## Interaction states
+```text
+"Pretendard Variable", Pretendard, "Segoe UI Variable", "Segoe UI", "Malgun Gothic", sans-serif
+```
 
-- Loading: name the data being loaded in Korean
-- Empty: explain what is missing and provide the next relevant action; a trend
-  with no activity is one compact empty state, not a page of zero-value rows
-- Effect proof: Home may summarize only the existing Assurance records. Keep
-  measured and user-estimated time separate, show `확인 불가` when evidence is
-  absent, and link to the detailed trace; never turn missing evidence into a
-  zero or a measured benefit.
-- Error: show the safe server message and the retryable action; do not expose
-  raw filesystem, SQL, command, or secret-bearing details
-- Success: confirm the completed action using the same verb as its button
-- Disabled: explain prerequisites near the control
-- Offline/slow network, if applicable: preserve the current view and show that
-  the local service could not be reached
+Paths, IDs, commands, hashes, and other machine-oriented values use
+`"Cascadia Mono", "Consolas", monospace`.
 
-## Content voice
+Korean headings use near-normal letter spacing, `text-wrap: pretty`, and
+`word-break: keep-all`. Counts and comparison values use tabular numerals.
 
-- Tone: concise, direct, and calm
-- Terminology: `확인할 항목`, `개발 환경`, `지침 점검`, `정리 후보`,
-  `반복된 실패`, and `등록 해제`
-- Microcopy rules: buttons, status, and labels use compact noun phrases; full
-  guidance uses only a necessary short `합니다` sentence; technical terms stay
-  in English when a Korean translation would be awkward
+Pretendard is deliberately not bundled, loaded from a CDN, or added as a
+dependency in this release. It is therefore preferred only when it is already
+installed on the Windows machine. The fallback stack is the compatibility
+contract, and Korean glyph metrics can vary slightly between machines where
+Pretendard is absent. A future bundled-font change would require a separate
+asset/license review and is not implied by this UI slice.
 
-## Implementation constraints
+## Component contract
 
-- Framework/styling system: Go `embed`, plain HTML, CSS, and browser JavaScript
-- Design-token constraints: one small CSS custom-property set; no new package
-- Performance constraints: one embedded document and two static assets; bounded
-  API refreshes only for data needed by the active product surfaces
-- Compatibility constraints: native Windows 11 and current embedded browser;
-  server behavior, CSRF, same-origin checks, masking, and Action Broker policy
-  are unchanged
-- Test/screenshot expectations: handler tests assert Korean navigation, static
-  asset delivery, safe unregister copy, and existing API hooks; native Windows
-  visual and interaction acceptance remains a separate recorded smoke test
+These are the only shared primitives. They are CSS/HTML conventions, not a
+new component framework.
 
-## Open questions
+- `AppShell`: `.app-shell`, `.workspace`, and the sticky top bar.
+- `PrimaryNav`: `.primary-nav`, with an `aria-current="page"` link and a 3px
+  active rail.
+- `PageHeader`: `.page-heading` or the home `.hero`; exactly one visible `h1`.
+- `Panel`: `.panel`, a bordered surface for one coherent task or evidence set.
+- `Button`: `.button`, with `primary`, `danger`, and `small` variants.
+- `StatusChip`: `.chip`, with `ok`, `warn`, `bad`, or neutral `unknown`
+  variants. It always has a readable label. Missing evidence is neutral, not a
+  failure state.
+- `Metric`: `.metric-card` and the existing metric collections; only use a
+  metric when it informs a decision or action.
+- `ActionGroup`: `.item-actions` and `.toolbar`, grouping controls next to the
+  object they change.
+- `Disclosure`: native `details/summary` with `.disclosure`; advanced evidence
+  and settings start closed unless the user explicitly opens them.
+- `EmptyState`: `.empty-state`, explaining what is absent and the next useful
+  action.
+- `ErrorState`: `.surface-error` or a state-marked result, with a safe message
+  and retry/recovery action.
+- `Dialog`: native `dialog` with labelled description, safety copy, and actions.
 
-- [ ] Decide whether a future release needs user-selectable English UI; owner:
-  product; impact: localization architecture only, not this Korean-first pass
-- [ ] Revisit richer icons or screenshots only after native Windows usability
-  feedback identifies a concrete navigation problem
-# Phase 2 usability contract
-
-## Entry states
-
-The home view has two explicit states. A new local data directory shows one primary action, `프로젝트 등록`, followed by a short four-step path. An established directory shows project and repository counts, observation freshness, open findings, executable capabilities, and one next action. Empty state copy must not imply failure.
-
-## Provider state
-
-Provider status is a separate capability group in diagnostics and the home summary. Required tools affect environment health; optional Providers do not. Each Provider card exposes state, reason, resolved executable metadata when safe, and the next recovery action. The UI must not repeat the same missing optional tool as both a global failure and a provider failure.
+Existing feature classes such as `.finding`, `.repository-card`,
+`.assurance-record`, `.trace-node`, and `.command-output` are compositions of
+these primitives. They are not additional framework components and should not
+gain independent token systems.
 
 ## Progressive disclosure
 
-Show the decision first. Put revision, digest, command argv, evidence references, pricing basis, and raw diagnostics behind `details` or a focused secondary view. Keep mutation buttons next to the object they affect and show approval or deletion consequences before the action.
+The first viewport prioritizes state, consequence, and action. Revision IDs,
+digests, exact argv, artifact manifests, pricing basis, raw diagnostics, and
+other evidence details belong in native `details` or a focused secondary view.
 
-The Assurance dashboard starts with repeatability, linked evidence, bounded
-usage/cost, and no-transcript guarantees. Its impact surface adds an explicit
-period/project scope, previous-equal-period comparison, measured versus
-estimated/unavailable labels, evidence quality, retention, and trace drill-down.
-Provider/model filters are explicit in the impact scope; legacy lifetime
-invocation lists remain visibly labelled as records rather than being presented
-as causal impact.
+The Assurance route starts with its page header and scope filters. Its former
+explanatory hero is a compact, closed `.disclosure` so the useful evidence is
+visible without promotional copy. The Diagnostics route keeps environment,
+Provider, and guidance status visible. Agent Profiles, integrations, Jenkins
+groups, and runbooks are grouped under one closed `실행 설정` disclosure;
+cleanup and safeguards are grouped under one closed `안전 검토` disclosure.
 
-## Copy and accessibility
+Do not hide a blocking state or a required approval inside disclosure. Put the
+decision and its safe next action in the open surface, then expose supporting
+evidence below it.
 
-Use the concise Korean copy rules in `docs/KOREAN_COPY_GUIDE.md`. Buttons and labels use noun phrases. Status uses text plus color. Every route has a stable heading, keyboard-visible focus, skip link, and a recoverable empty or error state. The home, diagnostics, finding deep-link, and registration paths are validated by `docs/USER_JOURNEY_ACCEPTANCE.md`.
+## Accessibility and responsive behavior
 
-## Reference boundary
+- Keep the skip link as the first keyboard target.
+- Use native links for navigation, buttons for actions, labels for controls,
+  and native `details`/`dialog` before adding ARIA.
+- Preserve visible `:focus-visible` treatment and use `aria-live="polite"` for
+  async status areas.
+- Keep controls touchable, with at least the practical 40px control height.
+- Use text plus semantic state color for success, attention, failure, and
+  blocked conditions.
+- Keep long paths and identifiers breakable; wide activity tables scroll
+  horizontally instead of forcing the page wider.
+- Respect `prefers-reduced-motion`; the route transition is optional and has a
+  reduced variant.
+- At `980px`, navigation may wrap into a second row and dense grids simplify.
+  At `720px`, grids become one column, controls stack, and the top navigation
+  remains horizontally scrollable. No action depends on hover.
 
-Notion is used only as a reference for calm hierarchy and progressive disclosure. No brand, logo, visual asset, or screen is copied.
+## Copy and state rules
+
+Use concise Korean noun phrases for labels and status. Use a short `합니다`
+sentence only when it explains a cause, consequence, or recovery step. Keep
+established technical terms such as Worktree, Provider, Action, artifact, and
+HEAD when translating them would reduce precision.
+
+Every data surface needs intentional loading, empty, partial-failure,
+blocked/approval-required, and completed states. Optional Providers that are
+not configured are not global environment failures. Error copy exposes a safe
+reason and next action, never raw paths, SQL, credentials, or provider
+transcripts.
+
+## SOLID/YAGNI boundary
+
+The embedded UI intentionally remains plain HTML/CSS/JavaScript served from Go
+`embed`. Do not add React, Tailwind, Storybook, a design-system package, a
+bundler, or a generic component runtime for this product’s six-route local
+surface.
+
+Keep domain/API policy in the application service and keep the browser adapter
+thin. Share only stable presentation contracts: route metadata, state chips,
+loading/error/empty states, panels, actions, disclosures, and dialogs. A new
+shared primitive is justified only after the same interaction appears in at
+least two independent surfaces. One-off diagnostic or provider markup should
+remain local to that feature.
+
+Do not rewrite `app.js` into modules or abstract every `innerHTML` template
+without a concrete bug, repeated contract, or measurable maintenance win. Do
+not make a generic renderer swallow domain-specific evidence. When a feature
+changes, preserve DOM IDs, API calls, masking, Worktree trust, and Action
+Broker boundaries, then add the smallest focused contract needed to protect
+the change.
+
+## Implementation constraints
+
+- Plain HTML, CSS, and browser JavaScript; one embedded document and the
+  existing static assets.
+- No CDN, new package, telemetry, hosted service, or font download at runtime.
+- One CSS token root, one coherent component source, and two responsive layout
+  breakpoints plus the reduced-motion rule.
+- Visual changes must not change product behavior, API routes, security
+  boundaries, or release targets.
