@@ -25,7 +25,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	for _, value := range []string{
 		`<html lang="ko">`, "본문으로 건너뛰기", "홈", "프로젝트", "작업", "진단", "기록",
 		"지금 확인할 항목", "프로젝트별 상태", "최근 실행 결과",
-		"등록 → 관찰 → 검토 → 실행", "처음 사용하는 순서", "외부 작업과 릴리스", "Jenkins 대상 그룹",
+		"등록 → 관찰 → 검토 → 실행", "진행 순서", "외부 작업과 릴리스", "Jenkins 대상 그룹",
 		"폴더 선택", "저장소 찾기",
 		"발견 및 제안 검토", "Agent Profile 관리",
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
@@ -91,7 +91,7 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`data-route="assurance"`, `data-view="assurance" hidden`, "검증 대시보드", "검증의 가치",
+		`data-route="assurance"`, `data-view="assurance" hidden`, "검증 대시보드", "왜 확인하나요",
 		"Provider와 모델", `id="assurance-provider-filter"`, `id="assurance-model-filter"`,
 		`id="assurance-runs"`, `id="assurance-invocations"`, `id="assurance-effects"`, `id="assurance-artifacts"`,
 		"대시보드 보기", "원문 미수집", "보관 상태",
@@ -259,7 +259,7 @@ func TestEmbeddedUIFirstUseAndFindingTargetContract(t *testing.T) {
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
 		`id="home-onboarding"`, `id="home-metrics"`, `id="home-providers"`, `id="home-assurance"`,
-		`data-home-established-only hidden`, "처음 사용하는 순서", "프로젝트 등록",
+		`data-home-established-only hidden`, "진행 순서", "프로젝트 등록",
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI first-use HTML missing %q", value)
