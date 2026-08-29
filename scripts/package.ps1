@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.11.1",
+    [string]$Version = "0.12.0",
     [string]$OutputDirectory
 )
 
@@ -48,6 +48,8 @@ try {
             Remove-Item Env:GOOS, Env:GOARCH, Env:CGO_ENABLED -ErrorAction SilentlyContinue
         }
         Copy-Item (Join-Path $repositoryRoot "README.md"), (Join-Path $repositoryRoot "LICENSE"), (Join-Path $repositoryRoot "THIRD_PARTY_POLICY.md") -Destination $stage
+        New-Item -ItemType Directory -Path (Join-Path $stage "licenses") -Force | Out-Null
+        Copy-Item (Join-Path $repositoryRoot "licenses\Pretendard-OFL-1.1.txt") -Destination (Join-Path $stage "licenses")
         New-Item -ItemType Directory -Path (Join-Path $stage "docs") -Force | Out-Null
         Copy-Item (Join-Path $repositoryRoot "docs\NATIVE_WINDOWS_SMOKE.md"), (Join-Path $repositoryRoot "docs\VERIFICATION_PLAYBOOK.md"), $releaseNotesPath, $verificationPath -Destination (Join-Path $stage "docs")
         $zipPath = Join-Path $outputRoot ($name + ".zip")

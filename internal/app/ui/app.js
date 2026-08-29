@@ -56,12 +56,12 @@
     loading: { work: false, diagnostics: false },
   };
   const routeTitles = {
-    home: "홈",
+    home: "상태",
     projects: "프로젝트",
     work: "작업",
     assurance: "검증",
     diagnostics: "진단",
-    activity: "기록",
+    activity: "활동 기록",
   };
   const severityLabels = {
     info: "정보",
@@ -169,6 +169,27 @@
   })[character]);
   const encode = value => encodeURIComponent(value);
   const label = value => statusLabels[value] || value || "알 수 없음";
+  const toneClass = tone => ({
+    positive: "state-ok",
+    attention: "state-warning",
+    negative: "state-danger",
+    neutral: "state-neutral",
+  })[tone] || "state-neutral";
+  const rowToneClass = tone => ({
+    positive: "state-ok",
+    attention: "state-warn",
+    negative: "state-bad",
+    neutral: "state-neutral",
+  })[tone] || "state-neutral";
+  const stateText = (text, tone = "neutral") => `<span class="state-text ${toneClass(tone)}" data-tone="${escapeHTML(tone)}">${escapeHTML(text)}</span>`;
+  const findingTone = severity => ["high", "critical"].includes(severity) ? "negative" : severity === "attention" ? "attention" : "neutral";
+  const providerTone = providerState => providerState === "ready" ? "positive" : providerState === "not_configured" ? "neutral" : ["unavailable"].includes(providerState) ? "negative" : "attention";
+  const assuranceTone = value => ["succeeded", "passed", "measured", "prevented_regression", "active", "pinned", "complete"].includes(value)
+    ? "positive"
+    : ["failed", "timed_out", "cancelled", "interrupted", "stale", "deleted", "negative"].includes(value)
+      ? "negative"
+      : ["unavailable", "unknown"].includes(value) ? "neutral" : "attention";
+  const eventTone = item => assuranceTone(item?.spec?.status || item?.spec?.conclusion || "unknown");
   const providerStateLabels = {
     ready: "사용 가능",
     detected: "실행 확인 필요",
@@ -177,7 +198,6 @@
     profile_needs_setup: "프로필 설정 필요",
     not_configured: "미설정",
   };
-  const providerStateClass = state => state === "ready" ? "ok" : ["detected", "auth_required", "profile_needs_setup"].includes(state) ? "warn" : state === "not_configured" ? "" : "bad";
   const providerLabel = state => providerStateLabels[state] || "확인 필요";
   const providerStateSummaries = {
     ready: "실행 경로를 확인했습니다.",
@@ -283,7 +303,6 @@
     return Math.max(0, Math.min(100, Math.round((numeric / max) * 100)));
   };
   const artifactID = item => item?.metadata?.id || item?.id || item?.spec?.id || "";
-  const assuranceStateClass = value => ["succeeded", "passed"].includes(value) ? "ok" : ["failed", "timed_out", "cancelled", "interrupted", "stale"].includes(value) ? "bad" : "warn";
   const assuranceScope = spec => [spec.projectId, spec.repositoryId, spec.worktreeId].filter(Boolean).join(" / ") || "전체 범위";
   const assuranceDashboardPath = () => {
     const query = new URLSearchParams();
@@ -322,7 +341,7 @@
     } catch (_) {
       findingID = "";
     }
-    return { name, projectID: decodeURIComponentSafe(projectID), findingID };
+    return { name, projectID: decodeURIComponentSafe(projectID), findingID, query };
   };
   let activeRoute = "home";
   let pendingFindingID = "";
@@ -336,6 +355,31 @@
     return "home";
   };
   let routeFocusTimer = 0;
+
+  function applyAssuranceRouteState(target) {
+    const query = new URLSearchParams(target.query || "");
+    const days = query.get("days") || "30";
+    const effect = query.get("effect") || "all";
+    state.assuranceFilters.days = ["7", "30", "90"].includes(days) ? days : "30";
+    state.assuranceFilters.provider = query.get("provider") || "";
+    state.assuranceFilters.model = query.get("model") || "";
+    state.assuranceFilters.project = query.get("project") || "";
+    state.assuranceEffectFilter = ["all", "measured", "prevented_regression", "user_estimated", "ai_inference", "unavailable"].includes(effect)
+      ? effect
+      : "all";
+  }
+
+  function syncAssuranceRouteState() {
+    if (activeRoute !== "assurance") return;
+    const query = new URLSearchParams();
+    if (state.assuranceFilters.days !== "30") query.set("days", state.assuranceFilters.days);
+    if (state.assuranceFilters.provider) query.set("provider", state.assuranceFilters.provider);
+    if (state.assuranceFilters.model) query.set("model", state.assuranceFilters.model);
+    if (state.assuranceFilters.project) query.set("project", state.assuranceFilters.project);
+    if (state.assuranceEffectFilter !== "all") query.set("effect", state.assuranceEffectFilter);
+    const serialized = query.toString();
+    history.replaceState(null, "", serialized ? `#assurance?${serialized}` : "#assurance");
+  }
 
   async function request(path, options = {}) {
     const response = await fetch(path, options);
@@ -360,6 +404,7 @@
     const shouldMoveRouteFocus = hasMountedRoute;
     hasMountedRoute = true;
     activeRoute = active;
+    if (active === "assurance") applyAssuranceRouteState(target);
     pendingFindingID = active === "projects" ? target.findingID : "";
     if (active === "projects" && target.projectID) state.activeProjectID = target.projectID;
     document.querySelectorAll("[data-view]").forEach(view => { view.hidden = view.dataset.view !== active; });
@@ -416,18 +461,23 @@
 
   function findingCard(item, idPrefix = "finding") {
     const severity = String(item.spec.severity || "info");
+    const tone = findingTone(severity);
+    const domainState = String(item.spec.state || "");
     const scope = [item.spec.projectId, item.spec.repositoryId].filter(Boolean).join(" / ");
-    return `<article id="${idPrefix}-${escapeHTML(encode(item.metadata.id))}" class="finding ${escapeHTML(severity)}" data-finding-id="${escapeHTML(item.metadata.id)}" tabindex="-1">
-      <div class="finding-header"><h3>${escapeHTML(localize(item.spec.summary))}</h3><span class="chip ${severity === "info" ? "" : severity === "attention" ? "warn" : "bad"}">${escapeHTML(severityLabels[severity] || severity)}</span></div>
+    return `<article id="${idPrefix}-${escapeHTML(encode(item.metadata.id))}" class="ledger-row finding ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-severity="${escapeHTML(severity)}" data-state="${escapeHTML(domainState)}" data-finding-id="${escapeHTML(item.metadata.id)}" tabindex="-1">
+      <div class="ledger-row__state">${stateText(severityLabels[severity] || severity, tone)}</div>
+      <div class="ledger-row__main"><h3>${escapeHTML(localize(item.spec.summary))}</h3>
       <p class="next">다음 단계: ${escapeHTML(localize(item.spec.recommendedNextAction))}</p>
       <details><summary>근거와 상태 보기</summary><dl class="detail-grid">
         <div><dt>범위</dt><dd>${escapeHTML(scope || "전체")}</dd></div>
-        <div><dt>상태</dt><dd>${escapeHTML(label(item.spec.state))}</dd></div>
+        <div><dt>상태</dt><dd>${escapeHTML(label(domainState))}</dd></div>
         <div><dt>확신도</dt><dd>${escapeHTML(confidenceLabels[item.spec.confidence] || item.spec.confidence || "알 수 없음")}</dd></div>
         <div><dt>처음 확인</dt><dd>${escapeHTML(formatDate(item.spec.firstObserved))}</dd></div>
         <div><dt>최근 확인</dt><dd>${escapeHTML(formatDate(item.spec.lastObserved))}</dd></div>
         <div class="wide"><dt>근거 참조</dt><dd>${escapeHTML((item.spec.evidenceRefs || []).join(", ") || "없음")}</dd></div>
-      </dl>${item.spec.state === "open" ? `<div class="item-actions"><button class="button small" type="button" data-finding="acknowledge" data-id="${escapeHTML(item.metadata.id)}">확인함으로 표시</button></div>` : ""}</details>
+      </dl>${domainState === "open" ? `<div class="item-actions"><button class="button small" type="button" data-finding="acknowledge" data-id="${escapeHTML(item.metadata.id)}">확인함으로 표시</button></div>` : ""}</details></div>
+      <div class="ledger-row__context"><span>상태 ${escapeHTML(label(domainState))}</span><span>${escapeHTML(scope || "전체 범위")}</span></div>
+      <div class="ledger-row__action"></div>
     </article>`;
   }
 
@@ -453,6 +503,10 @@
       const rank = { critical: 4, high: 3, attention: 2, info: 1 };
       return (rank[right.spec.severity] || 0) - (rank[left.spec.severity] || 0);
     });
+    const findingsSection = document.querySelector(".home-findings-section");
+    const nextActionSection = document.getElementById("home-next-action-section");
+    if (findingsSection) findingsSection.hidden = !established;
+    if (nextActionSection) nextActionSection.hidden = !established || ordered.length > 0;
     document.getElementById("home-findings").innerHTML = ordered.length
       ? `<div class="finding-list">${ordered.slice(0, 5).map(item => findingCard(item, "home-finding")).join("")}</div>`
       : '<div class="empty-state"><strong>지금 확인할 항목이 없습니다.</strong><span>새 상태를 확인하려면 ‘지금 점검’을 실행하세요.</span></div>';
@@ -461,21 +515,20 @@
       ? `<div class="item-list">${projects.map(project => {
         const projectFindings = findings.filter(item => item.spec.projectId === project.id);
         const high = projectFindings.filter(item => ["high", "critical"].includes(item.spec.severity)).length;
-        return `<button class="project-card" type="button" data-open-project="${escapeHTML(project.id)}"><strong>${escapeHTML(project.name)}</strong><span>${escapeHTML(project.repos.length)}개 저장소 · 확인 항목 ${projectFindings.length}개${high ? ` · 높음 ${high}개` : ""}</span></button>`;
+        const tone = high ? "negative" : projectFindings.length ? "attention" : "positive";
+        const summary = `${project.repos.length}개 저장소 · 확인 항목 ${projectFindings.length}개${high ? ` · 높음 ${high}개` : ""}`;
+        return `<button class="ledger-row project-card ${rowToneClass(tone)}" type="button" data-tone="${tone}" data-finding-count="${escapeHTML(projectFindings.length)}" data-open-project="${escapeHTML(project.id)}"><span class="ledger-row__state">${stateText(projectFindings.length ? "확인 필요" : "정상", tone)}</span><span class="ledger-row__main"><strong>${escapeHTML(project.name)}</strong><span>${escapeHTML(summary)}</span></span><span class="ledger-row__context"><code>${escapeHTML(project.id)}</code></span><span class="ledger-row__action">열기</span></button>`;
       }).join("")}</div>`
       : '<div class="empty-state"><strong>등록된 프로젝트가 없습니다.</strong><span>프로젝트 화면에서 첫 저장소를 등록하세요.</span></div>';
 
     const recentRuns = state.events.filter(item => /(action|check|run|scan)/i.test(item.spec.type)).slice().reverse();
     document.getElementById("home-runs").innerHTML = recentRuns.length
-      ? `<div class="item-list">${recentRuns.slice(0, 5).map(item => `<article class="list-item"><div class="list-item-header"><h3>${escapeHTML(localize(item.spec.summary))}</h3><span class="chip">기록</span></div><p class="meta">${escapeHTML(formatDate(item.spec.occurredAt))}</p></article>`).join("")}</div>`
+      ? `<div class="item-list">${recentRuns.slice(0, 5).map(item => { const tone = eventTone(item); return `<article class="ledger-row ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(item.spec.status || item.spec.conclusion || "recorded")}"><div class="ledger-row__state">${stateText("기록", tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(localize(item.spec.summary))}</h3></div><div class="ledger-row__context">${escapeHTML(formatDate(item.spec.occurredAt))}</div><div class="ledger-row__action"></div></article>`; }).join("")}</div>`
       : '<div class="empty-state"><strong>아직 실행 결과가 없습니다.</strong><span>작업 화면에서 검토된 점검이나 Action을 실행할 수 있습니다.</span></div>';
-    const findingTarget = ordered.length ? findingRoute(ordered[0]) : "";
     document.getElementById("home-next-action").innerHTML = !established
       ? '<div class="list-item state-ok"><strong>프로젝트 등록</strong><p>첫 저장소를 등록하면 읽기 전용 점검을 시작합니다.</p><div class="item-actions"><a class="button primary small" href="#projects">프로젝트 등록</a></div></div>'
-      : ordered.length
-        ? `<div class="list-item state-warn"><strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong><p>다음 단계: ${escapeHTML(localize(ordered[0].spec.recommendedNextAction))}</p>${findingTarget ? `<div class="item-actions"><a class="button small" href="${escapeHTML(findingTarget)}">확인 항목 열기</a></div>` : ""}</div>`
-        : environmentNeedsAttention
-          ? '<div class="list-item state-warn"><strong>필수 실행 기능 확인</strong><p>진단에서 차단된 기능과 안전한 복구 방법을 확인합니다.</p><div class="item-actions"><a class="button small" href="#diagnostics">진단</a></div></div>'
+      : environmentNeedsAttention
+        ? '<div class="list-item state-warn"><strong>필수 실행 기능 확인</strong><p>진단에서 차단된 기능과 안전한 복구 방법을 확인합니다.</p><div class="item-actions"><a class="button small" href="#diagnostics">진단</a></div></div>'
         : '<div class="list-item state-ok"><strong>다음 점검</strong><p>열린 확인 항목이 없습니다. 최신 상태를 확인합니다.</p><div class="item-actions"><button class="button small" type="button" data-home-scan>지금 점검</button></div></div>';
     renderProviderStatuses("home-providers", true);
     const assurance = state.assuranceDashboard || {};
@@ -483,16 +536,6 @@
     document.getElementById("home-assurance").innerHTML = runs.length || assurance.invocations?.length || assurance.effects?.length
       ? renderHomeAssurance(assurance, runs)
        : '<div class="empty-state"><strong>아직 검증 결과가 없습니다.</strong><span>Quality Run을 실행하면 근거와 효과 기록이 여기에 나타납니다.</span></div>';
-  }
-
-  function findingRoute(item) {
-    const projectID = item?.spec?.projectId;
-    const findingID = item?.metadata?.id;
-    if (!projectID || !findingID) return "";
-    const query = new URLSearchParams({ finding: findingID });
-    if (item.spec.repositoryId) query.set("repository", item.spec.repositoryId);
-    if (item.spec.worktreeId) query.set("worktree", item.spec.worktreeId);
-    return `#projects/${encode(projectID)}?${query.toString()}`;
   }
 
   function renderAssuranceFilters() {
@@ -543,9 +586,12 @@
     const spec = item.spec || {};
     const evidenceKeys = Object.keys(spec.evidence || {});
     const command = [spec.command?.executable, ...(spec.command?.arguments || [])].filter(Boolean).join(" ");
-    const stateClass = assuranceStateClass(spec.state);
-    return `<article class="list-item assurance-record ${stateClass}">
-      <div class="list-item-header"><div><h3>${escapeHTML(assuranceTechniqueLabels[spec.technique] || spec.technique || "Quality Run")}</h3><p class="meta">${escapeHTML(assuranceScope(spec))} · ${escapeHTML(formatDate(spec.startedAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(label(spec.state))}</span></div>
+    const domainState = String(spec.state || "");
+    const tone = assuranceTone(domainState);
+    const scope = assuranceScope(spec);
+    return `<article class="ledger-row assurance-record ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(domainState)}">
+      <div class="ledger-row__state">${stateText(label(domainState), tone)}</div>
+      <div class="ledger-row__main"><h3>${escapeHTML(assuranceTechniqueLabels[spec.technique] || spec.technique || "Quality Run")}</h3>
       <p>${escapeHTML(spec.summary || "결과 요약이 없습니다.")}</p>
       <details><summary>실행 기준과 근거 보기</summary><dl class="detail-grid">
         <div><dt>Runner</dt><dd>${escapeHTML(spec.runner || "알 수 없음")}</dd></div>
@@ -556,7 +602,9 @@
         <div><dt>Agent 실행</dt><dd>${escapeHTML((spec.invocationIds || []).length ? `${spec.invocationIds.length}개` : "없음")}</dd></div>
         <div class="wide"><dt>검증 명령</dt><dd><code>${escapeHTML(command || "기록 없음")}</code></dd></div>
         <div class="wide"><dt>Config digest</dt><dd><code>${escapeHTML(spec.configDigest || "기록 없음")}</code></dd></div>
-      </dl></details>
+      </dl></details></div>
+      <div class="ledger-row__context"><span>${escapeHTML(scope)}</span><span>${escapeHTML(formatDate(spec.startedAt))}</span></div>
+      <div class="ledger-row__action"></div>
     </article>`;
   }
 
@@ -575,26 +623,29 @@
     const baselineText = spec.baselineValue === null || spec.baselineValue === undefined ? "확인 불가" : formatImpactValue(spec.baselineValue, spec.baselineUnit || spec.unit || "");
     const id = artifactID(item);
     const traceButton = id ? `<button class="button small" type="button" data-assurance-trace="${escapeHTML(id)}">근거 흐름</button>` : "";
-    return `<article class="list-item assurance-record ${assuranceImpactStateClass(classification)}"><div class="list-item-header"><div><h3>${escapeHTML(spec.label || "효과 기록")}</h3><p class="meta">${escapeHTML(assuranceEffectLabels[outcome] || outcome || "효과")}${valueText}</p></div><span class="chip ${assuranceImpactStateClass(classification)}">${escapeHTML(assuranceImpactStateLabels[classification] || classification)} · ${escapeHTML(status)}</span></div><div class="item-actions">${traceButton}</div><details><summary>효과 근거 보기</summary><dl class="detail-grid"><div><dt>분류</dt><dd>${escapeHTML(assuranceImpactStateLabels[classification] || classification)}</dd></div><div><dt>지표</dt><dd><code>${escapeHTML(spec.metricKey || "지정 없음")}</code></dd></div><div><dt>결과</dt><dd>${escapeHTML(assuranceEffectLabels[outcome] || outcome || "확인 불가")}</dd></div><div><dt>기준선</dt><dd>${escapeHTML(baselineText)}</dd></div><div><dt>관측값</dt><dd>${escapeHTML(valueKnown ? formatImpactValue(value, spec.unit || "") : "확인 불가")}</dd></div><div><dt>범위</dt><dd>${escapeHTML(assuranceScope(spec))}</dd></div><div><dt>생성 시각</dt><dd>${escapeHTML(formatDate(spec.createdAt))}</dd></div><div><dt>채택 시각</dt><dd>${escapeHTML(formatDate(spec.adoptedAt))}</dd></div><div><dt>재검증 시각</dt><dd>${escapeHTML(formatDate(spec.reverifiedAt))}</dd></div><div><dt>원본 Quality Run</dt><dd><code>${escapeHTML(spec.sourceRunId || "연결 없음")}</code></dd></div><div><dt>증거 artifact</dt><dd>${escapeHTML((spec.evidenceIds || []).length ? `${spec.evidenceIds.length}개` : "없음")}</dd></div><div><dt>Trace ID</dt><dd><code>${escapeHTML(spec.traceId || id || "연결 없음")}</code></dd></div><div><dt>채택 커밋</dt><dd><code>${escapeHTML(spec.adoptedCommit || "연결 없음")}</code></dd></div><div><dt>재검증 run</dt><dd><code>${escapeHTML(spec.reverificationRunId || (spec.reverified ? "완료" : "없음"))}</code></dd></div><div><dt>재검증 commit</dt><dd><code>${escapeHTML(spec.reverifiedCommit || "연결 없음")}</code></dd></div><div class="wide"><dt>Fingerprint</dt><dd><code>${escapeHTML(spec.fingerprint || "기록 없음")}</code></dd></div></dl></details></article>`;
+    const tone = assuranceTone(classification);
+    const scope = assuranceScope(spec);
+    return `<article class="ledger-row assurance-record ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(classification)}" data-outcome="${escapeHTML(outcome)}"><div class="ledger-row__state">${stateText(assuranceImpactStateLabels[classification] || classification, tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(spec.label || "효과 기록")}</h3><p>${escapeHTML(assuranceEffectLabels[outcome] || outcome || "효과")}${valueText}</p><details><summary>효과 근거 보기</summary><dl class="detail-grid"><div><dt>분류</dt><dd>${escapeHTML(assuranceImpactStateLabels[classification] || classification)}</dd></div><div><dt>지표</dt><dd><code>${escapeHTML(spec.metricKey || "지정 없음")}</code></dd></div><div><dt>결과</dt><dd>${escapeHTML(assuranceEffectLabels[outcome] || outcome || "확인 불가")}</dd></div><div><dt>기준선</dt><dd>${escapeHTML(baselineText)}</dd></div><div><dt>관측값</dt><dd>${escapeHTML(valueKnown ? formatImpactValue(value, spec.unit || "") : "확인 불가")}</dd></div><div><dt>범위</dt><dd>${escapeHTML(scope)}</dd></div><div><dt>생성 시각</dt><dd>${escapeHTML(formatDate(spec.createdAt))}</dd></div><div><dt>채택 시각</dt><dd>${escapeHTML(formatDate(spec.adoptedAt))}</dd></div><div><dt>재검증 시각</dt><dd>${escapeHTML(formatDate(spec.reverifiedAt))}</dd></div><div><dt>원본 Quality Run</dt><dd><code>${escapeHTML(spec.sourceRunId || "연결 없음")}</code></dd></div><div><dt>증거 artifact</dt><dd>${escapeHTML((spec.evidenceIds || []).length ? `${spec.evidenceIds.length}개` : "없음")}</dd></div><div><dt>Trace ID</dt><dd><code>${escapeHTML(spec.traceId || id || "연결 없음")}</code></dd></div><div><dt>채택 커밋</dt><dd><code>${escapeHTML(spec.adoptedCommit || "연결 없음")}</code></dd></div><div><dt>재검증 run</dt><dd><code>${escapeHTML(spec.reverificationRunId || (spec.reverified ? "완료" : "없음"))}</code></dd></div><div><dt>재검증 commit</dt><dd><code>${escapeHTML(spec.reverifiedCommit || "연결 없음")}</code></dd></div><div class="wide"><dt>Fingerprint</dt><dd><code>${escapeHTML(spec.fingerprint || "기록 없음")}</code></dd></div></dl></details></div><div class="ledger-row__context"><span>${escapeHTML(status)}</span><span>${escapeHTML(scope)}</span></div><div class="ledger-row__action">${traceButton}</div></article>`;
   }
 
   function renderAssuranceInvocation(item) {
     const spec = item.spec || {};
     const usage = spec.usage || {};
     const model = spec.requestedModel || spec.resolvedModel || "모델 미상";
-    const stateClass = assuranceStateClass(spec.state);
+    const domainState = String(spec.state || "");
+    const tone = assuranceTone(domainState);
     const id = item.metadata?.id || "";
     const retryForm = id && spec.state === "interrupted"
       ? `<details class="invocation-retry"><summary>중단 실행 재시도</summary><p class="meta">원래 prompt는 저장하지 않습니다. 새 prompt를 입력합니다.</p><form data-assurance-retry="${escapeHTML(id)}"><label><span>새 prompt</span><input name="prompt" maxlength="2000" autocomplete="off" required></label><div class="item-actions"><button class="button small primary" type="submit">재시도</button></div></form></details>`
       : "";
     const parent = spec.parentId ? `<div><dt>원본 실행</dt><dd><code>${escapeHTML(spec.parentId)}</code></dd></div>` : "";
-    return `<article class="list-item assurance-record ${stateClass}"><div class="list-item-header"><div><h3>${escapeHTML(spec.provider || "Provider 미상")}</h3><p class="meta">${escapeHTML(model)} · ${escapeHTML(formatDate(spec.startedAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(label(spec.state))}</span></div><dl class="detail-grid"><div><dt>실행 ID</dt><dd><code>${escapeHTML(id || "기록 없음")}</code></dd></div>${parent}<div><dt>입력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.inputTokens))}</dd></div><div><dt>출력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.outputTokens))}</dd></div><div><dt>전체 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.totalTokens))}</dd></div><div><dt>원문 상태</dt><dd>${spec.rawTranscript ? "정책 확인 필요" : "수집하지 않음"}</dd></div>${spec.failureCode ? `<div class="wide"><dt>실패 코드</dt><dd><code>${escapeHTML(spec.failureCode)}</code></dd></div>` : ""}</dl><details><summary>선택 근거 보기</summary><dl class="detail-grid"><div><dt>요청 모델</dt><dd>${escapeHTML(spec.requestedModel || "없음")}</dd></div><div><dt>확정 모델</dt><dd>${escapeHTML(spec.resolvedModel || "없음")}</dd></div><div><dt>선택 출처</dt><dd>${escapeHTML(spec.selectionSource || "알 수 없음")}</dd></div><div><dt>artifact</dt><dd>${escapeHTML((spec.artifactIds || []).length ? `${spec.artifactIds.length}개` : "없음")}</dd></div></dl></details>${retryForm}</article>`;
+    return `<article class="ledger-row assurance-record ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(domainState)}"><div class="ledger-row__state">${stateText(label(domainState), tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(spec.provider || "Provider 미상")}</h3><p>${escapeHTML(model)} · ${escapeHTML(formatDate(spec.startedAt))}</p><dl class="detail-grid"><div><dt>실행 ID</dt><dd><code>${escapeHTML(id || "기록 없음")}</code></dd></div>${parent}<div><dt>입력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.inputTokens))}</dd></div><div><dt>출력 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.outputTokens))}</dd></div><div><dt>전체 토큰</dt><dd>${escapeHTML(formatOptionalCount(usage.totalTokens))}</dd></div><div><dt>원문 상태</dt><dd>${spec.rawTranscript ? "정책 확인 필요" : "수집하지 않음"}</dd></div>${spec.failureCode ? `<div class="wide"><dt>실패 코드</dt><dd><code>${escapeHTML(spec.failureCode)}</code></dd></div>` : ""}</dl><details><summary>선택 근거 보기</summary><dl class="detail-grid"><div><dt>요청 모델</dt><dd>${escapeHTML(spec.requestedModel || "없음")}</dd></div><div><dt>확정 모델</dt><dd>${escapeHTML(spec.resolvedModel || "없음")}</dd></div><div><dt>선택 출처</dt><dd>${escapeHTML(spec.selectionSource || "알 수 없음")}</dd></div><div><dt>artifact</dt><dd>${escapeHTML((spec.artifactIds || []).length ? `${spec.artifactIds.length}개` : "없음")}</dd></div></dl></details>${retryForm}</div><div class="ledger-row__context"><span>${escapeHTML(model)}</span><span>${escapeHTML(formatOptionalCount(usage.totalTokens))} 토큰</span></div><div class="ledger-row__action"></div></article>`;
   }
 
   function renderAssuranceArtifact(item) {
     const spec = item.spec || {};
     const retention = assuranceRetentionLabels[spec.retention] || spec.retention || "알 수 없음";
-    const stateClass = spec.retention === "deleted" ? "bad" : spec.retention === "archived" ? "warn" : "ok";
+    const tone = assuranceTone(spec.retention);
     const id = artifactID(item);
     const name = item.metadata?.name || spec.name || spec.sourceType || item.name || "근거 artifact";
     const retentionAction = id && spec.retention === "pinned"
@@ -605,7 +656,7 @@
     const restoreAction = id && spec.retention === "archived"
       ? `<button class="button small" type="button" data-assurance-artifact="restore" data-id="${escapeHTML(id)}">복원</button>`
       : "";
-    return `<article class="list-item assurance-record"><div class="list-item-header"><div><h3>${escapeHTML(name)}</h3><p class="meta">${escapeHTML(spec.sourceId || "출처 미상")} · ${escapeHTML(formatDate(spec.createdAt))}</p></div><span class="chip ${stateClass}">${escapeHTML(retention)}</span></div><p class="meta">Artifact ID <code>${escapeHTML(id || "기록 없음")}</code></p><div class="item-actions">${retentionAction}${restoreAction}</div><details><summary>artifact manifest 보기</summary><dl class="detail-grid"><div><dt>크기</dt><dd>${escapeHTML(formatCount(spec.size))} bytes</dd></div><div><dt>MIME</dt><dd>${escapeHTML(spec.mime || "알 수 없음")}</dd></div><div><dt>보관 상태</dt><dd>${escapeHTML(retention)}</dd></div><div><dt>원본 참조</dt><dd>${escapeHTML(spec.sourceRef || "없음")}</dd></div><div class="wide"><dt>SHA-256</dt><dd><code>${escapeHTML(spec.sha256 || "기록 없음")}</code></dd></div></dl></details></article>`;
+    return `<article class="ledger-row assurance-record ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(spec.retention || "unknown")}"><div class="ledger-row__state">${stateText(retention, tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(name)}</h3><p>출처 ${escapeHTML(spec.sourceId || "미상")} · Artifact ID <code>${escapeHTML(id || "기록 없음")}</code></p><details><summary>artifact manifest 보기</summary><dl class="detail-grid"><div><dt>크기</dt><dd>${escapeHTML(formatCount(spec.size))} bytes</dd></div><div><dt>MIME</dt><dd>${escapeHTML(spec.mime || "알 수 없음")}</dd></div><div><dt>보관 상태</dt><dd>${escapeHTML(retention)}</dd></div><div><dt>원본 참조</dt><dd>${escapeHTML(spec.sourceRef || "없음")}</dd></div><div class="wide"><dt>SHA-256</dt><dd><code>${escapeHTML(spec.sha256 || "기록 없음")}</code></dd></div></dl></details></div><div class="ledger-row__context">${escapeHTML(formatDate(spec.createdAt))}</div><div class="ledger-row__action"><div class="item-actions">${retentionAction}${restoreAction}</div></div></article>`;
   }
 
   function findImpactMetric(metrics, keys, labelText) {
@@ -787,6 +838,11 @@
     ];
     const metricsContainer = document.getElementById("assurance-metrics");
     if (!metricsContainer) return;
+    const impactRecords = Number(state.assuranceImpact?.dataQuality?.recordsTotal) || 0;
+    const hasEvidence = Boolean(runs.length || invocations.length || allEffects.length || artifacts.length || impactRecords);
+    document.querySelectorAll("[data-assurance-populated]").forEach(element => { element.hidden = !hasEvidence; });
+    const empty = document.getElementById("assurance-empty");
+    if (empty) empty.hidden = hasEvidence;
     const impactError = document.getElementById("assurance-impact-error");
     if (impactError) {
       impactError.hidden = !state.assuranceImpactError;
@@ -819,19 +875,20 @@
     const providers = [...new Map((state.providerStatuses || []).map(item => [item.provider, item])).values()];
     container.innerHTML = providers.length
       ? `<div class="provider-list">${providers.map(item => {
+        const tone = providerTone(item.state);
         const diagnostics = !compact && (item.detail || item.reasonCode || item.resolvedCommand?.length)
           ? `<details><summary>진단 세부 정보</summary><dl class="detail-grid"><div class="wide"><dt>추가 진단</dt><dd>${escapeHTML(providerDiagnostic(item))}</dd></div>${item.reasonCode ? `<div><dt>진단 코드</dt><dd><code>${escapeHTML(item.reasonCode)}</code></dd></div>` : ""}${item.resolvedCommand?.length ? `<div class="wide"><dt>확인된 실행 경로</dt><dd><code>${escapeHTML(item.resolvedCommand.join(" "))}</code></dd></div>` : ""}</dl></details>`
           : "";
         const recovery = item.state !== "ready" ? `<div class="item-actions"><a class="button small" data-provider-recovery data-focus-target="provider-statuses" href="#diagnostics" aria-label="${escapeHTML(item.provider)} 진단">진단</a></div>` : "";
-        return `<article class="provider-card" data-provider-capability="${escapeHTML(item.provider)}"><div class="list-item-header"><div><h3>${escapeHTML(item.provider)}</h3><p class="meta">${escapeHTML(providerSummary(item.state))}</p></div><span class="chip ${providerStateClass(item.state)}">${escapeHTML(providerLabel(item.state))}</span></div>${diagnostics}${recovery}</article>`;
+        return `<article class="ledger-row provider-card ${rowToneClass(tone)}" data-provider-capability="${escapeHTML(item.provider)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(item.state || "unknown")}"><div class="ledger-row__state">${stateText(providerLabel(item.state), tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(item.provider)}</h3><p>${escapeHTML(providerSummary(item.state))}</p>${diagnostics}</div><div class="ledger-row__context">${escapeHTML(item.state || "unknown")}</div><div class="ledger-row__action">${recovery}</div></article>`;
       }).join("")}</div>`
       : '<div class="empty-state"><strong>Provider 상태가 없습니다.</strong><span>진단을 실행하면 선택 가능한 Provider를 확인합니다.</span></div>';
   }
 
   function projectStatus(repository) {
-    if (repository.error || repository.unsafe_cleanup) return { className: "bad", text: "확인 필요" };
-    if (repository.dirty || repository.behind) return { className: "warn", text: "주의" };
-    return { className: "ok", text: "정상" };
+    if (repository.error || repository.unsafe_cleanup) return { tone: "negative", text: "확인 필요" };
+    if (repository.dirty || repository.behind) return { tone: "attention", text: "주의" };
+    return { tone: "positive", text: "정상" };
   }
 
   function renderProjects() {
@@ -844,7 +901,8 @@
       ? `<div class="project-list">${projects.map(project => {
         const count = findings.filter(item => item.spec.projectId === project.id).length;
         const selected = project.id === state.activeProjectID;
-        return `<button class="project-card ${selected ? "selected" : ""}" type="button" data-project="${escapeHTML(project.id)}" aria-pressed="${selected}"><strong>${escapeHTML(project.name)}</strong><span>${escapeHTML(project.id)}</span><span class="project-counts"><span class="chip">저장소 ${project.repos.length}</span><span class="chip ${count ? "warn" : "ok"}">확인 항목 ${count}</span></span></button>`;
+        const tone = count ? "attention" : "positive";
+        return `<button class="ledger-row project-card ${rowToneClass(tone)} ${selected ? "selected" : ""}" type="button" data-project="${escapeHTML(project.id)}" data-tone="${escapeHTML(tone)}" data-finding-count="${escapeHTML(count)}" aria-pressed="${selected}"><span class="ledger-row__state">${stateText(count ? "확인 필요" : "정상", tone)}</span><span class="ledger-row__main"><strong>${escapeHTML(project.name)}</strong><span>${escapeHTML(project.repos.length)}개 저장소 · 확인 항목 ${escapeHTML(count)}개</span></span><span class="ledger-row__context"><code>${escapeHTML(project.id)}</code></span><span class="ledger-row__action">열기</span></button>`;
       }).join("")}</div>`
       : '<div class="empty-state"><strong>등록된 프로젝트가 없습니다.</strong><span>‘프로젝트 등록’에서 첫 범위를 추가하세요.</span></div>';
 
@@ -868,11 +926,7 @@
         const onlyRepository = project.repos.length <= 1;
         const registeredRepository = registered?.spec.repositories?.find(item => item.metadata.id === repository.id);
         const repositoryName = registeredRepository?.metadata.name || repository.id;
-        return `<article class="repository-card"><div class="repository-header"><div><h3>${escapeHTML(repositoryName)}</h3><p class="meta">${escapeHTML(repository.id)}</p><div class="repository-path"><code>${escapeHTML(repository.path)}</code></div></div><div class="repository-actions"><span class="chip ${status.className}">${status.text}</span><button class="button small" type="button" data-repository-action="edit" data-project="${escapeHTML(project.id)}" data-repository="${escapeHTML(repository.id)}">정보 변경</button><button class="button small" type="button" data-unregister="repository" data-project="${escapeHTML(project.id)}" data-repository="${escapeHTML(repository.id)}" data-name="${escapeHTML(repositoryName)}" ${onlyRepository ? "disabled" : ""}>저장소 등록 해제</button></div></div>
-          <div class="repository-summary"><span class="chip">브랜치 ${escapeHTML(repository.branch || "detached")}</span><span class="chip">ahead ${escapeHTML(repository.ahead || 0)}</span><span class="chip">behind ${escapeHTML(repository.behind || 0)}</span><span class="chip">Worktree ${(repository.worktrees || []).length}</span></div>
-          ${onlyRepository ? '<p class="meta">마지막 저장소는 개별 해제할 수 없습니다. 프로젝트 등록 해제를 사용하세요.</p>' : ""}
-          <details><summary>Worktree 상세 보기</summary><div class="worktree-list">${(repository.worktrees || []).length ? repository.worktrees.map(worktree => `<div class="worktree"><strong>${escapeHTML(worktree.metadata.id)} · ${worktree.spec.primary ? "기본" : "연결됨"}</strong><code>${escapeHTML(worktree.spec.canonicalPath)}</code><div class="meta">${escapeHTML(worktree.spec.branch || "detached")} · HEAD ${escapeHTML(worktree.spec.head || "확인 불가")} · ${worktree.spec.dirty ? "변경 있음" : "변경 없음"} · ${worktree.spec.untracked ? "추적하지 않은 파일 있음" : "추적되지 않은 파일 없음"} · upstream ${escapeHTML(worktree.spec.upstream || "없음")} ${escapeHTML(worktree.spec.ahead || 0)}/${escapeHTML(worktree.spec.behind || 0)} · ${worktree.spec.locked ? "잠김" : "잠기지 않음"} · ${worktree.spec.prunable ? "정리 가능 표시" : "유지됨"} · ${escapeHTML(label(worktree.spec.trust))} · ${escapeHTML(worktree.spec.tombstonedAt ? "관찰 종료" : worktree.spec.error || "현재")}</div></div>`).join("") : '<div class="empty-state"><span>관찰된 Worktree가 없습니다.</span></div>'}</div></details>
-        </article>`;
+        return `<article class="repository-card ledger-row ${rowToneClass(status.tone)}" data-tone="${escapeHTML(status.tone)}"><div class="ledger-row__state">${stateText(status.text, status.tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(repositoryName)}</h3><p class="repository-path"><code>${escapeHTML(repository.path)}</code></p>${onlyRepository ? '<p class="meta">마지막 저장소는 개별 해제할 수 없습니다. 프로젝트 등록 해제를 사용하세요.</p>' : ""}<details><summary>Worktree 상세 보기</summary><div class="worktree-list">${(repository.worktrees || []).length ? repository.worktrees.map(worktree => `<div class="worktree"><strong>${escapeHTML(worktree.metadata.id)} · ${worktree.spec.primary ? "기본" : "연결됨"}</strong><code>${escapeHTML(worktree.spec.canonicalPath)}</code><div class="meta">${escapeHTML(worktree.spec.branch || "detached")} · HEAD ${escapeHTML(worktree.spec.head || "확인 불가")} · ${worktree.spec.dirty ? "변경 있음" : "변경 없음"} · ${worktree.spec.untracked ? "추적하지 않은 파일 있음" : "추적되지 않은 파일 없음"} · upstream ${escapeHTML(worktree.spec.upstream || "없음")} ${escapeHTML(worktree.spec.ahead || 0)}/${escapeHTML(worktree.spec.behind || 0)} · ${worktree.spec.locked ? "잠김" : "잠기지 않음"} · ${worktree.spec.prunable ? "정리 가능 표시" : "유지됨"} · ${escapeHTML(label(worktree.spec.trust))} · ${escapeHTML(worktree.spec.tombstonedAt ? "관찰 종료" : worktree.spec.error || "현재")}</div></div>`).join("") : '<div class="empty-state"><span>관찰된 Worktree가 없습니다.</span></div>'}</div></details></div><div class="ledger-row__context"><span>브랜치 ${escapeHTML(repository.branch || "detached")}</span><span>ahead ${escapeHTML(repository.ahead || 0)} · behind ${escapeHTML(repository.behind || 0)}</span><span>Worktree ${escapeHTML((repository.worktrees || []).length)}</span></div><div class="ledger-row__action"><div class="repository-actions"><button class="button small" type="button" data-repository-action="edit" data-project="${escapeHTML(project.id)}" data-repository="${escapeHTML(repository.id)}">정보 변경</button><button class="button small" type="button" data-unregister="repository" data-project="${escapeHTML(project.id)}" data-repository="${escapeHTML(repository.id)}" data-name="${escapeHTML(repositoryName)}" ${onlyRepository ? "disabled" : ""}>저장소 등록 해제</button></div></div></article>`;
       }).join("")}</div>
       <div class="panel-heading section-heading"><div><p class="eyebrow">확인할 항목</p><h2>이 프로젝트의 확인할 항목</h2></div><div class="toolbar"><select id="finding-severity" aria-label="심각도 필터"><option value="">모든 심각도</option>${Object.entries(severityLabels).map(([value, text]) => `<option value="${value}" ${state.findingFilters.severity === value ? "selected" : ""}>${text}</option>`).join("")}</select><select id="finding-state" aria-label="상태 필터"><option value="active" ${state.findingFilters.state === "active" ? "selected" : ""}>열림 및 확인함</option><option value="">모든 상태</option>${["open", "acknowledged", "resolved", "suppressed", "expired"].map(value => `<option value="${value}" ${state.findingFilters.state === value ? "selected" : ""}>${escapeHTML(label(value))}</option>`).join("")}</select></div></div>
       ${visibleFindings.length ? `<div class="finding-list">${visibleFindings.map(item => findingCard(item)).join("")}</div>` : '<div class="empty-state"><strong>조건에 맞는 확인 항목이 없습니다.</strong><span>필터를 바꾸거나 새 점검을 실행하세요.</span></div>'}`;
@@ -971,7 +1025,7 @@
           : "";
       return `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(detail.plan.metadata.name)}</h3><p class="meta">${escapeHTML(detail.plan.spec.projectId)} / ${escapeHTML(detail.plan.spec.repositoryId)} / ${escapeHTML(detail.plan.spec.worktreeId)}</p></div><span class="chip ${admission === "eligible" ? "ok" : admission === "approval_required" ? "warn" : "bad"}">${escapeHTML(label(admission))}</span></div><dl class="detail-grid"><div><dt>Action</dt><dd><code>${escapeHTML(actionType)}</code></dd></div><div><dt>요청 시각</dt><dd>${escapeHTML(formatDate(detail.plan.spec.requestedAt))}</dd></div><div class="wide"><dt>승인 기록</dt><dd>${detail.status.approvals?.length ? detail.status.approvals.map(item => `${escapeHTML(label(item.spec.status))} · ${escapeHTML(formatDate(item.spec.decidedAt))}`).join("<br>") : "없음"}</dd></div><div class="wide"><dt>계획 digest</dt><dd><code>${escapeHTML(detail.plan.spec.inputs?.group_digest || detail.plan.spec.inputs?.candidate_digest || "서버가 보관")}</code></dd></div></dl><div class="item-actions"><button class="button small" type="button" data-action="trust" data-id="${escapeHTML(detail.plan.metadata.id)}">실행 대상으로 표시</button>${button}</div>${renderOperationResult(result, actionType)}</article>`;
     }).join("")}</div>` : '<div class="empty-state"><strong>아직 외부 작업·릴리스·정리 계획이 없습니다.</strong><span>위 입력에서 계획을 만든 뒤 이곳에서 근거를 검토하고 승인하세요.</span></div>';
-    document.getElementById("operations-ui").innerHTML = `<div class="workflow-note"><strong>실행 순서</strong><span>대상 선택 → 계획 생성 → Worktree 신뢰 → 승인 요청 → 전용 실행</span></div><div class="toolbar"><select id="external-group" aria-label="외부 작업 대상 그룹">${groupOptions}</select><select id="external-target" aria-label="외부 작업 Worktree">${targetOptionsHTML}</select><input id="expected-revision" aria-label="예상 revision" placeholder="예상 revision (선택 사항)"><button id="external-plan" class="button" type="button" ${groups.length && targets.length ? "" : "disabled"}>외부 작업 계획</button><button id="release-stage-plan" class="button" type="button" ${groups.length && targets.length ? "" : "disabled"}>Stage 릴리스 계획</button><button id="release-production-plan" class="button danger" type="button" ${groups.length && targets.length ? "" : "disabled"}>Production 릴리스 계획</button></div>${groups.length ? "" : '<p class="safety-note">진단 → Jenkins 대상 그룹에서 integration, 완료된 build URL, parameter를 먼저 설정하세요.</p>'}${planCards}`;
+    document.getElementById("operations-ui").innerHTML = `<div class="workflow-note"><strong>실행 순서</strong><span>대상 선택 → 계획 생성 → Worktree 신뢰 → 승인 요청 → 전용 실행</span></div><div class="toolbar"><select id="external-group" aria-label="외부 작업 대상 그룹">${groupOptions}</select><select id="external-target" aria-label="외부 작업 Worktree">${targetOptionsHTML}</select><input id="expected-revision" name="expectedRevision" autocomplete="off" aria-label="예상 revision" placeholder="예상 revision (선택 사항)"><button id="external-plan" class="button" type="button" ${groups.length && targets.length ? "" : "disabled"}>외부 작업 계획</button><button id="release-stage-plan" class="button" type="button" ${groups.length && targets.length ? "" : "disabled"}>Stage 릴리스 계획</button><button id="release-production-plan" class="button danger" type="button" ${groups.length && targets.length ? "" : "disabled"}>Production 릴리스 계획</button></div>${groups.length ? "" : '<p class="safety-note">진단 → Jenkins 대상 그룹에서 integration, 완료된 build URL, parameter를 먼저 설정하세요.</p>'}${planCards}`;
   }
 
   function renderWork() {
@@ -1050,11 +1104,11 @@
       const providerFinding = (type.startsWith("tool.") || type.startsWith("agent_profile.")) && providerIDs.has(target);
       return !providerFinding;
     }).filter((item, index, all) => all.findIndex(candidate => candidate.type === item.type && candidate.target === item.target) === index);
-    document.getElementById("environment").innerHTML = `<div class="list-item ${environment.generatedAt && environmentReady ? "state-ok" : "state-warn"}"><strong>${!environment.generatedAt ? "아직 환경을 점검하지 않았습니다." : environmentReady ? "필수 기능을 사용할 수 있습니다." : "필수 기능을 확인하세요."}</strong><p class="meta">Provider 상태는 아래 카드에서 한 번에 확인합니다.</p></div>${visibleEnvironmentFindings.length ? `<div class="finding-list" style="margin-top:10px">${visibleEnvironmentFindings.map(item => `<article class="finding ${escapeHTML(item.severity)}"><div class="finding-header"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><span class="chip ${item.severity === "high" ? "bad" : "warn"}">${escapeHTML(severityLabels[item.severity] || item.severity)}</span></div><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></article>`).join("")}</div>` : ""}`;
+    document.getElementById("environment").innerHTML = `<div class="list-item ${environment.generatedAt && environmentReady ? "state-ok" : "state-warn"}"><strong>${!environment.generatedAt ? "아직 환경을 점검하지 않았습니다." : environmentReady ? "필수 기능을 사용할 수 있습니다." : "필수 기능을 확인하세요."}</strong><p class="meta">Provider 상태는 아래 행에서 한 번에 확인합니다.</p></div>${visibleEnvironmentFindings.length ? `<div class="finding-list diagnostic-findings">${visibleEnvironmentFindings.map(item => { const tone = findingTone(String(item.severity || "info")); return `<article class="ledger-row finding ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-severity="${escapeHTML(item.severity || "info")}"><div class="ledger-row__state">${stateText(severityLabels[item.severity] || item.severity, tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></div><div class="ledger-row__context">환경 확인</div><div class="ledger-row__action"></div></article>`; }).join("")}</div>` : ""}`;
     renderProviderStatuses("provider-statuses");
 
     const targets = targetOptions();
-    document.getElementById("guidance-ui").innerHTML = `${state.surfaceErrors.profiles ? surfaceError(state.surfaceErrors.profiles, "diagnostics") : ""}<div class="toolbar"><select id="guidance-target" aria-label="지침 점검 대상">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><select id="handoff-profile" aria-label="Agent Profile">${state.profiles.length ? state.profiles.map(profile => `<option value="${escapeHTML(profile.metadata.id)}">${escapeHTML(profile.metadata.name)}</option>`).join("") : '<option value="">Agent Profile 없음</option>'}</select><input id="handoff-model" aria-label="선택 모델" placeholder="모델 선택 사항"><button id="guidance-check" class="button" type="button" ${targets.length ? "" : "disabled"}>지침 점검 실행</button><button id="handoff-preview" class="button" type="button" ${targets.length && state.profiles.length ? "" : "disabled"}>Handoff 미리 보기</button></div>${renderGuidanceResult()}`;
+    document.getElementById("guidance-ui").innerHTML = `${state.surfaceErrors.profiles ? surfaceError(state.surfaceErrors.profiles, "diagnostics") : ""}<div class="toolbar"><select id="guidance-target" aria-label="지침 점검 대상">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><select id="handoff-profile" aria-label="Agent Profile">${state.profiles.length ? state.profiles.map(profile => `<option value="${escapeHTML(profile.metadata.id)}">${escapeHTML(profile.metadata.name)}</option>`).join("") : '<option value="">Agent Profile 없음</option>'}</select><input id="handoff-model" name="model" autocomplete="off" aria-label="선택 모델" placeholder="모델 선택 사항"><button id="guidance-check" class="button" type="button" ${targets.length ? "" : "disabled"}>지침 점검 실행</button><button id="handoff-preview" class="button" type="button" ${targets.length && state.profiles.length ? "" : "disabled"}>Handoff 미리 보기</button></div>${renderGuidanceResult()}`;
 
     document.getElementById("profile-list").innerHTML = state.profiles.length ? `<div class="item-list">${state.profiles.map(profile => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(profile.metadata.name)}</h3><p class="meta">${escapeHTML(profile.metadata.id)}</p></div><span class="chip">${escapeHTML(label(profile.spec.dataBoundary))}</span></div><dl class="detail-grid"><div><dt>실행 명령</dt><dd><code>${escapeHTML(profile.spec.command)}</code></dd></div><div><dt>실행 방식</dt><dd>${escapeHTML(label(profile.spec.launchMode))}</dd></div><div><dt>제한 시간</dt><dd>${escapeHTML(profile.spec.timeoutSeconds)}초</dd></div><div><dt>모델 인자</dt><dd>${escapeHTML(profile.spec.modelArgumentTemplate || "없음")}</dd></div><div class="wide"><dt>허용 환경 변수</dt><dd>${escapeHTML((profile.spec.environmentAllowlist || []).join(", ") || "없음")}</dd></div></dl><div class="item-actions"><button class="button small" type="button" data-profile="edit" data-id="${escapeHTML(profile.metadata.id)}">정보 변경</button><button class="button small" type="button" data-unregister="profile" data-profile-id="${escapeHTML(profile.metadata.id)}" data-name="${escapeHTML(profile.metadata.name)}">제거</button></div></article>`).join("")}</div>` : '<div class="empty-state"><strong>Agent Profile이 없습니다.</strong><span>Handoff 미리 보기를 사용하려면 Profile을 추가하세요.</span></div>';
 
@@ -1079,7 +1133,7 @@
     renderExternalGroups();
 
     const runbookContent = state.runbooks.length
-      ? `<div class="item-list">${state.runbooks.map(item => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · 승인 필요</p></div><span class="chip warn">PowerShell</span></div><dl class="detail-grid"><div class="wide"><dt>스크립트</dt><dd><code>${escapeHTML(item.scriptPath)}</code></dd></div><div><dt>제한 시간</dt><dd>${escapeHTML(item.timeoutSeconds)}초</dd></div><div class="wide"><dt>허용 환경 변수</dt><dd>${escapeHTML((item.environmentAllowlist || []).join(", ") || "없음")}</dd></div></dl>${(item.parameters || []).length ? `<div class="runbook-parameters">${item.parameters.map(parameter => `<label><span>${escapeHTML(parameter)}</span><input data-runbook-param="${escapeHTML(parameter)}" data-runbook-id="${escapeHTML(item.id)}" placeholder="선택 값"></label>`).join("")}</div>` : '<p class="meta">입력할 parameter가 없습니다.</p>'}<div class="item-actions"><select data-runbook-target="${escapeHTML(item.id)}" aria-label="runbook 실행 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button class="button primary small" type="button" data-runbook="plan" data-id="${escapeHTML(item.id)}" ${targets.length ? "" : "disabled"}>실행 계획 만들기</button><button class="button small" type="button" data-runbook="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="runbook" data-runbook-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`).join("")}</div>`
+      ? `<div class="item-list">${state.runbooks.map(item => `<article class="list-item"><div class="list-item-header"><div><h3>${escapeHTML(item.name)}</h3><p class="meta">${escapeHTML(item.id)} · 승인 필요</p></div><span class="chip warn">PowerShell</span></div><dl class="detail-grid"><div class="wide"><dt>스크립트</dt><dd><code>${escapeHTML(item.scriptPath)}</code></dd></div><div><dt>제한 시간</dt><dd>${escapeHTML(item.timeoutSeconds)}초</dd></div><div class="wide"><dt>허용 환경 변수</dt><dd>${escapeHTML((item.environmentAllowlist || []).join(", ") || "없음")}</dd></div></dl>${(item.parameters || []).length ? `<div class="runbook-parameters">${item.parameters.map(parameter => `<label><span>${escapeHTML(parameter)}</span><input data-runbook-param="${escapeHTML(parameter)}" data-runbook-id="${escapeHTML(item.id)}" name="${escapeHTML(parameter)}" autocomplete="off" placeholder="선택 값"></label>`).join("")}</div>` : '<p class="meta">입력할 parameter가 없습니다.</p>'}<div class="item-actions"><select data-runbook-target="${escapeHTML(item.id)}" aria-label="runbook 실행 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button class="button primary small" type="button" data-runbook="plan" data-id="${escapeHTML(item.id)}" ${targets.length ? "" : "disabled"}>실행 계획 만들기</button><button class="button small" type="button" data-runbook="edit" data-id="${escapeHTML(item.id)}">정보 변경</button><button class="button small" type="button" data-unregister="runbook" data-runbook-id="${escapeHTML(item.id)}" data-name="${escapeHTML(item.name)}">제거</button></div></article>`).join("")}</div>`
       : '<div class="empty-state"><strong>등록된 PowerShell runbook이 없습니다.</strong><span>검토한 .ps1 파일을 등록하면 선택한 Worktree에서 실행 계획을 만들 수 있습니다.</span></div>';
     document.getElementById("runbook-list").innerHTML = (state.surfaceErrors.runbooks ? surfaceError(state.surfaceErrors.runbooks, "diagnostics") : "") + runbookContent;
 
@@ -1116,7 +1170,7 @@
 
   function renderActivity() {
     document.getElementById("events").innerHTML = state.events.length
-      ? `<div class="table-wrap"><table><thead><tr><th>시각</th><th>유형</th><th>내용</th><th>범위</th></tr></thead><tbody>${state.events.slice().reverse().map(item => `<tr><td>${escapeHTML(formatDate(item.spec.occurredAt))}</td><td><code>${escapeHTML(item.spec.type)}</code></td><td>${escapeHTML(localize(item.spec.summary))}</td><td>${escapeHTML([item.spec.projectId, item.spec.repositoryId].filter(Boolean).join(" / ") || "전체")}</td></tr>`).join("")}</tbody></table></div>`
+      ? `<div class="table-wrap"><table><caption>활동 기록</caption><thead><tr><th scope="col">시각</th><th scope="col">유형</th><th scope="col">내용</th><th scope="col">범위</th></tr></thead><tbody>${state.events.slice().reverse().map(item => `<tr><td>${escapeHTML(formatDate(item.spec.occurredAt))}</td><td><code>${escapeHTML(item.spec.type)}</code></td><td>${escapeHTML(localize(item.spec.summary))}</td><td>${escapeHTML([item.spec.projectId, item.spec.repositoryId].filter(Boolean).join(" / ") || "전체")}</td></tr>`).join("")}</tbody></table></div>`
       : '<div class="empty-state"><strong>아직 활동 기록이 없습니다.</strong><span>점검이나 등록 변경을 실행하면 감사 기록이 남습니다.</span></div>';
   }
 
@@ -1356,6 +1410,8 @@
   let unregisterOpener = null;
   let editorOpener = null;
 
+  unregisterInput?.setAttribute("name", "confirmation");
+
   function restoreDialogFocus(opener) {
     window.setTimeout(() => {
       if (opener?.isConnected && !opener.disabled) {
@@ -1364,6 +1420,14 @@
       }
       focusElementByID("main-content");
     }, 0);
+  }
+
+  function setRegisterPanelOpen(open, opener = null) {
+    const panel = document.getElementById("register-panel");
+    const toggle = document.getElementById("show-register");
+    if (opener) registerOpener = opener;
+    if (panel) panel.hidden = !open;
+    toggle?.setAttribute("aria-expanded", String(open));
   }
 
   const editorFieldName = id => id.replace(/^edit-/, "");
@@ -1562,13 +1626,12 @@
       return;
     }
     if (button.id === "show-register") {
-      registerOpener = button;
-      document.getElementById("register-panel").hidden = false;
+      setRegisterPanelOpen(true, button);
       document.getElementById("name").focus();
       return;
     }
     if (button.id === "hide-register") {
-      document.getElementById("register-panel").hidden = true;
+      setRegisterPanelOpen(false);
       restoreDialogFocus(registerOpener);
       registerOpener = null;
       return;
@@ -2129,6 +2192,7 @@
     state.assuranceFilters.model = "";
     state.assuranceFilters.project = "";
     state.assuranceEffectFilter = "all";
+    syncAssuranceRouteState();
     void refreshAssuranceFilter();
   });
 
@@ -2157,17 +2221,31 @@
     }
   }
 
-  document.getElementById("pick-folder").addEventListener("click", async () => {
+  async function openFolderPicker(opener) {
+    const button = opener || document.getElementById("pick-folder");
+    if (button) button.disabled = true;
     try {
       const result = await request("/api/folder-picker", { method: "POST", headers: mutationHeaders() });
-      if (result.path) {
-        pathInput.value = result.path;
-        await discoverRepositories();
+      const selectedPath = String(result?.path || "").trim();
+      if (!selectedPath) return;
+      const registerButton = document.getElementById("show-register");
+      if (currentRoute() !== "projects") {
+        registerOpener = registerButton;
+        location.hash = "projects";
+        setRoute();
       }
+      setRegisterPanelOpen(true, registerOpener || registerButton);
+      pathInput.value = selectedPath;
+      await discoverRepositories();
+      pathInput.focus({ preventScroll: true });
     } catch (error) {
       showNotice(error.message, true);
+    } finally {
+      if (button) button.disabled = false;
     }
-  });
+  }
+  document.getElementById("pick-folder")?.addEventListener("click", event => { void openFolderPicker(event.currentTarget); });
+  document.getElementById("home-pick-folder")?.addEventListener("click", event => { void openFolderPicker(event.currentTarget); });
   document.getElementById("find-repositories").addEventListener("click", discoverRepositories);
   document.getElementById("import-project").addEventListener("click", () => document.getElementById("import-project-file").click());
   document.getElementById("import-project-file").addEventListener("change", async event => {
@@ -2207,7 +2285,7 @@
       event.target.reset();
       candidates.dataset.discovered = "false";
       candidates.textContent = "폴더를 선택하면 아래의 Git 저장소를 읽기 전용으로 찾습니다.";
-      document.getElementById("register-panel").hidden = true;
+      setRegisterPanelOpen(false);
       registerOpener = null;
       showNotice("프로젝트를 등록했습니다.");
       await refreshAll();
@@ -2262,10 +2340,12 @@
       state.assuranceFilters.provider = document.getElementById("assurance-provider-filter").value;
       state.assuranceFilters.model = document.getElementById("assurance-model-filter").value;
       state.assuranceFilters.project = document.getElementById("assurance-project-filter").value;
+      syncAssuranceRouteState();
       void refreshAssuranceFilter();
     }
     if (event.target.id === "assurance-effect-filter") {
       state.assuranceEffectFilter = event.target.value;
+      syncAssuranceRouteState();
       renderAssuranceDashboard();
     }
   });

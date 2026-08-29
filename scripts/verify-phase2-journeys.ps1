@@ -498,9 +498,76 @@ function Assert-UIContract {
     Assert-Condition ($response.StatusCode -eq 200) "UI shell returns HTTP 200"
     $html = [string]$response.Content
     Assert-Condition (-not $html.Contains("__MUTATION_TOKEN__")) "UI shell replaces the mutation token placeholder"
-    Assert-Condition ($html -match 'class="skip-link"[^>]*href="#main-content"' -and $html -match 'id="main-content"[^>]*tabindex="-1"[^>]*aria-labelledby="view-title"') "UI skip link and programmatic main focus target are labelled"
-    Assert-Condition ($html -match 'id="home-onboarding"' -and $html -match 'id="assurance-refresh"') "UI shell exposes first-use and Assurance controls"
+    Assert-Condition ($html -match 'class="skip-link"[^>]*href="#main-content"' -and $html -match 'id="main-content"[^>]*tabindex="-1"[^>]*aria-label="상태"') "UI skip link and programmatic main focus target use the 상태 label"
+    Assert-Condition (-not $html.Contains('aria-labelledby="view-title"') -and -not $html.Contains('id="view-title"')) "UI shell has no retired duplicated view-title context"
+    Assert-Condition (-not $html.Contains("side-nav")) "UI shell keeps the six-route top navigation without a sidebar"
+    Assert-Condition ($html -match 'class="page-heading"' -and $html -match 'class="section-heading"') "UI shell exposes page and section heading primitives"
+    Assert-Condition ($html -match 'class="decision-strip' -and $html -match 'class="ledger"' -and $html -match 'class="evidence-flow') "UI shell exposes decision, ledger, and evidence-flow structure"
+    Assert-Condition (-not $html.Contains("등록 → 관찰 → 검토 → 실행") -and -not $html.Contains("진행 순서") -and -not $html.Contains("대시보드 보기")) "UI shell removes retired onboarding and Assurance presentation copy"
+    Assert-Condition ($html -match 'id="home-onboarding"' -and $html -match 'id="home-next-action-section"' -and $html -match 'id="assurance-refresh"') "UI shell exposes the v0.12 first-use, next-action, and Assurance controls"
+    Assert-Condition ($html.Contains('/ui/app.css?v=0.12.0') -and $html.Contains('/ui/app.js?v=0.12.0')) "UI shell version-pins release assets to avoid stale browser caches"
     Assert-Condition ($html -match 'id="environment"[^>]*aria-live="polite"' -and $html -match 'id="provider-statuses"[^>]*aria-live="polite"') "UI diagnostic regions announce state changes"
+
+    $navLabels = @{
+        home = "상태"
+        projects = "프로젝트"
+        work = "작업"
+        assurance = "검증"
+        diagnostics = "진단"
+        activity = "활동"
+    }
+    foreach ($route in $navLabels.Keys) {
+        $pattern = '<a\b[^>]*href="#' + [regex]::Escape($route) + '"[^>]*data-route="' + [regex]::Escape($route) + '"[^>]*>' + [regex]::Escape($navLabels[$route]) + '</a>'
+        Assert-Condition ([regex]::IsMatch($html, $pattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase)) ("primary navigation uses the v0.12 label: " + $route)
+    }
+
+    $viewMatches = [regex]::Matches($html, '(?is)<section\b[^>]*\bdata-view="([^"]+)"[^>]*>')
+    Assert-Condition ($viewMatches.Count -eq 6) "UI shell exposes exactly six route views"
+    $seenViews = [System.Collections.Generic.HashSet[string]]::new()
+    for ($index = 0; $index -lt $viewMatches.Count; $index++) {
+        $match = $viewMatches[$index]
+        $route = $match.Groups[1].Value
+        Assert-Condition ($navLabels.ContainsKey($route) -and $seenViews.Add($route)) ("route view is unique and named: " + $route)
+        $end = $html.Length
+        if ($index + 1 -lt $viewMatches.Count) {
+            $end = $viewMatches[$index + 1].Index
+        }
+        else {
+            $mainEnd = $html.IndexOf("</main>", $match.Index, [StringComparison]::OrdinalIgnoreCase)
+            if ($mainEnd -ge 0) {
+                $end = $mainEnd
+            }
+        }
+        $fragment = $html.Substring($match.Index, $end - $match.Index)
+        Assert-Condition ([regex]::Matches($fragment, '(?is)<h1\b').Count -eq 1) ("route view has exactly one h1: " + $route)
+    }
+
+    $cssResponse = Invoke-WebRequest -UseBasicParsing -Uri ("http://$($script:listenAddress)/ui/app.css") -TimeoutSec 10
+    Assert-Condition ($cssResponse.StatusCode -eq 200) "UI stylesheet returns HTTP 200"
+    $css = [string]$cssResponse.Content
+    foreach ($value in @(
+        "@font-face", "Pretendard Variable", "/ui/PretendardVariable.woff2", "font-display: swap",
+        ":focus-visible", "prefers-reduced-motion", "overscroll-behavior: contain", ".ledger-row"
+    )) {
+        Assert-Condition ($css.Contains($value)) ("UI stylesheet keeps the v0.12 contract: " + $value)
+    }
+    Assert-Condition (-not [regex]::IsMatch($css, '(?i)transition\s*:\s*all\b')) "UI stylesheet does not use transition: all"
+
+    $javascriptResponse = Invoke-WebRequest -UseBasicParsing -Uri ("http://$($script:listenAddress)/ui/app.js") -TimeoutSec 10
+    Assert-Condition ($javascriptResponse.StatusCode -eq 200) "UI script returns HTTP 200"
+    $javascript = [string]$javascriptResponse.Content
+    Assert-Condition ($javascript -match 'home\s*:\s*"상태"') "route title handling keeps Home as 상태"
+    Assert-Condition ($javascript.Contains('<caption>') -and $javascript.Contains('<th scope="col">')) "Activity table includes a caption and column-scoped headers"
+    Assert-Condition ($javascript.Contains('id="expected-revision" name="expectedRevision" autocomplete="off"') -and $javascript.Contains('id="handoff-model" name="model" autocomplete="off"')) "dynamic planning inputs have name and autocomplete metadata"
+    Assert-Condition ($javascript.Contains('data-runbook-param="${escapeHTML(parameter)}" data-runbook-id="${escapeHTML(item.id)}" name="${escapeHTML(parameter)}" autocomplete="off"')) "dynamic runbook inputs have name and autocomplete metadata"
+    Assert-Condition ($html.Contains('id="unregister-confirmation" name="confirmation" autocomplete="off"')) "confirmation input has name and autocomplete metadata"
+    Assert-Condition (-not $javascript.Contains('<strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong>')) "Home next action does not repeat the finding summary"
+    Assert-Condition ($javascript.Contains("applyAssuranceRouteState") -and $javascript.Contains("syncAssuranceRouteState")) "Assurance filters persist in the route URL"
+
+    $fontResponse = Invoke-WebRequest -UseBasicParsing -Uri ("http://$($script:listenAddress)/ui/PretendardVariable.woff2") -TimeoutSec 10
+    $fontContentType = [string]$fontResponse.Headers["Content-Type"]
+    Assert-Condition ($fontResponse.StatusCode -eq 200 -and $fontContentType.StartsWith("font/woff2", [StringComparison]::OrdinalIgnoreCase)) "Pretendard asset returns font/woff2"
+    Assert-Condition ($fontResponse.RawContentStream.Length -ge 1024) "Pretendard asset has a meaningful embedded size"
 }
 
 function Assert-CodexNpmRecovery {

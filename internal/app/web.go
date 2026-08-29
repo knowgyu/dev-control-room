@@ -21,6 +21,9 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 	mux.HandleFunc("GET /ui/app.js", func(response http.ResponseWriter, _ *http.Request) {
 		writeUIAsset(response, "text/javascript", uiAppJS)
 	})
+	mux.HandleFunc("GET /ui/PretendardVariable.woff2", func(response http.ResponseWriter, _ *http.Request) {
+		writeUIBinaryAsset(response, "font/woff2", uiPretendardVariable)
+	})
 	mux.HandleFunc("GET /api/health", func(response http.ResponseWriter, request *http.Request) {
 		writeEnvelope(response, http.StatusOK, contract.Success(service.Health(request.Context())))
 	})

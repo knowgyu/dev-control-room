@@ -27,7 +27,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/store"
 )
 
-const version = "0.11.1"
+const version = "0.12.0"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 

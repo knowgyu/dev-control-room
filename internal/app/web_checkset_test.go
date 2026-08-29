@@ -24,14 +24,15 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`<html lang="ko">`, "본문으로 건너뛰기", "홈", "프로젝트", "작업", "진단", "기록",
-		"지금 확인할 항목", "프로젝트별 상태", "최근 실행 결과",
-		"등록 → 관찰 → 검토 → 실행", "진행 순서", "외부 작업과 릴리스", "Jenkins 대상 그룹",
+		`<html lang="ko">`, "본문으로 건너뛰기", "상태", "프로젝트", "작업", "검증", "진단", "활동",
+		"확인할 항목", "프로젝트별 상태", "최근 실행", "검증 근거",
+		"준비 상태", "Jenkins 대상 그룹",
 		"폴더 선택", "저장소 찾기",
-		"발견 및 제안 검토", "Agent Profile 관리",
+		"발견 결과", "Agent Profile",
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
-		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`, `id="home-assurance" class="loading" aria-live="polite"`,
-		`href="/ui/app.css"`, `src="/ui/app.js"`, `meta name="control-room-token"`,
+		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`, `id="home-assurance" class="ledger" aria-live="polite"`,
+		`class="decision-strip home-setup"`, `class="evidence-flow work-flow"`,
+		`href="/ui/app.css?v=0.12.0"`, `src="/ui/app.js?v=0.12.0"`, `meta name="control-room-token"`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI HTML missing %q", value)
@@ -94,19 +95,28 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
 
-	if strings.Contains(html, "page-context") || strings.Contains(html, `id="view-title"`) {
-		t.Error("embedded UI must not keep the duplicated page context or view-title heading")
+	if strings.Count(html, "page-context") > 1 || strings.Contains(html, `id="view-title"`) {
+		t.Error("embedded UI must not duplicate page context or keep the retired view-title heading")
 	}
 	primaryNav := regexp.MustCompile(`(?is)<nav\b[^>]*\bclass="[^"]*\bprimary-nav\b[^"]*"[^>]*>`)
 	if !primaryNav.MatchString(html) {
 		t.Error("embedded UI is missing the primary-nav")
 	}
-	if strings.Contains(html, "side-nav") || strings.Contains(css, "side-nav") {
+	for route, text := range map[string]string{
+		"home": "상태", "projects": "프로젝트", "work": "작업",
+		"assurance": "검증", "diagnostics": "진단", "activity": "활동",
+	} {
+		pattern := regexp.MustCompile(`(?is)<a\b[^>]*href="#` + route + `"[^>]*data-route="` + route + `"[^>]*>` + regexp.QuoteMeta(text) + `</a>`)
+		if !pattern.MatchString(html) {
+			t.Errorf("primary navigation route %q must use label %q", route, text)
+		}
+	}
+	if strings.Contains(strings.ToLower(html+css), "side-nav") || strings.Contains(strings.ToLower(html+css), "sidebar") {
 		t.Error("embedded UI must not keep the retired side-nav")
 	}
 	mainTag := regexp.MustCompile(`(?is)<main\b[^>]*>`).FindString(html)
-	if !strings.Contains(mainTag, `id="main-content"`) || !strings.Contains(mainTag, `aria-label="홈"`) {
-		t.Error("embedded UI main must have the initial home aria-label")
+	if !strings.Contains(mainTag, `id="main-content"`) || !strings.Contains(mainTag, `aria-label="상태"`) {
+		t.Error("embedded UI main must have the initial 상태 aria-label")
 	}
 
 	routes := map[string]bool{
@@ -151,6 +161,12 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 			t.Errorf("embedded UI is missing data-view %q", route)
 		}
 	}
+	if count := strings.Count(html, `class="page-heading`); count != len(routes) {
+		t.Errorf("embedded UI has %d page headings, want %d", count, len(routes))
+	}
+	if !strings.Contains(html, `class="section-heading`) {
+		t.Error("embedded UI must expose a shared section heading contract")
+	}
 
 	for _, value := range []string{
 		`const routeTitles = {`,
@@ -165,6 +181,23 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 	}
 	if strings.Contains(javascript, "view-title") {
 		t.Error("embedded UI route handling must not access view-title")
+	}
+	for _, value := range []string{`class="decision-strip`, `class="ledger`, `class="evidence-flow`, `class="ledger-row`} {
+		if !strings.Contains(html+javascript, value) {
+			t.Errorf("embedded UI v0.12 ledger structure missing %q", value)
+		}
+	}
+	for _, value := range []string{
+		".page-heading", ".section-heading", ".decision-strip", ".ledger", ".ledger-row",
+		"@font-face", `font-family: "Pretendard Variable"`, `url("/ui/PretendardVariable.woff2")`, "font-display: swap",
+		":focus-visible", "prefers-reduced-motion", "overscroll-behavior: contain",
+	} {
+		if !strings.Contains(css, value) {
+			t.Errorf("embedded UI v0.12 presentation contract missing %q", value)
+		}
+	}
+	if regexp.MustCompile(`(?i)transition\s*:\s*all\b`).MatchString(css) {
+		t.Error("embedded UI must not use transition: all")
 	}
 
 	root := regexp.MustCompile(`:root\s*\{`)
@@ -186,9 +219,23 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 			t.Errorf("embedded UI dynamic editor contract missing %q", value)
 		}
 	}
+	for _, value := range []string{
+		`<caption>`, `<th scope="col">`,
+		`id="expected-revision" name="expectedRevision" autocomplete="off"`,
+		`id="handoff-model" name="model" autocomplete="off"`,
+		`data-runbook-param="${escapeHTML(parameter)}" data-runbook-id="${escapeHTML(item.id)}" name="${escapeHTML(parameter)}" autocomplete="off"`,
+		`id="unregister-confirmation" name="confirmation" autocomplete="off"`,
+	} {
+		if !strings.Contains(javascript+html, value) {
+			t.Errorf("embedded UI field/table contract missing %q", value)
+		}
+	}
+	if strings.Contains(javascript, `<strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong>`) {
+		t.Error("Home next action must link to the finding without repeating its summary")
+	}
 }
 
-func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
+func TestEmbeddedUIAssuranceEvidenceLedgerContract(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
@@ -197,19 +244,21 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`data-route="assurance"`, `data-view="assurance" hidden`, "검증 기준과 효과 집계 방식",
-		"Provider와 모델", `id="assurance-provider-filter"`, `id="assurance-model-filter"`,
+		`data-route="assurance"`, `data-view="assurance" hidden`, "검증 기준과 효과 집계",
+		`id="assurance-filter-title"`, `id="assurance-provider-filter"`, `id="assurance-model-filter"`,
 		`id="assurance-runs"`, `id="assurance-invocations"`, `id="assurance-effects"`, `id="assurance-artifacts"`,
-		"대시보드 보기", "원문 미수집", "보관 상태",
+		"효과 근거", "근거 보관", "원문은 수집하지 않음", "보관 용량",
+		`class="filter-bar"`, `class="assurance-ledger"`, `class="assurance-records"`,
 	} {
 		if !strings.Contains(html, value) {
-			t.Errorf("embedded Assurance dashboard HTML missing %q", value)
+			t.Errorf("embedded Assurance evidence-ledger HTML missing %q", value)
 		}
 	}
 
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
 	for _, value := range []string{
 		"assuranceDashboardPath", "renderAssuranceDashboard", "renderAssuranceBenefits", "refreshAssuranceFilter",
+		"applyAssuranceRouteState", "syncAssuranceRouteState", `history.replaceState(null, "", serialized ? `,
 		"/api/assurance/dashboard", "/api/assurance/runs", "/api/assurance/invocations",
 		"/api/assurance/artifacts", "/api/assurance/effects", "assurance-provider-filter", "assurance-model-filter",
 		"Agent 실행", "효과 기록", "재실행", "근거 연결", "비용 경계", "회귀 방지", "예상 시간 절감", "time_saved_estimated", "근거 흐름",
@@ -219,7 +268,7 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 		"invocation-retry", "data-assurance-retry", "/retry", "원래 prompt는 저장하지 않습니다.", "중단 실행을 재시도했습니다.",
 	} {
 		if !strings.Contains(javascript, value) {
-			t.Errorf("embedded Assurance dashboard JavaScript missing %q", value)
+			t.Errorf("embedded Assurance evidence-ledger JavaScript missing %q", value)
 		}
 	}
 	if strings.Contains(javascript, "JSON.stringify(spec.structured)") || strings.Contains(javascript, "spec.transcript") {
@@ -227,9 +276,9 @@ func TestEmbeddedUIAssuranceDashboardContract(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".assurance-hero", ".assurance-benefits", ".assurance-filters", ".assurance-metrics", ".assurance-record", ".home-assurance-proof"} {
+	for _, value := range []string{".filter-bar", ".assurance-ledger", ".assurance-records", ".assurance-record", ".trace-inspector", ".artifact-storage"} {
 		if !strings.Contains(css, value) {
-			t.Errorf("embedded Assurance dashboard CSS missing %q", value)
+			t.Errorf("embedded Assurance evidence-ledger CSS missing %q", value)
 		}
 	}
 }
@@ -251,8 +300,8 @@ func TestEmbeddedUIKeyboardRouteFocusContract(t *testing.T) {
 		}
 	}
 	mainTag := regexp.MustCompile(`(?is)<main\b[^>]*>`).FindString(html)
-	if !strings.Contains(mainTag, `id="main-content"`) || !strings.Contains(mainTag, `aria-label="홈"`) {
-		t.Error("embedded UI main must retain the initial home aria-label")
+	if !strings.Contains(mainTag, `id="main-content"`) || !strings.Contains(mainTag, `aria-label="상태"`) {
+		t.Error("embedded UI main must retain the initial 상태 aria-label")
 	}
 
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
@@ -315,9 +364,10 @@ func TestEmbeddedUIProviderCapabilityGroupingContract(t *testing.T) {
 
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`<div id="environment" class="loading" aria-live="polite">`,
-		"선택 Provider는 필요할 때만 설정합니다. 미설정 상태는 전체 환경 경고가 아닙니다.",
-		`<div id="provider-statuses" class="loading" tabindex="-1" aria-live="polite">`,
+		`<h2 id="environment-title">필수 환경</h2>`,
+		`<div id="environment" class="ledger" aria-live="polite">`,
+		"미설정은 필요할 때 설정합니다.",
+		`<div id="provider-statuses" class="ledger" tabindex="-1" aria-live="polite">`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI provider grouping HTML missing %q", value)
@@ -332,7 +382,7 @@ func TestEmbeddedUIProviderCapabilityGroupingContract(t *testing.T) {
 		`detected: "실행 확인 필요"`,
 		`unavailable: "사용할 수 없음"`,
 		"const providerSummary = state =>",
-		"Provider 상태는 아래 카드에서 한 번에 확인합니다.",
+		"Provider 상태는 아래 행에서 한 번에 확인합니다.",
 		"new Map((state.providerStatuses || []).map",
 		"data-provider-capability=",
 		"진단 세부 정보",
@@ -367,7 +417,7 @@ func TestEmbeddedUIFirstUseAndFindingTargetContract(t *testing.T) {
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
 		`id="home-onboarding"`, `id="home-metrics"`, `id="home-providers"`, `id="home-assurance"`,
-		`data-home-established-only hidden`, "진행 순서", "프로젝트 등록",
+		`data-home-established-only hidden`, `id="home-next-action-section"`, "준비 상태", "프로젝트 등록",
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI first-use HTML missing %q", value)
@@ -377,8 +427,8 @@ func TestEmbeddedUIFirstUseAndFindingTargetContract(t *testing.T) {
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
 	for _, value := range []string{
 		`document.querySelectorAll("[data-home-established-only]")`,
-		"function findingRoute(item)",
-		"new URLSearchParams({ finding: findingID })",
+		`const [path, query = ""] = location.hash.slice(1).split("?", 2);`,
+		`findingID = new URLSearchParams(query).get("finding") || "";`,
 		"data-finding-id=",
 		"pendingFindingID",
 		"visibleFindings.map(item => findingCard(item))",
@@ -399,10 +449,39 @@ func TestEmbeddedUIFirstUseAndFindingTargetContract(t *testing.T) {
 	}
 }
 
-func embeddedUIAsset(t *testing.T, service *App, path, contentType string) string {
+func TestEmbeddedUIPretendardFontAssetContract(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	recorder := embeddedUIResponse(t, service, "/ui/PretendardVariable.woff2")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /ui/PretendardVariable.woff2 = %d", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "font/woff2" {
+		t.Fatalf("font Content-Type = %q, want font/woff2", got)
+	}
+	body := recorder.Body.Bytes()
+	if len(body) < 1024 {
+		t.Fatalf("font asset is only %d bytes; expected a meaningful embedded WOFF2 asset", len(body))
+	}
+	if len(body) < 4 || !bytes.Equal(body[:4], []byte("wOF2")) {
+		t.Fatalf("font asset does not have the WOFF2 signature")
+	}
+}
+
+func embeddedUIResponse(t *testing.T, service *App, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	recorder := httptest.NewRecorder()
 	service.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	return recorder
+}
+
+func embeddedUIAsset(t *testing.T, service *App, path, contentType string) string {
+	t.Helper()
+	recorder := embeddedUIResponse(t, service, path)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("GET %s = %d", path, recorder.Code)
 	}

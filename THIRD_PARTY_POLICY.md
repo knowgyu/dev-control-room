@@ -10,6 +10,7 @@ dependency surface must remain small and auditable.
 - BSD-2-Clause
 - BSD-3-Clause
 - Apache-2.0 after explicit review
+- SIL Open Font License 1.1 for reviewed, locally bundled font assets
 - Public-domain components such as SQLite
 
 ## Not allowed by default
@@ -24,6 +25,24 @@ Every added dependency must record its purpose, exact version, license, network
 behavior, and replacement/removal path in this file before merge.
 
 The pre-Milestone-0 prototype used only the Go standard library and browser APIs.
+
+## v0.12 reviewed font asset
+
+### Pretendard Variable `v1.3.9`
+
+- Purpose: consistent Korean UI typography in the embedded loopback interface,
+  independent of fonts installed on the operator's Windows machine.
+- Exact asset: `internal/app/ui/PretendardVariable.woff2`, upstream release tag
+  `v1.3.9`, SHA-256
+  `9599F12FD42FC0BCE1CD50B47A0C022E108D7AA64DD0D1BB0ED44F3282D900B4`.
+- Source: https://github.com/orioncactus/pretendard/tree/v1.3.9
+- License: SIL Open Font License 1.1. The unmodified upstream notice and license
+  are retained in `licenses/Pretendard-OFL-1.1.txt`; Pretendard is a Reserved
+  Font Name.
+- Network behavior: none at runtime. The WOFF2 file is compiled into the Go
+  binary and served only by the existing loopback HTTP server.
+- Removal path: remove the embedded asset and `/ui/PretendardVariable.woff2`
+  handler, then restore the documented Windows system-font fallback stack.
 
 ## Milestone 0 reviewed dependency
 

@@ -1,204 +1,243 @@
 # Dev Control Room design system
 
 Status: active
+Target: v0.12
 Refreshed: 2026-08-30
 
-This document is the source of truth for the embedded loopback UI. It describes
-the small visual and interaction system implemented in
-`internal/app/ui/index.html` and `internal/app/ui/app.css`. It does not create a
-runtime dependency or require a frontend framework.
+This is the source of truth for the embedded loopback UI. The research and
+product reasoning behind this contract is preserved in
+`docs/AI_GENERATED_UI_RESEARCH_2026-08-30.md`. Changes must satisfy both files.
+The system is implemented in plain embedded HTML, CSS, and JavaScript; it is not
+a package or a frontend framework.
 
 ## Product job
 
-Dev Control Room is a Windows local-first control room for one developer. Every
-screen should make the following order clear:
+Dev Control Room is a **local repository operational ledger** for one developer
+on Windows. It helps the operator answer, in order:
 
-1. current state;
-2. consequence or evidence quality;
-3. the next safe action.
+1. what changed or needs attention;
+2. what evidence supports that observation;
+3. what safe action is available and whether approval is required.
 
-The UI is an operational surface, not a chat, raw-log viewer, marketing
-dashboard, or replacement for an IDE, GitHub, Jenkins, or a deployment tool.
+The signature sequence is:
+
+```text
+관찰 -> 근거 -> 승인
+```
+
+It is expressed through ordered rows and linked evidence, not through a slogan,
+illustration, or accent color. The UI is not a chat, marketing dashboard,
+generic admin template, raw-log viewer, IDE, or deployment console.
 
 ## Information architecture
 
 The shell uses one compact top navigation with six routes. A persistent sidebar
-is intentionally not part of the product shape.
+would duplicate a shallow route hierarchy, so it is not part of the product.
 
 | Route | Visible page `h1` | Main job |
 | --- | --- | --- |
-| `home` | 첫 프로젝트 등록 / 오늘의 개발 상태 | first-use registration or the current project state and one useful next action |
-| `projects` | 프로젝트 | registered scope, repositories, and Worktrees |
-| `work` | 작업 | discovery, reviewed checks, and approved Actions |
-| `assurance` | 검증 | repeatability, effects, usage, and linked evidence |
-| `diagnostics` | 진단 | environment and optional execution capabilities |
-| `activity` | 활동 기록 | immutable operational history |
+| `home` | 첫 저장소 연결 / 오늘의 상태 | one first-use action or an exception-first operating summary |
+| `projects` | 프로젝트 | registered scope, repositories, and Worktrees as inventory |
+| `work` | 작업 | observations, evidence, plans, approvals, and Actions |
+| `assurance` | 검증 | repeatability, effect, usage, and linked evidence |
+| `diagnostics` | 진단 | required environment and optional execution capability |
+| `activity` | 활동 기록 | chronological operational history |
 
-The navigation markup uses `.primary-nav`. The old `.side-nav` and global
-`.page-context` patterns are retired. Each route owns its single visible `h1`;
-section headings use `h2` and detail headings use `h3`. `main` keeps
-`id="main-content"` and `tabindex="-1"`, starts with `aria-label="홈"`, and the
-route adapter updates that label when the hash route changes.
+The visible label for `home` is `상태`, which describes its job more clearly.
+Each route owns one visible `h1`. The page name is not repeated as an eyebrow,
+panel title, or promotional sentence. `main` keeps `id="main-content"` and
+`tabindex="-1"`; the route adapter updates its accessible label and moves focus
+after hash navigation.
+
+## Page composition
+
+The default page is flat. Spacing and rules establish hierarchy before a box is
+introduced.
+
+```text
+compact top bar  [brand] [routes]                    [local state] [action]
+────────────────────────────────────────────────────────────────────────────
+page title                                      optional route-level action
+one useful context line
+
+section title                                                   small action
+────────────────────────────────────────────────────────────────────────────
+status / subject             evidence or consequence              next action
+status / subject             evidence or consequence              next action
+```
+
+A bordered surface is justified only when it contains editable controls or an
+operation lifecycle, isolates an error/approval/safety consequence, or is a
+native disclosure/dialog or selected detail inspector. Do not nest boxes around
+a heading, list, and every row. Do not add a box merely to fill whitespace.
+
+### Home states
+
+First use contains one heading, one short reason, one `폴더 선택` action, and a
+compact readiness line. It has no onboarding hero, numbered tutorial strip, or
+duplicate bottom call to action.
+
+Established use opens with exceptions and the next safe action. Healthy counts
+are compressed into a single summary line. Recent execution and assurance
+evidence follow as ledger rows. Setup guidance is linked, not permanently
+expanded.
+
+### Route rules
+
+- Projects uses a list/detail inventory. Repository and Worktree state are rows,
+  not an equal-card gallery.
+- Work orders content by the operator's decision path: observation, evidence,
+  plan, approval, execution. Approval-required state stays visible.
+- Assurance uses one compact filter bar and comparable evidence rows. Unknown
+  measurement is never displayed as zero.
+- Diagnostics separates required local capability from optional Providers.
+  Optional absence is neutral. Advanced setup and cleanup remain disclosures.
+- Activity is a chronological ledger with subject, outcome, time, and expandable
+  evidence. Wide machine values may scroll inside their own region.
 
 ## Visual direction
 
-The visual language is a quiet operations desk: restrained, readable, and
-evidence-led. Borders and spacing establish hierarchy; decoration must not
-compete with state or action.
+The visual language is a maintained field notebook: warm neutral canvas,
+paper-like surfaces, dense but breathable rows, strong type, and precise rules.
+The deliberate risk is reducing decorative containers enough that the product
+reads more like an instrument than a dashboard.
+
+There are no gradients, glass effects, oversized radius, decorative background
+shapes, emoji icons, floating blobs, or large shadows. A state rail is used only
+where the state changes the operator's decision.
 
 ### Tokens
 
-`internal/app/ui/app.css` has exactly one `:root` token block. Components use
-these semantic tokens rather than introducing local hex values for routine
-states.
+`internal/app/ui/app.css` has exactly one `:root` block. Routine components use
+semantic tokens; literal colors outside that block require a documented reason.
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--canvas` | `#F4F6F6` | page background |
-| `--surface` | `#FFFFFF` | panels and controls |
-| `--surface-muted` | `#F7F9F9` | secondary evidence surfaces |
-| `--ink` | `#202B2F` | primary text |
-| `--muted` | `#687579` | supporting text and metadata |
-| `--rule` | `#D7E0E0` | borders and dividers |
-| `--accent` | `#146C70` | navigation, primary actions, and evidence rail |
-| `--accent-soft` | `#E5F1F0` | selected and hover surfaces |
-| `--success` / `--success-soft` | `#2D6B52` / `#E8F3ED` | successful or ready state |
-| `--warning` / `--warning-soft` | `#8A5B24` / `#FBF1E3` | attention or approval state |
-| `--danger` / `--danger-soft` | `#A3424B` / `#F9E9EB` | blocked, failed, or destructive state |
-| `--neutral` / `--neutral-soft` / `--neutral-rule` | `#687579` / `#EDF1F1` / `#B9C8CA` | unavailable or not-yet-measured state |
+| `--canvas` | `#F5F4F0` | warm application background |
+| `--surface` | `#FFFFFF` | forms, dialogs, and focused detail |
+| `--surface-muted` | `#ECEBE6` | selected rows and quiet grouped evidence |
+| `--ink` | `#1F2628` | primary text |
+| `--muted` | `#687173` | supporting text and metadata |
+| `--rule` | `#D5D5CE` | section and row dividers |
+| `--rule-strong` | `#AEB4B2` | selected/focused structural edge |
+| `--accent` | `#285F58` | primary action and current route |
+| `--accent-soft` | `#E1ECE8` | selected or hover surface |
+| `--success` / `--success-soft` | `#2F6A4F` / `#E5F0E9` | ready/completed |
+| `--warning` / `--warning-soft` | `#865B24` / `#F6ECD9` | attention/approval |
+| `--danger` / `--danger-soft` | `#9B4149` / `#F5E5E6` | blocked/failed/destructive |
+| `--neutral` / `--neutral-soft` | `#687173` / `#E9ECEB` | absent/not measured |
 
-The only signature accent is a 3px status/evidence rail on the left or top of
-the object it qualifies. Status always includes text; color is never the only
-carrier of meaning. There are no gradients, decorative background shapes, or
-large panel shadows. Pills are limited to compact status chips.
+State always includes readable text. Color is never the sole carrier.
 
 ### Typography
 
-The UI font stack is:
+The bundled UI face is:
 
 ```text
-"Pretendard Variable", Pretendard, "Segoe UI Variable", "Segoe UI", "Malgun Gothic", sans-serif
+"Pretendard Variable", Pretendard, "Segoe UI Variable", "Segoe UI",
+"Malgun Gothic", sans-serif
 ```
 
-Paths, IDs, commands, hashes, and other machine-oriented values use
-`"Cascadia Mono", "Consolas", monospace`.
+`PretendardVariable.woff2` v1.3.9 is embedded in the executable and served from
+the loopback origin with `font-display: swap`; the exact asset and license are
+recorded in `THIRD_PARTY_POLICY.md`. No font is requested from a CDN.
 
-Korean headings use near-normal letter spacing, `text-wrap: pretty`, and
-`word-break: keep-all`. Counts and comparison values use tabular numerals.
+Paths, IDs, commands, hashes, and machine values use `"Cascadia Mono",
+"Cascadia Code", Consolas, monospace`. Google Sans Text/Flex is not used because
+mixed Hangul fallback would undermine metric consistency. A second bundled code
+font is YAGNI until machine-value scanning shows a concrete problem.
 
-Pretendard is deliberately not bundled, loaded from a CDN, or added as a
-dependency in this release. It is therefore preferred only when it is already
-installed on the Windows machine. The fallback stack is the compatibility
-contract, and Korean glyph metrics can vary slightly between machines where
-Pretendard is absent. A future bundled-font change would require a separate
-asset/license review and is not implied by this UI slice.
+Korean headings use near-normal letter spacing, `text-wrap: balance` or
+`pretty`, and `word-break: keep-all`. Body text remains left aligned. Counts and
+comparison values use tabular numerals.
 
-## Component contract
+## Shared presentation contracts
 
-These are the only shared primitives. They are CSS/HTML conventions, not a
-new component framework.
+These conventions are the complete shared system:
 
-- `AppShell`: `.app-shell`, `.workspace`, and the sticky top bar.
-- `PrimaryNav`: `.primary-nav`, with an `aria-current="page"` link and a 3px
-  active rail.
-- `PageHeader`: `.page-heading` or the home `.hero`; exactly one visible `h1`.
-- `Panel`: `.panel`, a bordered surface for one coherent task or evidence set.
-- `Button`: `.button`, with `primary`, `danger`, and `small` variants.
-- `StatusChip`: `.chip`, with `ok`, `warn`, `bad`, or neutral `unknown`
-  variants. It always has a readable label. Missing evidence is neutral, not a
-  failure state.
-- `Metric`: `.metric-card` and the existing metric collections; only use a
-  metric when it informs a decision or action.
-- `ActionGroup`: `.item-actions` and `.toolbar`, grouping controls next to the
-  object they change.
-- `Disclosure`: native `details/summary` with `.disclosure`; advanced evidence
-  and settings start closed unless the user explicitly opens them.
-- `EmptyState`: `.empty-state`, explaining what is absent and the next useful
-  action.
-- `ErrorState`: `.surface-error` or a state-marked result, with a safe message
-  and retry/recovery action.
-- `Dialog`: native `dialog` with labelled description, safety copy, and actions.
+- `AppShell`: `.app-shell`, `.workspace`, `.topbar`, and `.primary-nav`.
+- `PageHeader`: `.page-heading`; one `h1`, one optional context line, and one
+  optional route-level action group.
+- `SectionHeader`: `.section-heading`; one `h2` plus an optional adjacent action.
+- `Ledger`: `.ledger`; a collection of comparable operational records.
+- `LedgerRow`: `.ledger-row`; state/subject, evidence/consequence, and an
+  adjacent action. It may use a semantic state rail.
+- `EvidenceFlow`: `.evidence-flow`; an ordered `관찰`, `근거`, `승인` sequence
+  only when those three phases are present in the data.
+- `Button`: `.button` with primary, danger, quiet, and small variants.
+- `StateText`: `.state-text` for routine status. It includes text and may include
+  a small dot or rail.
+- `StatusChip`: `.chip` only when a compact state label must remain scannable in
+  a dense row. It is not decoration or section metadata.
+- `ActionGroup`: `.item-actions` or `.toolbar`, adjacent to the object changed.
+- `Disclosure`: native `details/summary` for advanced evidence and settings.
+- `FormSurface`: `.form-surface` or the retained `.panel` for editable controls
+  with a clear ownership boundary.
+- `EmptyState`, `ErrorState`, and `Dialog`: intentional state surfaces with a
+  cause and safe recovery action.
 
-Existing feature classes such as `.finding`, `.repository-card`,
-`.assurance-record`, `.trace-node`, and `.command-output` are compositions of
-these primitives. They are not additional framework components and should not
-gain independent token systems.
+Feature classes such as `.finding`, `.repository-card`, `.assurance-record`,
+`.trace-node`, and `.command-output` compose these contracts. They do not gain
+independent token systems. A shared primitive is justified only when the same
+interaction exists in at least two independent routes.
 
-## Progressive disclosure
+## Copy and progressive disclosure
 
-The first viewport prioritizes state, consequence, and action. Revision IDs,
-digests, exact argv, artifact manifests, pricing basis, raw diagnostics, and
-other evidence details belong in native `details` or a focused secondary view.
+Use concise Korean nouns for labels and short `합니다` sentences only for a
+cause, consequence, or recovery step. Keep exact terms such as Worktree,
+Provider, Action, artifact, and HEAD when translation would reduce precision.
+Do not use an eyebrow to restate the following heading. Do not label routine
+sections with marketing phrases such as “한눈에”, “스마트”, or “강력한”.
 
-The Assurance route starts with its page header and scope filters. Its former
-explanatory hero is a compact, closed `.disclosure` so the useful evidence is
-visible without promotional copy. The Diagnostics route keeps environment,
-Provider, and guidance status visible. Agent Profiles, integrations, Jenkins
-groups, and runbooks are grouped under one closed `실행 설정` disclosure;
-cleanup and safeguards are grouped under one closed `안전 검토` disclosure.
+The first viewport shows state, consequence, and action. Revision IDs, digests,
+exact argv, artifact manifests, pricing basis, raw diagnostics, and historical
+detail belong in native disclosure or a focused inspector. A blocking state or
+required approval is never hidden.
 
-Do not hide a blocking state or a required approval inside disclosure. Put the
-decision and its safe next action in the open surface, then expose supporting
-evidence below it.
+Every data surface owns loading, empty, partial-failure, approval-required, and
+completed behavior. Error copy exposes a safe reason and recovery step, never
+raw credentials, provider transcripts, or unmasked sensitive paths.
 
 ## Accessibility and responsive behavior
 
 - Keep the skip link as the first keyboard target.
-- Use native links for navigation, buttons for actions, labels for controls,
-  and native `details`/`dialog` before adding ARIA.
-- Preserve visible `:focus-visible` treatment and use `aria-live="polite"` for
-  async status areas.
-- Keep controls touchable, with at least the practical 40px control height.
-- Use text plus semantic state color for success, attention, failure, and
-  blocked conditions.
-- Keep long paths and identifiers breakable; wide activity tables scroll
-  horizontally instead of forcing the page wider.
-- Respect `prefers-reduced-motion`; the route transition is optional and has a
-  reduced variant.
-- At `980px`, navigation may wrap into a second row and dense grids simplify.
-  At `720px`, grids become one column, controls stack, and the top navigation
-  remains horizontally scrollable. No action depends on hover.
-
-## Copy and state rules
-
-Use concise Korean noun phrases for labels and status. Use a short `합니다`
-sentence only when it explains a cause, consequence, or recovery step. Keep
-established technical terms such as Worktree, Provider, Action, artifact, and
-HEAD when translating them would reduce precision.
-
-Every data surface needs intentional loading, empty, partial-failure,
-blocked/approval-required, and completed states. Optional Providers that are
-not configured are not global environment failures. Error copy exposes a safe
-reason and next action, never raw paths, SQL, credentials, or provider
-transcripts.
+- Use links for navigation, buttons for actions, labels for controls, and native
+  disclosure/dialog before ARIA.
+- Preserve visible `:focus-visible`; async status uses `aria-live="polite"`.
+- Controls have a practical minimum 40px height and no action depends on hover.
+- Long paths and IDs break safely; wide ledgers scroll within their region.
+- Respect `prefers-reduced-motion`; do not use `transition: all`.
+- Activity tables use a caption and column-scoped headers.
+- At `980px`, dense three-column rows simplify and navigation may wrap.
+- At `720px`, ledger columns become one vertical reading order, actions remain
+  adjacent to their subject, and navigation scrolls horizontally.
 
 ## SOLID/YAGNI boundary
 
-The embedded UI intentionally remains plain HTML/CSS/JavaScript served from Go
-`embed`. Do not add React, Tailwind, Storybook, a design-system package, a
-bundler, or a generic component runtime for this product’s six-route local
-surface.
+The browser adapter stays thin over the application service. Domain/API policy,
+masking, Worktree trust, and Action Broker rules do not move into presentation
+helpers. Render helpers may share escaping, formatting, state language, ledger
+rows, and intentional async states; they must not become a generic renderer that
+hides domain evidence.
 
-Keep domain/API policy in the application service and keep the browser adapter
-thin. Share only stable presentation contracts: route metadata, state chips,
-loading/error/empty states, panels, actions, disclosures, and dialogs. A new
-shared primitive is justified only after the same interaction appears in at
-least two independent surfaces. One-off diagnostic or provider markup should
-remain local to that feature.
+Do not add React, Tailwind, Storybook, a bundler, a design-system package, a
+client state library, or a generic component runtime for this six-route local
+surface. Do not split `app.js` into modules or abstract every template without a
+repeated contract, concrete bug, or measurable maintenance gain.
 
-Do not rewrite `app.js` into modules or abstract every `innerHTML` template
-without a concrete bug, repeated contract, or measurable maintenance win. Do
-not make a generic renderer swallow domain-specific evidence. When a feature
-changes, preserve DOM IDs, API calls, masking, Worktree trust, and Action
-Broker boundaries, then add the smallest focused contract needed to protect
-the change.
+When a feature changes, preserve DOM IDs, API calls, masking, route state,
+Worktree trust, and Action Broker boundaries. Add the smallest contract and test
+that protect observable behavior.
 
-## Implementation constraints
+## AI-assisted change gate
 
-- Plain HTML, CSS, and browser JavaScript; one embedded document and the
-  existing static assets.
-- No CDN, new package, telemetry, hosted service, or font download at runtime.
-- One CSS token root, one coherent component source, and two responsive layout
-  breakpoints plus the reduced-motion rule.
-- Visual changes must not change product behavior, API routes, security
-  boundaries, or release targets.
+For every material UI change:
+
+1. identify the operator's decision and the repeated UI being removed;
+2. implement one scoped design-contract change;
+3. inspect the code diff for token/copy/component drift;
+4. inspect real loading, empty, populated, error, and approval states;
+5. inspect desktop and narrow widths plus keyboard focus and console output;
+6. run the static UI checkset and proportional repository verification.
+
+Do not accept a result merely because its first screenshot looks polished.

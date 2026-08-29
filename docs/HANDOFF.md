@@ -2,6 +2,20 @@
 
 Updated: 2026-08-30
 
+## 2026-08-30 v0.12.0 repository operations ledger
+
+The active minor-release work replaces the generic card-dashboard hierarchy
+with a smaller repository operations ledger. The product-specific sequence is
+`관찰 → 근거 → 승인`; Home is labelled `상태`, the six-route top navigation is
+retained, and a persistent sidebar is intentionally not introduced.
+
+The recent research, quantitative pre-change audit, adopted route rules, and
+future AI-assisted change gate are preserved in
+[AI_GENERATED_UI_RESEARCH_2026-08-30.md](AI_GENERATED_UI_RESEARCH_2026-08-30.md)
+and `../DESIGN.md`. Pretendard Variable 1.3.9 is reviewed under OFL 1.1 and is
+embedded locally without a CDN request. The release continues to publish only a
+Windows amd64 ZIP; arm64 stays verification-only and Linux stays CI-only.
+
 ## 2026-08-30 v0.11.1 amd64 Windows patch release
 
 The patch release carries the v0.11.0 native process-boundary work under
