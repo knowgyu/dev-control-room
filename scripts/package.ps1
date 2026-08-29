@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "0.11.0",
+    [string]$Version = "0.11.1",
     [string]$OutputDirectory
 )
 
@@ -31,7 +31,7 @@ $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) ("dev-control-room-package-"
 
 try {
     New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
-    foreach ($architecture in @("amd64", "arm64")) {
+    foreach ($architecture in @("amd64")) {
         $name = "dev-control-room_${Version}_windows_${architecture}"
         $stage = Join-Path $stagingRoot $name
         New-Item -ItemType Directory -Path $stage -Force | Out-Null

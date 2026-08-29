@@ -1,6 +1,19 @@
 # Current state and implementation handoff
 
-Updated: 2026-08-28
+Updated: 2026-08-30
+
+## 2026-08-30 v0.11.1 amd64 Windows patch release
+
+The patch release carries the v0.11.0 native process-boundary work under
+binary version `0.11.1`. Portable release packaging now produces only the
+Windows amd64 ZIP; arm64 remains a verification-only cross-build and Linux
+remains a CI test environment, not a release artifact.
+
+The native full gate, Phase 2 journey, package smoke, and local browser smoke
+were rerun for this release candidate. The exact source commit, tool versions,
+package hash, and command results are recorded in
+[VERIFICATION_v0.11.1.md](VERIFICATION_v0.11.1.md) and the attached generated
+verification summary.
 
 ## 2026-08-27 AI 작업 harness
 
@@ -345,7 +358,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 
 Current contract versions:
 
-- binary version: `0.11.0`;
+- binary version: `0.11.1`;
 - API objects: `devroom/v1alpha1`;
 - CLI/HTTP envelope: `devroom/cli/v1`;
 - local config: version 3;

@@ -1,4 +1,4 @@
-# Dev Control Room 0.11.0
+# Dev Control Room 0.11.1
 
 Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만 관찰하고,
 근거가 있는 점검과 Action을 계획·승인·실행합니다. 서비스는 loopback에만
@@ -44,16 +44,16 @@ Start-Process http://127.0.0.1:38471
 
 ## 패키지 만들기
 
-PowerShell 7.6과 Go가 설치된 Windows에서 다음 명령이 amd64/arm64 portable
+PowerShell 7.6과 Go가 설치된 Windows에서 다음 명령이 Windows amd64 portable
 ZIP과 SHA-256 목록을 만듭니다. 실제 Jenkins, production, Scheduler, 삭제
 작업은 패키징에 포함되지 않습니다.
 
 ```powershell
-pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.11.0
+pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.11.1
 ```
 
-이 명령은 `docs/RELEASE_NOTES_v0.11.0.md`와
-`docs/VERIFICATION_v0.11.0.md`가 모두 있을 때 패키지를 만듭니다.
+이 명령은 `docs/RELEASE_NOTES_v0.11.1.md`와
+`docs/VERIFICATION_v0.11.1.md`가 모두 있을 때 패키지를 만듭니다.
 
 검증까지 포함한 후보 확인은 다음 명령을 먼저 실행합니다.
 
@@ -61,7 +61,7 @@ pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.11.0
 pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 ```
 
-## 0.11.0 범위와 경계
+## 0.11.1 범위와 경계
 
 - 중단된 Agent 실행은 검증 대시보드에서 새 prompt를 입력해 명시적으로
   재시도할 수 있습니다. 원본 prompt는 저장하지 않으며, 새 실행은 원본
@@ -110,7 +110,7 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
   승인이 필요합니다.
 - `FallbackRunbookID`는 참조만 저장하며 자동으로 PowerShell을 이어 실행하지
   않습니다. 이어 실행은 별도 계약과 승인이 필요합니다.
-- 0.11.0의 확인 범위는 자동화, native Windows process acceptance, 로컬
+- 0.11.1의 확인 범위는 자동화, native Windows process acceptance, 로컬
   Windows Browser 관찰, disposable local Git fixture의 실제 Codex invocation입니다.
   회사 Jenkins/GitHub/Kubernetes,
   proxy, production, second-device, full Tab/Space, native dialog Esc driver
@@ -120,6 +120,10 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 
 - [현재 상태와 handoff](docs/HANDOFF.md)
 - [효과 대시보드와 trace 계약](docs/ASSURANCE_EFFECT_DASHBOARD.md)
+- [v0.11.1 검증 기록](docs/VERIFICATION_v0.11.1.md)
+- [v0.11.1 릴리즈 노트](docs/RELEASE_NOTES_v0.11.1.md)
+- [v0.11.0 검증 기록](docs/VERIFICATION_v0.11.0.md)
+- [v0.11.0 릴리즈 노트](docs/RELEASE_NOTES_v0.11.0.md)
 - [v0.11.0 검증 기록](docs/VERIFICATION_v0.11.0.md)
 - [v0.11.0 릴리즈 노트](docs/RELEASE_NOTES_v0.11.0.md)
 - [v0.10.3 검증 기록](docs/VERIFICATION_v0.10.3.md)
