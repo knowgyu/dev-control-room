@@ -1,6 +1,6 @@
 # v0.15.0 verification record
 
-Status: release candidate; final source gate and publication are pending.
+Status: PASS for the final source candidate; publication is pending.
 Date: 2026-08-31
 
 ## Scope
@@ -16,8 +16,7 @@ only; arm64 and Linux are not release targets.
 
 ## Pre-gate checks
 
-The following focused checks passed on the working tree before the release
-candidate commit:
+The following focused checks passed before the release candidate commit:
 
 - `node --check internal/app/ui/app.js`
 - `go test -count=1 ./internal/app -run 'TestEmbeddedUI'`
@@ -29,8 +28,29 @@ candidate commit:
 
 ## Final source gates
 
-The exact candidate commit, full verifier output, native resilience assertions,
-and Phase 2 journey count will be recorded here after the release gates run.
+The final source candidate is commit
+`c70074c13c486b68f62c451665e9f73fb1a03402` (`docs: ship concrete usage guide
+in v0.15.0`). The native Windows checkout passed:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full -ArtifactDirectory artifacts\verification-v0.15.0-final
+pwsh -NoProfile -File .\scripts\verify-native-resilience.ps1
+pwsh -NoProfile -File .\scripts\verify-phase2-journeys.ps1
+```
+
+The Full gate passed formatting, `go test -count=1 ./...`, JavaScript syntax,
+`go test -count=1 -race ./...`, `go vet ./...`, module verification, normal
+builds, Windows amd64 and arm64 cross-builds, and `git diff --check`. The
+generated summary is `artifacts/verification-v0.15.0-final/verification-summary.json`;
+it records Go 1.26.7, Node 24.15.0, PowerShell 7.6.4, and a 255.939-second
+regular test run plus a 301.934-second race test run.
+
+The native Windows resilience gate passed 15 assertions covering closed stdin,
+timeout/cancellation process-tree cleanup, restart recovery, and bounded retry
+behavior. The Phase 2 local journey gate passed 373 assertions covering first
+use, loopback HTTP, repository registration, provider recovery and invocation,
+quality evidence, mutation availability boundaries, approval blocking,
+persistence after restart, secret masking, and the embedded UI contracts.
 
 ## Publication
 
