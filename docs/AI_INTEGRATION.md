@@ -1,7 +1,7 @@
 # AI and agent integration
 
 Status: active foundation; partially superseded
-Updated: 2026-08-26
+Updated: 2026-08-30
 
 This document remains canonical for existing Agent Profiles, interactive Agent
 Handoff, and the stdio MCP boundary. Managed non-interactive quality sessions,
@@ -78,10 +78,16 @@ cover:
 - findings and evidence;
 - cleanup candidate inspection;
 - bounded Guidance Doctor checks;
-- masked Agent Handoff preparation.
+- masked Agent Handoff preparation;
+- Jenkins plan creation, approved-plan triggering, and latest-build metadata.
 
-Checkset and Action tools remain CLI/HTTP surfaces until their MCP contracts
-need to be exposed; no MCP tool can approve or execute an Action.
+The Jenkins tools are intentionally narrow. `jenkins.plan` creates a reviewable
+plan without contacting Jenkins. `jenkins.trigger` can only pass an existing
+plan through the same Action broker used by the UI; the MCP client cannot create
+or bypass human approval. `jenkins.latest` is read-only metadata lookup.
+
+Checkset and other Action tools remain CLI/HTTP surfaces until their MCP
+contracts need to be exposed. No MCP tool can approve its own high-risk action.
 
 There is no generic command execution or unrestricted file-read MCP tool. An MCP
 client cannot approve its own high-risk action.

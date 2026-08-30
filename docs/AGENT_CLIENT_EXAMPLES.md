@@ -13,11 +13,24 @@ devroom cleanup list --project <project-id> --json
 devroom safeguard list --json
 ```
 
+For a Jenkins trigger, use the typed MCP tools so the plan and approval remain
+visible in Dev Control Room:
+
+```text
+jenkins.plan   -> groupId + projectId + repositoryId + worktreeId
+                 (reviewable plan; no Jenkins request)
+jenkins.trigger -> planId + holder + idempotencyKey
+                  (runs only after a human approval exists)
+jenkins.latest -> integrationId
+                  (read-only latest build metadata)
+```
+
 The MCP fallback is:
 
 ```powershell
 devroom mcp serve --home $env:LOCALAPPDATA\DevControlRoom
 ```
 
-MCP is stdio and typed. It does not expose a generic shell or file reader, and
-it cannot approve or execute a protected Action.
+MCP is stdio and typed. It does not expose a generic shell or file reader. The
+Jenkins trigger still goes through the Action broker; an MCP client cannot
+approve its own protected Action.

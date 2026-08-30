@@ -61,6 +61,25 @@ credentials, launch a real configured agent, or create tags/releases.
 7. Stop when the claim is proven or a required tier is unavailable. Record the
    gap and do not promote a lower-tier result into a higher-tier claim.
 
+### Embedded UI loop
+
+For a UI change, the browser portion of the native checklist is a fixed loop:
+
+1. Open all hash routes and confirm exactly one visible page heading per route.
+2. Check the first-use screen for one clear next action and no repeated sentence
+   between the page heading and its setup surface.
+3. Exercise each interactive guide control, confirm `#guide?slide=N` survives a
+   reload, and verify the relevant action link reaches its destination route.
+4. Check desktop and narrow viewport geometry for visible overflow, clipped
+   controls, detached actions, and console errors.
+5. On Windows, open the folder action manually once and confirm the standard
+   Explorer-backed folder dialog appears; cancel it and confirm the form remains
+   intact. Do not automate an OS dialog by adding a second browser harness.
+
+The loop is evidence for the visible product, not just for the embedded asset
+contract. A passing Go build without this loop does not prove that a page is
+usable.
+
 ## Fresh evidence record
 
 Every milestone or acceptance entry should include:

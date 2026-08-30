@@ -191,3 +191,38 @@ Before merge:
 The acceptance question is not "does this look polished?" It is "can the local
 operator see what changed, why it matters, and what safe action is available
 without reading the same message twice?"
+
+## v0.13 follow-up: repair the product surface
+
+The first implementation exposed a second class of problem: some surfaces were
+technically valid but looked unfinished because the page had little orientation,
+the first-use state occupied a large empty area, and a warning token was used as
+a broad background. The follow-up keeps the small design system but makes the
+product job explicit at the point of entry.
+
+Decisions applied:
+
+- The palette moves from warm paper neutrals to a cool blue-gray workbench. The
+  warning color remains available for approval state, but no longer paints the
+  entire external-operation surface.
+- Home first use now states the three actions—connect, verify, execute—and has a
+  direct link to a four-step `사용법` deck. The deck is an in-app route with
+  `#guide?slide=N` URL state, so it is shareable and survives refresh without
+  adding a second documentation runtime.
+- Windows folder selection now uses the Explorer-backed `IFileOpenDialog` COM
+  API with `FOS_PICKFOLDERS`, replacing the legacy `SHBrowseForFolderW` dialog.
+  The app still receives a path only after the user confirms it.
+- The MCP surface remains narrow. `jenkins.plan` is review-only,
+  `jenkins.trigger` calls the existing Action broker and requires a human
+  approval already recorded in the app, and `jenkins.latest` is read-only. No
+  generic shell or file reader is added.
+- Primary Korean copy uses short, direct `합니다` sentences only for cause,
+  consequence, and recovery. Technical identifiers remain in detail views, not
+  in the first explanation of a page.
+
+The validation loop now treats the guide route, native picker implementation,
+MCP tool list, and visible browser geometry as contracts. The release checklist
+is: static UI contract → unit/integration tests → Windows build → real browser
+route/URL/focus/overflow checks → leave the verified local server running. This
+is a response to the recurring failure mode where an implementation stopped after
+compilation while the visible product still felt broken.

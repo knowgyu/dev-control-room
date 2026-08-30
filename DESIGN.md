@@ -1,7 +1,7 @@
 # Dev Control Room design system
 
 Status: active
-Target: v0.12
+Target: v0.13
 Refreshed: 2026-08-30
 
 This is the source of truth for the embedded loopback UI. The research and
@@ -31,7 +31,7 @@ generic admin template, raw-log viewer, IDE, or deployment console.
 
 ## Information architecture
 
-The shell uses one compact top navigation with six routes. A persistent sidebar
+The shell uses one compact top navigation with seven routes. A persistent sidebar
 would duplicate a shallow route hierarchy, so it is not part of the product.
 
 | Route | Visible page `h1` | Main job |
@@ -42,6 +42,7 @@ would duplicate a shallow route hierarchy, so it is not part of the product.
 | `assurance` | 검증 | repeatability, effect, usage, and linked evidence |
 | `diagnostics` | 진단 | required environment and optional execution capability |
 | `activity` | 활동 기록 | chronological operational history |
+| `guide` | 사용법 | a short, task-oriented introduction to the operating flow |
 
 The visible label for `home` is `상태`, which describes its job more clearly.
 Each route owns one visible `h1`. The page name is not repeated as an eyebrow,
@@ -74,8 +75,9 @@ a heading, list, and every row. Do not add a box merely to fill whitespace.
 ### Home states
 
 First use contains one heading, one short reason, one `폴더 선택` action, and a
-compact readiness line. It has no onboarding hero, numbered tutorial strip, or
-duplicate bottom call to action.
+compact three-step purpose line. It has no marketing hero or duplicate bottom
+call to action. The `사용법` route provides the fuller four-step guide when the
+operator needs orientation.
 
 Established use opens with exceptions and the next safe action. Healthy counts
 are compressed into a single summary line. Recent execution and assurance
@@ -97,10 +99,10 @@ expanded.
 
 ## Visual direction
 
-The visual language is a maintained field notebook: warm neutral canvas,
-paper-like surfaces, dense but breathable rows, strong type, and precise rules.
-The deliberate risk is reducing decorative containers enough that the product
-reads more like an instrument than a dashboard.
+The visual language is a cool workbench: a blue-gray canvas, white working
+surfaces, dense but breathable rows, strong type, and precise rules. The product
+should feel like a dependable local instrument rather than a warm editorial
+template or an AI-generated dashboard.
 
 There are no gradients, glass effects, oversized radius, decorative background
 shapes, emoji icons, floating blobs, or large shadows. A state rail is used only
@@ -113,19 +115,19 @@ semantic tokens; literal colors outside that block require a documented reason.
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--canvas` | `#F5F4F0` | warm application background |
+| `--canvas` | `#F1F5F7` | cool application background |
 | `--surface` | `#FFFFFF` | forms, dialogs, and focused detail |
-| `--surface-muted` | `#ECEBE6` | selected rows and quiet grouped evidence |
-| `--ink` | `#1F2628` | primary text |
-| `--muted` | `#687173` | supporting text and metadata |
-| `--rule` | `#D5D5CE` | section and row dividers |
-| `--rule-strong` | `#AEB4B2` | selected/focused structural edge |
-| `--accent` | `#285F58` | primary action and current route |
-| `--accent-soft` | `#E1ECE8` | selected or hover surface |
-| `--success` / `--success-soft` | `#2F6A4F` / `#E5F0E9` | ready/completed |
-| `--warning` / `--warning-soft` | `#865B24` / `#F6ECD9` | attention/approval |
-| `--danger` / `--danger-soft` | `#9B4149` / `#F5E5E6` | blocked/failed/destructive |
-| `--neutral` / `--neutral-soft` | `#687173` / `#E9ECEB` | absent/not measured |
+| `--surface-muted` | `#E8EEF1` | selected rows and quiet grouped evidence |
+| `--ink` | `#132B36` | primary text |
+| `--muted` | `#5B6C74` | supporting text and metadata |
+| `--rule` | `#D4E0E5` | section and row dividers |
+| `--rule-strong` | `#A9BBC4` | selected/focused structural edge |
+| `--accent` | `#1B6678` | primary action and current route |
+| `--accent-soft` | `#E1EFF3` | selected or hover surface |
+| `--success` / `--success-soft` | `#2F6B59` / `#E3F0EA` | ready/completed |
+| `--warning` / `--warning-soft` | `#75572F` / `#EEF1F6` | attention/approval; never a large decorative fill |
+| `--danger` / `--danger-soft` | `#A5404B` / `#F6E6E9` | blocked/failed/destructive |
+| `--neutral` / `--neutral-soft` | `#64757D` / `#E9EFF1` | absent/not measured |
 
 State always includes readable text. Color is never the sole carrier.
 
@@ -162,6 +164,13 @@ These conventions are the complete shared system:
 - `Ledger`: `.ledger`; a collection of comparable operational records.
 - `LedgerRow`: `.ledger-row`; state/subject, evidence/consequence, and an
   adjacent action. It may use a semantic state rail.
+- Diagnostics is a compact `LedgerRow` variant: provider state occupies a
+  bounded 116–140px column, the subject owns the remaining space, and an empty
+  context slot is not reserved. The required-tool health row uses the same
+  quiet, content-sized treatment rather than a full-width status banner.
+- `InventoryRow`: `.project-card`; a compact project selector with a protected
+  main-label column. Machine IDs belong in the detail view when the list is
+  narrow enough that showing them would damage readability.
 - `EvidenceFlow`: `.evidence-flow`; an ordered `관찰`, `근거`, `승인` sequence
   only when those three phases are present in the data.
 - `Button`: `.button` with primary, danger, quiet, and small variants.
@@ -173,6 +182,9 @@ These conventions are the complete shared system:
 - `Disclosure`: native `details/summary` for advanced evidence and settings.
 - `FormSurface`: `.form-surface` or the retained `.panel` for editable controls
   with a clear ownership boundary.
+- `GuideDeck`: `.guide-deck` with one task-oriented slide, URL-backed step state,
+  and adjacent practical notes. It explains the product job without duplicating
+  the operating screens.
 - `EmptyState`, `ErrorState`, and `Dialog`: intentional state surfaces with a
   cause and safe recovery action.
 
@@ -221,7 +233,7 @@ rows, and intentional async states; they must not become a generic renderer that
 hides domain evidence.
 
 Do not add React, Tailwind, Storybook, a bundler, a design-system package, a
-client state library, or a generic component runtime for this six-route local
+client state library, or a generic component runtime for this seven-route local
 surface. Do not split `app.js` into modules or abstract every template without a
 repeated contract, concrete bug, or measurable maintenance gain.
 

@@ -25,9 +25,10 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/mcp"
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
 	"github.com/knowgyu/dev-control-room/internal/store"
+	releaseVersion "github.com/knowgyu/dev-control-room/internal/version"
 )
 
-const version = "0.12.0"
+const version = releaseVersion.Current
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 

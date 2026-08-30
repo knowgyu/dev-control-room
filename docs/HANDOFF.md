@@ -2,12 +2,39 @@
 
 Updated: 2026-08-30
 
+## 2026-08-30 v0.13.1 diagnostics patch release
+
+The patch release keeps the v0.13 product surface and fixes the diagnostics
+page's proportional state-column spacing. Provider rows now use a bounded
+status column, unused context space is removed, and the required-tool health
+message is content-sized. The release package remains Windows amd64 only;
+ARM64 is verification-only and Linux is CI-only.
+
+The release verification record is
+[VERIFICATION_v0.13.1.md](VERIFICATION_v0.13.1.md). Remote release download
+and packaged-binary browser smoke are added there after publication.
+
+## 2026-08-30 v0.13.0 product-surface repair
+
+The current candidate restores the product's first-use path: the top-level
+`사용법` route explains `연결 → 확인 → 승인 → 기록`, the first screen has one
+clear `폴더 선택` action, and the project inventory keeps long names readable.
+The Windows picker uses the Explorer-backed `IFileOpenDialog`; the package
+policy remains Windows amd64 only. The stdio MCP adds typed Jenkins plan,
+approved-trigger, and latest-build tools without generic shell or file access.
+
+The local package candidate is in `artifacts\0.13.0-candidate` and contains only
+`dev-control-room_0.13.0_windows_amd64.zip`. Full source, native resilience,
+Phase 2 (341 assertions), package, and browser checks passed. Remote tags,
+GitHub releases, and company Jenkins were not touched.
+
 ## 2026-08-30 v0.12.0 repository operations ledger
 
 The active minor-release work replaces the generic card-dashboard hierarchy
 with a smaller repository operations ledger. The product-specific sequence is
-`관찰 → 근거 → 승인`; Home is labelled `상태`, the six-route top navigation is
-retained, and a persistent sidebar is intentionally not introduced.
+`관찰 → 근거 → 승인`; Home is labelled `상태`, the seven-route top navigation
+now includes `사용법`, and a persistent sidebar is intentionally not
+introduced.
 
 The recent research, quantitative pre-change audit, adopted route rules, and
 future AI-assisted change gate are preserved in

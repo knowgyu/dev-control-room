@@ -1,4 +1,4 @@
-# Dev Control Room 0.12.0
+# Dev Control Room 0.13.1
 
 Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만 관찰하고,
 근거가 있는 점검과 Action을 계획·승인·실행합니다. 서비스는 loopback에만
@@ -21,7 +21,11 @@ Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만
    Action Broker를 통과합니다.
 7. `검증`에서 기간·프로젝트·Provider·모델을 선택하고 검증된 효과,
    이전 동일 기간 비교, 근거 완결성, trace, artifact 보관 상태를 확인합니다.
-   보고서는 JSON/CSV로 내려받을 수 있습니다.
+    보고서는 JSON/CSV로 내려받을 수 있습니다.
+
+처음 쓰는 경우 상단 `사용법` 탭에서 `연결 → 확인 → 승인 → 기록` 흐름을
+짧은 슬라이드로 먼저 볼 수 있습니다. 자세한 화면별 설명은
+[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)에 있습니다.
 
 `상태` 화면은 확인이 필요한 항목을 먼저 보여주며, 각 작업은
 `관찰 → 근거 → 승인` 순서로 연결됩니다.
@@ -49,11 +53,11 @@ ZIP과 SHA-256 목록을 만듭니다. 실제 Jenkins, production, Scheduler, �
 작업은 패키징에 포함되지 않습니다.
 
 ```powershell
-pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.12.0
+pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.13.1
 ```
 
-이 명령은 `docs/RELEASE_NOTES_v0.12.0.md`와
-`docs/VERIFICATION_v0.12.0.md`가 모두 있을 때 패키지를 만듭니다.
+이 명령은 `docs/RELEASE_NOTES_v0.13.1.md`와
+`docs/VERIFICATION_v0.13.1.md`가 모두 있을 때 패키지를 만듭니다.
 
 검증까지 포함한 후보 확인은 다음 명령을 먼저 실행합니다.
 
@@ -61,7 +65,14 @@ pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.12.0
 pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 ```
 
-## 0.12.0 범위와 경계
+## 0.13.1 범위와 경계
+
+- 첫 화면에서 제품의 핵심 흐름을 `연결 → 확인 → 승인된 실행`으로 설명하고,
+  상단 `사용법` 탭에서 네 단계 가이드를 제공합니다. 따뜻한 종이색 대신
+  차가운 blue-gray 작업대 톤을 사용해 상태색과 본문을 구분합니다.
+- Windows 폴더 선택은 구형 `SHBrowseForFolderW` 대신 Explorer 기반
+  `IFileOpenDialog`를 사용합니다. MCP에는 Jenkins 계획·승인된 계획 실행·최근
+  빌드 조회만 typed tool로 노출하며, 임의 shell/file-read 도구는 추가하지 않습니다.
 
 - UI는 카드형 대시보드 대신 로컬 저장소 운영 장부를 사용합니다. 중복된
   hero·설명·상태 chip을 줄이고 상태, 근거, 다음 안전 행동을 행 단위로
@@ -119,7 +130,7 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
   승인이 필요합니다.
 - `FallbackRunbookID`는 참조만 저장하며 자동으로 PowerShell을 이어 실행하지
   않습니다. 이어 실행은 별도 계약과 승인이 필요합니다.
-- 0.12.0의 확인 범위는 자동화, native Windows process acceptance, 로컬
+- 0.13.1의 확인 범위는 자동화, native Windows process acceptance, 로컬
   Windows Browser 관찰, disposable local Git fixture의 실제 Codex invocation입니다.
   회사 Jenkins/GitHub/Kubernetes,
   proxy, production, second-device, full Tab/Space, native dialog Esc driver
@@ -130,6 +141,11 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 - [현재 상태와 handoff](docs/HANDOFF.md)
 - [효과 대시보드와 trace 계약](docs/ASSURANCE_EFFECT_DASHBOARD.md)
 - [UI 연구와 제품 대응](docs/AI_GENERATED_UI_RESEARCH_2026-08-30.md)
+- [사용 가이드](docs/USER_GUIDE.md)
+- [v0.13.1 검증 기록](docs/VERIFICATION_v0.13.1.md)
+- [v0.13.1 릴리즈 노트](docs/RELEASE_NOTES_v0.13.1.md)
+- [v0.13.0 검증 기록](docs/VERIFICATION_v0.13.0.md)
+- [v0.13.0 릴리즈 노트](docs/RELEASE_NOTES_v0.13.0.md)
 - [v0.12.0 검증 기록](docs/VERIFICATION_v0.12.0.md)
 - [v0.12.0 릴리즈 노트](docs/RELEASE_NOTES_v0.12.0.md)
 - [v0.11.0 검증 기록](docs/VERIFICATION_v0.11.0.md)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/knowgyu/dev-control-room/internal/app"
 	"github.com/knowgyu/dev-control-room/internal/contract"
+	releaseVersion "github.com/knowgyu/dev-control-room/internal/version"
 )
 
 type request struct {
@@ -43,6 +44,9 @@ var tools = []tool{
 	{Name: "cleanup.list", Description: "Inspect read-only blocked cleanup candidates.", InputSchema: objectSchema(map[string]any{"projectId": stringProperty()})},
 	{Name: "guidance.check", Description: "Run bounded guidance checks for one observed Worktree.", InputSchema: objectSchema(map[string]any{"projectId": stringProperty(), "repositoryId": stringProperty(), "worktreeId": stringProperty()})},
 	{Name: "handoff.preview", Description: "Prepare a masked Agent Handoff preview without transcript collection or launch.", InputSchema: objectSchema(map[string]any{"profileId": stringProperty(), "projectId": stringProperty(), "repositoryId": stringProperty(), "worktreeId": stringProperty(), "model": stringProperty()})},
+	{Name: "jenkins.plan", Description: "Create a reviewable Jenkins group plan. Does not contact Jenkins or execute anything.", InputSchema: objectSchema(map[string]any{"groupId": stringProperty(), "projectId": stringProperty(), "repositoryId": stringProperty(), "worktreeId": stringProperty()}, "groupId", "projectId", "repositoryId", "worktreeId")},
+	{Name: "jenkins.trigger", Description: "Run an already human-approved Jenkins plan. MCP cannot create or bypass approval.", InputSchema: objectSchema(map[string]any{"planId": stringProperty(), "holder": stringProperty(), "idempotencyKey": stringProperty()}, "planId", "holder", "idempotencyKey")},
+	{Name: "jenkins.latest", Description: "Read the latest build metadata for a configured Jenkins integration.", InputSchema: objectSchema(map[string]any{"integrationId": stringProperty()}, "integrationId")},
 }
 
 func Serve(ctx context.Context, input io.Reader, output io.Writer, service app.ApplicationService) error {
@@ -83,7 +87,7 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer, service app.A
 func dispatch(ctx context.Context, service app.ApplicationService, method string, params json.RawMessage) (any, *rpcError) {
 	switch method {
 	case "initialize":
-		return map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "dev-control-room", "version": "0.5.0"}}, nil
+		return map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "dev-control-room", "version": releaseVersion.Current}}, nil
 	case "tools/list":
 		return map[string]any{"tools": tools}, nil
 	case "tools/call":
@@ -128,16 +132,66 @@ func callTool(ctx context.Context, service app.ApplicationService, name string, 
 		return service.Guidance(ctx, value("projectId"), value("repositoryId"), value("worktreeId"))
 	case "handoff.preview":
 		return service.PrepareHandoff(ctx, app.HandoffInput{ProfileID: value("profileId"), ProjectID: value("projectId"), RepositoryID: value("repositoryId"), WorktreeID: value("worktreeId"), Model: value("model")})
+	case "jenkins.plan":
+		groupID, err := requiredValue(arguments, "groupId")
+		if err != nil {
+			return nil, err
+		}
+		projectID, err := requiredValue(arguments, "projectId")
+		if err != nil {
+			return nil, err
+		}
+		repositoryID, err := requiredValue(arguments, "repositoryId")
+		if err != nil {
+			return nil, err
+		}
+		worktreeID, err := requiredValue(arguments, "worktreeId")
+		if err != nil {
+			return nil, err
+		}
+		return service.PlanExternalWork(ctx, app.ExternalWorkPlanInput{GroupID: groupID, ProjectID: projectID, RepositoryID: repositoryID, WorktreeID: worktreeID})
+	case "jenkins.trigger":
+		planID, err := requiredValue(arguments, "planId")
+		if err != nil {
+			return nil, err
+		}
+		holder, err := requiredValue(arguments, "holder")
+		if err != nil {
+			return nil, err
+		}
+		idempotencyKey, err := requiredValue(arguments, "idempotencyKey")
+		if err != nil {
+			return nil, err
+		}
+		return service.ExecuteExternalWork(ctx, planID, holder, idempotencyKey)
+	case "jenkins.latest":
+		integrationID, err := requiredValue(arguments, "integrationId")
+		if err != nil {
+			return nil, err
+		}
+		return service.JenkinsLatestBuild(ctx, integrationID)
 	default:
 		return nil, fmt.Errorf("unknown MCP tool %q", name)
 	}
 }
 
-func objectSchema(properties map[string]any) map[string]any {
+func objectSchema(properties map[string]any, required ...string) map[string]any {
 	if properties == nil {
 		properties = map[string]any{}
 	}
-	return map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
+	schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
 }
 
 func stringProperty() map[string]string { return map[string]string{"type": "string"} }
+
+func requiredValue(arguments map[string]any, key string) (string, error) {
+	value, ok := arguments[key].(string)
+	if !ok || strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("MCP argument %q is required", key)
+	}
+	return strings.TrimSpace(value), nil
+}

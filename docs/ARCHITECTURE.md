@@ -174,12 +174,15 @@ public agent contract in the initial release.
 ### MCP after the application contract
 
 A stdio MCP adapter is available after the CLI and application service became
-stable. It provides narrow typed project, finding, cleanup, Guidance, and Agent
-Handoff preview tools. It must not provide a generic shell tool.
+stable. It provides narrow typed project, finding, cleanup, Guidance, Agent
+Handoff preview, and Jenkins integration tools. It must not provide a generic
+shell or unrestricted file-read tool.
 
 Read-only tools follow project scope. Mutating tools call the Action broker and
 cannot manufacture human approval. External and high-impact actions return an
-approval requirement that must be satisfied through the human surface.
+approval requirement that must be satisfied through the human surface. The
+Jenkins adapter follows the same boundary: planning is review-only, triggering
+requires an existing human approval, and latest-build lookup is read-only.
 
 Repository-scoped tools also require an explicit Worktree identity whenever
 file content, diffs, checks, Actions, or an Agent working directory may differ

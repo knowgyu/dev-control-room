@@ -26,13 +26,13 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	for _, value := range []string{
 		`<html lang="ko">`, "본문으로 건너뛰기", "상태", "프로젝트", "작업", "검증", "진단", "활동",
 		"확인할 항목", "프로젝트별 상태", "최근 실행", "검증 근거",
-		"준비 상태", "Jenkins 대상 그룹",
+		"시작하기", "Jenkins 대상 그룹", "사용법", "저장소를 연결하면 시작합니다.",
 		"폴더 선택", "저장소 찾기",
 		"발견 결과", "Agent Profile",
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
 		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`, `id="home-assurance" class="ledger" aria-live="polite"`,
 		`class="decision-strip home-setup"`, `class="evidence-flow work-flow"`,
-		`href="/ui/app.css?v=0.12.0"`, `src="/ui/app.js?v=0.12.0"`, `meta name="control-room-token"`,
+		`href="/ui/app.css?v=0.13.1"`, `src="/ui/app.js?v=0.13.1"`, `meta name="control-room-token"`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI HTML missing %q", value)
@@ -63,7 +63,8 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"Agent Profile 추가", "data-profile=\"edit\"", "/api/agent-profiles",
 		"근거 변경됨", "기존 점검 다시 찾기", "열림 및 확인함", `data-unregister="profile"`,
 		"surfaceErrors", `role="alert"`, "data-retry", "loadRouteData(currentRoute(), true)",
-		"/api/external-work-groups", "/api/releases/", "/api/cleanup/", "Worktree 신뢰", "전용 실행",
+		"/api/external-work-groups", "/api/releases/", "/api/cleanup/", "Worktree 확인", "승인 요청",
+		"const guideSlides = [", "#guide?slide=", "data-guide-next", "renderGuide",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded UI JavaScript missing %q", value)
@@ -77,7 +78,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums"} {
+	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums", "grid-template-columns: minmax(76px, auto) minmax(0, 1fr) auto", ".project-card .ledger-row__context { display: none; }", "grid-template-columns: minmax(116px, 140px) minmax(0, 1fr) auto", ".diagnostic-findings .finding", "#environment > .list-item", "#environment > .list-item > p { margin: 0; }"} {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded UI CSS missing %q", value)
 		}
@@ -104,7 +105,7 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 	}
 	for route, text := range map[string]string{
 		"home": "상태", "projects": "프로젝트", "work": "작업",
-		"assurance": "검증", "diagnostics": "진단", "activity": "활동",
+		"assurance": "검증", "diagnostics": "진단", "activity": "활동", "guide": "사용법",
 	} {
 		pattern := regexp.MustCompile(`(?is)<a\b[^>]*href="#` + route + `"[^>]*data-route="` + route + `"[^>]*>` + regexp.QuoteMeta(text) + `</a>`)
 		if !pattern.MatchString(html) {
@@ -121,7 +122,7 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 
 	routes := map[string]bool{
 		"home": false, "projects": false, "work": false,
-		"assurance": false, "diagnostics": false, "activity": false,
+		"assurance": false, "diagnostics": false, "activity": false, "guide": false,
 	}
 	view := regexp.MustCompile(`(?is)<section\b[^>]*\bdata-view="([^"]+)"[^>]*>`)
 	h1 := regexp.MustCompile(`(?is)<h1\b[^>]*>(.*?)</h1>`)
@@ -184,7 +185,7 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 	}
 	for _, value := range []string{`class="decision-strip`, `class="ledger`, `class="evidence-flow`, `class="ledger-row`} {
 		if !strings.Contains(html+javascript, value) {
-			t.Errorf("embedded UI v0.12 ledger structure missing %q", value)
+			t.Errorf("embedded UI v0.13 ledger structure missing %q", value)
 		}
 	}
 	for _, value := range []string{
@@ -193,7 +194,7 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 		":focus-visible", "prefers-reduced-motion", "overscroll-behavior: contain",
 	} {
 		if !strings.Contains(css, value) {
-			t.Errorf("embedded UI v0.12 presentation contract missing %q", value)
+			t.Errorf("embedded UI v0.13 presentation contract missing %q", value)
 		}
 	}
 	if regexp.MustCompile(`(?i)transition\s*:\s*all\b`).MatchString(css) {
@@ -364,9 +365,9 @@ func TestEmbeddedUIProviderCapabilityGroupingContract(t *testing.T) {
 
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`<h2 id="environment-title">필수 환경</h2>`,
+		`<h2 id="environment-title">필수 도구</h2>`,
 		`<div id="environment" class="ledger" aria-live="polite">`,
-		"미설정은 필요할 때 설정합니다.",
+		"필요한 도구만 연결해 사용합니다.",
 		`<div id="provider-statuses" class="ledger" tabindex="-1" aria-live="polite">`,
 	} {
 		if !strings.Contains(html, value) {
@@ -382,7 +383,7 @@ func TestEmbeddedUIProviderCapabilityGroupingContract(t *testing.T) {
 		`detected: "실행 확인 필요"`,
 		`unavailable: "사용할 수 없음"`,
 		"const providerSummary = state =>",
-		"Provider 상태는 아래 행에서 한 번에 확인합니다.",
+		"필수 도구의 상태는 아래에서 확인합니다.",
 		"new Map((state.providerStatuses || []).map",
 		"data-provider-capability=",
 		"진단 세부 정보",
@@ -417,7 +418,7 @@ func TestEmbeddedUIFirstUseAndFindingTargetContract(t *testing.T) {
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
 		`id="home-onboarding"`, `id="home-metrics"`, `id="home-providers"`, `id="home-assurance"`,
-		`data-home-established-only hidden`, `id="home-next-action-section"`, "준비 상태", "프로젝트 등록",
+		`data-home-established-only hidden`, `id="home-next-action-section"`, "시작하기", "프로젝트 등록",
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI first-use HTML missing %q", value)
