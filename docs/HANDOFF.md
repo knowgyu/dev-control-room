@@ -16,16 +16,23 @@ and browser-smoked from its extracted executable. CI commit `7caadcc` makes
 native Windows the behavioral/race test boundary and passed both jobs. See
 [VERIFICATION_v0.14.0.md](VERIFICATION_v0.14.0.md) for the exact gate record.
 
-## 2026-08-31 v0.15.0 concrete usage guide release candidate
+## 2026-08-31 v0.15.0 concrete usage guide release
 
-The v0.15.0 candidate replaces the abstract four-step usage slide with a
+The v0.15.0 implementation candidate `c70074c13c486b68f62c451665e9f73fb1a03402`
+replaces the abstract four-step usage slide with a
 concrete first-use guide. It explains the product job, shows the actual
 `프로젝트 → 진단 → 개선 → 작업 → 검증 → 활동` route, and gives each step a
 screen, click sequence, and completion criterion. The guide keeps its deep-link
 slide state (`#guide?slide=N`) and adds a compact page-role map plus the optional
 Jenkins/release/Agent branch. `docs/USER_GUIDE.md` is updated to match.
-Final gate and publication details are recorded in
-[VERIFICATION_v0.15.0.md](VERIFICATION_v0.15.0.md) after they complete.
+The final source verification record is in
+[VERIFICATION_v0.15.0.md](VERIFICATION_v0.15.0.md). The
+[v0.15.0 GitHub release](https://github.com/knowgyu/dev-control-room/releases/tag/v0.15.0)
+contains only the Windows amd64 ZIP and `SHA256SUMS`; the downloaded archive
+matched its checksum and passed extracted-binary browser smoke. CI run
+[33323527232](https://github.com/knowgyu/dev-control-room/actions/runs/33323527232)
+passed both Windows and Linux jobs. Linux remains CI-only and arm64 remains
+cross-build verification-only.
 
 ## 2026-08-30 v0.13.1 diagnostics patch release
 

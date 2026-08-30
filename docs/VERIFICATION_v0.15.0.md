@@ -1,6 +1,6 @@
 # v0.15.0 verification record
 
-Status: PASS for the final source candidate; publication is pending.
+Status: PASS; source gates and publication smoke are complete.
 Date: 2026-08-31
 
 ## Scope
@@ -54,11 +54,36 @@ persistence after restart, secret masking, and the embedded UI contracts.
 
 ## Publication
 
-The package name, SHA-256, GitHub release URL, CI result, downloaded-archive
-verification, and extracted-binary browser smoke will be recorded here after
-publication. Expected release assets are:
+## Publication update
+
+The [v0.15.0 GitHub release](https://github.com/knowgyu/dev-control-room/releases/tag/v0.15.0)
+was published from the verified source line with exactly two assets:
 
 ```text
 dev-control-room_0.15.0_windows_amd64.zip
 SHA256SUMS
 ```
+
+The published ZIP SHA-256 is:
+
+```text
+2b1959b115aa6d7b4690fd5c31c192d35b0c3097abf46870c6c5c507cea3b2f5  dev-control-room_0.15.0_windows_amd64.zip
+```
+
+The ZIP was downloaded again from the GitHub release, matched the published
+checksum, extracted successfully, and its executable returned version `0.15.0`.
+The archive contains no Linux or arm64 release asset.
+
+The downloaded executable was served loopback-only on native Windows at
+`http://127.0.0.1:38476`. Browser smoke verified all seven routes have one
+visible heading, no horizontal overflow, and the version-pinned `v=0.15.0`
+CSS/JS assets. The Usage route kept `04 / 05` after loading
+`#guide?slide=4`, and the next control advanced it to `05 / 05` with the
+expected concrete verification step.
+
+The GitHub Checks run
+[33323527232](https://github.com/knowgyu/dev-control-room/actions/runs/33323527232)
+passed both jobs: native Windows behavioral/race tests and Linux formatting,
+module/vet checks, and Windows amd64 cross-build. GitHub emitted only the
+existing Node 20 deprecation and Linux cache-restore annotations; neither job
+failed.
