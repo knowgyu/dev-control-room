@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="control-room-token" content="__MUTATION_TOKEN__">
   <title>Dev Control Room</title>
-    <link rel="stylesheet" href="/ui/app.css?v=0.14.0">
+    <link rel="stylesheet" href="/ui/app.css?v=0.15.0">
 </head>
 <body>
   <a class="skip-link" href="#main-content">본문으로 건너뛰기</a>
@@ -129,23 +129,59 @@
         <section class="view" data-view="guide" hidden>
           <header class="page-heading guide-heading">
             <div>
+              <span class="eyebrow">처음 10분</span>
               <h1>사용법</h1>
-              <p>무엇을 확인하고, 언제 실행하는지 네 단계로 정리했습니다.</p>
+              <p>저장소를 연결하고, 품질 점검 하나를 실행한 뒤 결과를 다시 확인하는 흐름입니다.</p>
             </div>
-            <button class="button" type="button" data-guide-start>처음부터 보기</button>
+            <div class="page-actions">
+              <a class="button primary" href="#projects">프로젝트 등록</a>
+              <button class="button" type="button" data-guide-start>첫 단계로</button>
+            </div>
           </header>
+
+          <section class="guide-purpose" aria-labelledby="guide-purpose-title">
+            <div class="guide-purpose-main">
+              <span class="eyebrow">이 도구가 해결하는 일</span>
+              <h2 id="guide-purpose-title">코드 변경을 맡기기 전에, 품질 상태와 근거를 한 줄로 이어봅니다.</h2>
+              <p>Dev Control Room은 저장소를 대신 수정하는 화면이 아닙니다. Git·Worktree 상태와 결정론적 점검 결과를 먼저 확인하고, AI Agent나 외부 작업은 사람이 승인한 범위 안에서만 이어지게 합니다.</p>
+            </div>
+            <dl class="guide-boundary">
+              <div><dt>자동 확인</dt><dd>Git 상태 · 점검 명령 · 결과 · HEAD · artifact</dd></div>
+              <div><dt>사람이 결정</dt><dd>제안 적용 · 외부 작업 · 릴리스 · 정리</dd></div>
+            </dl>
+          </section>
+
+          <section class="guide-route-section" aria-labelledby="guide-route-title">
+            <header class="guide-section-heading">
+              <div>
+                <span class="eyebrow">가장 짧은 경로</span>
+                <h2 id="guide-route-title">이 순서대로 누르세요.</h2>
+                <p class="meta">처음에는 하나의 저장소와 하나의 점검만 확인하면 됩니다.</p>
+              </div>
+              <span class="guide-route-note">읽기 → 검토 → 승인 → 기록</span>
+            </header>
+            <ol class="guide-route" aria-label="Dev Control Room 첫 사용 순서">
+              <li><a href="#projects"><span class="guide-route-index">01</span><span><strong>프로젝트</strong><small>폴더 선택 → 저장소 등록</small></span></a></li>
+              <li><a href="#diagnostics"><span class="guide-route-index">02</span><span><strong>진단</strong><small>Git·품질 도구 확인</small></span></a></li>
+              <li><a href="#home"><span class="guide-route-index">03</span><span><strong>개선</strong><small>먼저 볼 항목 선택</small></span></a></li>
+              <li><a href="#work"><span class="guide-route-index">04</span><span><strong>작업</strong><small>점검 기준 만들기·실행</small></span></a></li>
+              <li><a href="#assurance"><span class="guide-route-index">05</span><span><strong>검증</strong><small>결과·근거 다시 확인</small></span></a></li>
+              <li><a href="#activity"><span class="guide-route-index">06</span><span><strong>활동</strong><small>무슨 일이 있었는지 확인</small></span></a></li>
+            </ol>
+          </section>
 
           <div class="guide-layout">
             <section class="guide-deck" aria-labelledby="guide-slide-title">
               <header class="guide-deck-header">
-                <div><span id="guide-slide-index" class="eyebrow" aria-live="polite">01 / 04</span><span id="guide-slide-kicker" class="guide-kicker">시작</span></div>
+                <div><span id="guide-slide-index" class="eyebrow" aria-live="polite">01 / 05</span><span id="guide-slide-kicker" class="guide-kicker">01 · 범위</span></div>
                 <span id="guide-slide-status" class="state-text state-neutral">읽기 전용으로 시작</span>
               </header>
               <div id="guide-slide" class="guide-slide" aria-live="polite">
-                <h2 id="guide-slide-title">먼저 저장소를 연결합니다.</h2>
-                <p>프로젝트에서 폴더를 선택하면 등록할 Git 저장소를 찾습니다. 이 단계에서는 파일을 바꾸지 않습니다.</p>
-                <ul><li>Windows 기본 폴더 선택기로 위치를 고릅니다.</li><li>찾은 저장소 중 확인할 범위만 등록합니다.</li></ul>
-                <a class="button small" href="#projects">프로젝트로 이동</a>
+                <h2 id="guide-slide-title">프로젝트에서 폴더를 고르세요.</h2>
+                <p>먼저 관찰할 범위를 등록합니다. 등록 전에 찾은 Git 저장소를 직접 고르며, 이 과정은 원본 파일을 바꾸지 않습니다.</p>
+                <dl class="guide-action-grid"><div><dt>화면</dt><dd>프로젝트</dd></div><div><dt>누를 것</dt><dd>프로젝트 등록 → 폴더 선택 → 저장소 찾기</dd></div><div><dt>완료 기준</dt><dd>프로젝트 목록에 저장소와 Worktree가 보임</dd></div></dl>
+                <ul><li>여러 저장소가 나오면 이번에 확인할 저장소만 체크합니다.</li><li>폴더 선택은 Windows 기본 Explorer 대화상자를 사용합니다.</li></ul>
+                <a class="button small" href="#projects">프로젝트 등록 열기</a>
               </div>
               <nav class="guide-controls" aria-label="사용법 슬라이드 탐색">
                 <button class="button" type="button" data-guide-prev disabled>이전</button>
@@ -155,16 +191,28 @@
             </section>
 
             <aside class="guide-notes" aria-labelledby="guide-notes-title">
-              <span class="eyebrow">이 도구가 하는 일</span>
-              <h2 id="guide-notes-title">상태를 읽고, 근거를 남기고, 승인된 작업만 보냅니다.</h2>
-              <dl>
-                <div><dt>상태</dt><dd>저장소·Worktree의 현재 상태를 읽습니다.</dd></div>
-                <div><dt>근거</dt><dd>점검 명령, HEAD, 결과를 함께 기록합니다.</dd></div>
-                <div><dt>경계</dt><dd>Jenkins 같은 외부 작업은 계획과 사람의 승인이 필요합니다.</dd></div>
-              </dl>
-              <p class="guide-note-footer">처음이라면 저장소를 하나 연결한 뒤 <a href="#home">상태</a>에서 다음 행동을 확인하세요.</p>
+              <span class="eyebrow">화면 연결</span>
+              <h2 id="guide-notes-title">무엇을 하려면 어디로?</h2>
+              <nav class="guide-page-map" aria-label="화면별 역할">
+                <a href="#home"><strong>개선</strong><span>지금 손볼 항목과 다음 행동</span></a>
+                <a href="#projects"><strong>프로젝트</strong><span>저장소·Worktree 관찰 범위</span></a>
+                <a href="#work"><strong>작업</strong><span>점검 기준과 승인된 실행</span></a>
+                <a href="#assurance"><strong>검증</strong><span>Quality Run·효과·근거</span></a>
+                <a href="#diagnostics"><strong>진단</strong><span>Git·품질 도구·Provider 설정</span></a>
+                <a href="#activity"><strong>활동</strong><span>등록·점검·실행의 시간순 기록</span></a>
+              </nav>
+              <p class="guide-note-footer">Jenkins·릴리스·정리는 <a href="#work">작업</a>에서 계획을 만들고, 대상과 승인을 다시 확인한 뒤 실행합니다.</p>
             </aside>
           </div>
+
+          <section class="guide-branch" aria-labelledby="guide-branch-title">
+            <div>
+              <span class="eyebrow">상황별 시작점</span>
+              <h2 id="guide-branch-title">Jenkins·릴리스·Agent는 별도 경로입니다.</h2>
+              <p>진단에서 설정을 확인한 뒤 작업에서 계획을 만들고, Worktree·revision·digest를 검토하고 승인합니다. 결과는 검증과 활동에 남습니다.</p>
+            </div>
+            <a class="button" href="#work">외부 작업 흐름 보기</a>
+          </section>
         </section>
 
         <section class="view" data-view="projects" hidden>
@@ -590,6 +638,6 @@
     </form>
   </dialog>
 
-    <script src="/ui/app.js?v=0.14.0" defer></script>
+    <script src="/ui/app.js?v=0.15.0" defer></script>
 </body>
 </html>

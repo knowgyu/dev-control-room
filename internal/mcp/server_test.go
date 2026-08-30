@@ -25,7 +25,7 @@ func TestServeExposesOnlyTypedToolsAndStableResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
-	if len(lines) != 4 || !strings.Contains(output.String(), `"dev-control-room"`) || !strings.Contains(output.String(), `"version":"0.14.0"`) || !strings.Contains(output.String(), "jenkins.plan") || !strings.Contains(output.String(), "jenkins.trigger") || !strings.Contains(output.String(), "jenkins.latest") || strings.Contains(output.String(), "shell") || strings.Contains(output.String(), "file.read") || strings.Contains(output.String(), "safeguard.activate") || strings.Contains(output.String(), "safeguard.feedback") {
+	if len(lines) != 4 || !strings.Contains(output.String(), `"dev-control-room"`) || !strings.Contains(output.String(), `"version":"0.15.0"`) || !strings.Contains(output.String(), "jenkins.plan") || !strings.Contains(output.String(), "jenkins.trigger") || !strings.Contains(output.String(), "jenkins.latest") || strings.Contains(output.String(), "shell") || strings.Contains(output.String(), "file.read") || strings.Contains(output.String(), "safeguard.activate") || strings.Contains(output.String(), "safeguard.feedback") {
 		t.Fatalf("unexpected MCP output: %s", output.String())
 	}
 	var call map[string]any

@@ -26,14 +26,15 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	for _, value := range []string{
 		`<html lang="ko">`, "본문으로 건너뛰기", "개선", "프로젝트", "작업", "검증", "진단", "활동",
 		"지금 개선할 것", "프로젝트별 상태", "최근 실행", "검증 근거",
-		"시작하기", "Jenkins 대상 그룹", "사용법", "저장소를 연결하면 시작합니다.",
+		"시작하기", "Jenkins 대상 그룹", "사용법", "처음 10분", "이 도구가 해결하는 일", "가장 짧은 경로", "화면 연결", "상황별 시작점",
+		"프로젝트에서 폴더를 고르세요.", "이 순서대로 누르세요.", "완료 기준",
 		"폴더 선택", "저장소 찾기",
 		"발견 결과", "Agent Profile",
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
 		"assurance-demo-board", "예시 화면 보기",
 		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`, `id="home-assurance" class="ledger" aria-live="polite"`,
 		`class="decision-strip home-setup"`, `class="evidence-flow work-flow"`,
-		`href="/ui/app.css?v=0.14.0"`, `src="/ui/app.js?v=0.14.0"`, `meta name="control-room-token"`,
+		`href="/ui/app.css?v=0.15.0"`, `src="/ui/app.js?v=0.15.0"`, `meta name="control-room-token"`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI HTML missing %q", value)
@@ -65,7 +66,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"근거 변경됨", "기존 점검 다시 찾기", "열림 및 확인함", `data-unregister="profile"`,
 		"surfaceErrors", `role="alert"`, "data-retry", "loadRouteData(currentRoute(), true)",
 		"/api/external-work-groups", "/api/releases/", "/api/cleanup/", "Worktree 확인", "승인 요청",
-		"const guideSlides = [", "#guide?slide=", "data-guide-next", "renderGuide", "isAssuranceDemoRoute", "renderAssuranceDemo", "#assurance?demo=1",
+		"const guideSlides = [", "#guide?slide=", "data-guide-next", "renderGuide", "guide-action-grid", "제안 적용", "Checkset 만들기", "isAssuranceDemoRoute", "renderAssuranceDemo", "#assurance?demo=1",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded UI JavaScript missing %q", value)
@@ -79,7 +80,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums", "--space-7: 32px", "--control-height: 40px", ".button.primary:disabled", ".flow-step", "align-items: start;", ".assurance-empty", "grid-template-columns: minmax(76px, auto) minmax(0, 1fr) auto", ".project-card .ledger-row__context { display: none; }", "grid-template-columns: minmax(116px, 140px) minmax(0, 1fr) auto", ".diagnostic-findings .finding", "#environment > .list-item", "#environment > .list-item > p { margin: 0; }", ".provider-card { border-left: 0; }", ".demo-banner", ".demo-board", ".demo-kpis"} {
+	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums", "--space-7: 32px", "--control-height: 40px", ".button.primary:disabled", ".flow-step", "align-items: start;", ".assurance-empty", "grid-template-columns: minmax(76px, auto) minmax(0, 1fr) auto", ".project-card .ledger-row__context { display: none; }", "grid-template-columns: minmax(116px, 140px) minmax(0, 1fr) auto", ".diagnostic-findings .finding", "#environment > .list-item", "#environment > .list-item > p { margin: 0; }", ".provider-card { border-left: 0; }", ".demo-banner", ".demo-board", ".demo-kpis", ".guide-purpose", ".guide-route", ".guide-action-grid", ".guide-page-map", ".guide-branch"} {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded UI CSS missing %q", value)
 		}

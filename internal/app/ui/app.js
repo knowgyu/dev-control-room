@@ -75,44 +75,69 @@
   };
   const guideSlides = [
     {
-      kicker: "시작",
-      status: "읽기 전용으로 시작",
+      kicker: "01 · 범위",
+      status: "파일은 읽기만 함",
       tone: "neutral",
-      title: "먼저 저장소를 연결합니다.",
-      body: "프로젝트에서 폴더를 선택하면 등록할 Git 저장소를 찾습니다. 이 단계에서는 파일을 바꾸지 않습니다.",
-      bullets: ["Windows 기본 폴더 선택기로 위치를 고릅니다.", "찾은 저장소 중 확인할 범위만 등록합니다."],
-      action: "프로젝트로 이동",
+      title: "프로젝트에서 폴더를 고르세요.",
+      body: "먼저 관찰할 범위를 등록합니다. 등록 전에 찾은 Git 저장소를 직접 고르며, 이 과정은 원본 파일을 바꾸지 않습니다.",
+      place: "프로젝트",
+      control: "프로젝트 등록 → 폴더 선택 → 저장소 찾기",
+      done: "프로젝트 목록에 저장소와 Worktree가 보임",
+      bullets: ["여러 저장소가 나오면 이번에 확인할 저장소만 체크합니다.", "폴더 선택은 Windows 기본 Explorer 대화상자를 사용합니다."],
+      action: "프로젝트 등록 열기",
       href: "#projects",
     },
     {
-      kicker: "확인",
-      status: "현재 상태를 읽는 중",
+      kicker: "02 · 준비",
+      status: "처음 한 번 확인",
       tone: "positive",
-      title: "상태와 근거를 함께 확인합니다.",
-      body: "상태 화면에서 변경이 필요한 항목을 보고, 작업 화면에서 명령·HEAD·Worktree를 확인합니다.",
-      bullets: ["발견된 점검은 기존 저장소 파일을 읽어 제안합니다.", "점검 기준과 실행 결과는 검증 화면에 연결됩니다."],
+      title: "진단에서 실행 가능한 도구를 확인하세요.",
+      body: "Git과 품질 도구의 경로를 확인합니다. Provider나 Agent는 필요한 경우에만 연결하며, 결정론적 점검은 AI 연결 없이도 시작할 수 있습니다.",
+      place: "진단",
+      control: "환경 확인 → 품질 도구 다시 확인",
+      done: "필수 도구가 ‘사용 가능’으로 표시됨",
+      bullets: ["도구 탐색은 설치·버전·신뢰 여부를 대신 판단하지 않습니다.", "Jenkins·릴리스 설정은 외부 작업이 필요할 때만 추가합니다."],
+      action: "진단 열기",
+      href: "#diagnostics",
+    },
+    {
+      kicker: "03 · 우선순위",
+      status: "현재 상태를 기준으로 선택",
+      tone: "neutral",
+      title: "개선에서 먼저 볼 한 가지를 고르세요.",
+      body: "프로젝트를 등록한 뒤 ‘지금 점검’을 실행하면 현재 상태가 갱신됩니다. 개선 화면의 큐에서 확인 항목과 다음 행동을 고릅니다.",
+      place: "개선",
+      control: "지금 점검 → 지금 개선할 것 → 항목 열기",
+      done: "확인 항목에 처리 방향과 다음 행동이 보임",
+      bullets: ["변경된 Worktree나 오래된 근거는 새로 확인해야 합니다.", "항목을 고르면 작업 화면에서 연결된 점검과 실행 계획을 이어서 봅니다."],
+      action: "개선 큐 열기",
+      href: "#home",
+    },
+    {
+      kicker: "04 · 점검",
+      status: "명시적으로 실행",
+      tone: "attention",
+      title: "점검 기준을 검토하고 실행하세요.",
+      body: "작업에서 Worktree를 고른 뒤 기존 점검을 찾습니다. 제안을 확인하고 Checkset으로 만든 다음, 적용한 기준만 실행합니다.",
+      place: "작업",
+      control: "기존 점검 찾기 → 제안 적용 → Checkset 만들기 → 적용 → 실행",
+      done: "결과 보기에서 통과 여부·종료 코드·HEAD를 확인함",
+      bullets: ["점검 명령·제한 시간·원본 파일·digest를 실행 전에 확인합니다.", "근거가 바뀐 ‘stale’ 제안은 실행하지 말고 기존 점검을 다시 찾습니다."],
       action: "작업으로 이동",
       href: "#work",
     },
     {
-      kicker: "승인",
-      status: "사람의 확인이 필요한 단계",
-      tone: "attention",
-      title: "계획을 검토하고 승인합니다.",
-      body: "저장소 최신화나 Jenkins·릴리스처럼 외부에 영향을 주는 작업은 계획을 먼저 만들고, 화면에서 승인한 뒤 실행합니다.",
-      bullets: ["대상·revision·digest가 현재 상태와 맞는지 확인합니다.", "MCP나 자동화도 사람의 승인을 대신할 수 없습니다."],
-      action: "진단과 설정 보기",
-      href: "#diagnostics",
-    },
-    {
-      kicker: "기록",
-      status: "결과를 다시 확인할 수 있음",
+      kicker: "05 · 기록",
+      status: "다시 확인할 수 있음",
       tone: "positive",
-      title: "결과와 근거를 남깁니다.",
-      body: "검증 화면에서는 다시 실행할 수 있는 기준과 결과를, 활동 화면에서는 등록·점검·실행의 흐름을 확인합니다.",
-      bullets: ["성공 여부뿐 아니라 실패 이유와 다음 단계를 남깁니다.", "원문 대화나 비밀 값은 기본 기록 대상이 아닙니다."],
-      action: "상태로 돌아가기",
-      href: "#home",
+      title: "검증에서 결과를 확인하고, 활동에서 흐름을 되짚으세요.",
+      body: "검증에는 Quality Run, 효과, artifact 근거가 연결됩니다. 활동에는 등록·점검·계획·실행이 시간순으로 남아 다음 작업의 출발점이 됩니다.",
+      place: "검증 · 활동",
+      control: "결과 보기 → 검증의 근거 확인 → 활동 기록 열기",
+      done: "무엇을 언제 어떤 기준으로 확인했는지 설명할 수 있음",
+      bullets: ["검증된 효과는 원본·artifact·같은 HEAD의 재검증이 연결된 경우만 집계합니다.", "예시 화면은 실제 기록·비용·효과에 포함되지 않는 읽기 전용 화면입니다."],
+      action: "검증 기록 보기",
+      href: "#assurance",
     },
   ];
   const severityLabels = {
@@ -467,7 +492,8 @@
     kickerContainer.textContent = slide.kicker;
     statusContainer.className = `state-text ${toneClass(slide.tone)}`;
     statusContainer.textContent = slide.status;
-    slideContainer.innerHTML = `<h2 id="guide-slide-title">${escapeHTML(slide.title)}</h2><p>${escapeHTML(slide.body)}</p><ul>${slide.bullets.map(item => `<li>${escapeHTML(item)}</li>`).join("")}</ul><a class="button small" href="${escapeHTML(slide.href)}">${escapeHTML(slide.action)}</a>`;
+    slideContainer.setAttribute("aria-label", `사용법 ${index + 1}단계`);
+    slideContainer.innerHTML = `<h2 id="guide-slide-title">${escapeHTML(slide.title)}</h2><p>${escapeHTML(slide.body)}</p><dl class="guide-action-grid"><div><dt>화면</dt><dd>${escapeHTML(slide.place)}</dd></div><div><dt>누를 것</dt><dd>${escapeHTML(slide.control)}</dd></div><div><dt>완료 기준</dt><dd>${escapeHTML(slide.done)}</dd></div></dl><ul>${slide.bullets.map(item => `<li>${escapeHTML(item)}</li>`).join("")}</ul><a class="button small" href="${escapeHTML(slide.href)}">${escapeHTML(slide.action)}</a>`;
     dotsContainer.innerHTML = guideSlides.map((item, itemIndex) => `<button class="guide-dot ${itemIndex === index ? "selected" : ""}" type="button" data-guide-slide="${itemIndex}" aria-label="${escapeHTML(`${itemIndex + 1}단계: ${item.kicker}`)}" aria-current="${itemIndex === index ? "step" : "false"}">${String(itemIndex + 1).padStart(2, "0")}</button>`).join("");
     if (previous) previous.disabled = index === 0;
     if (next) {

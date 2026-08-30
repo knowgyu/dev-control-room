@@ -509,7 +509,7 @@ function Assert-UIContract {
     Assert-Condition ($html -match 'class="decision-strip' -and $html -match 'class="ledger"' -and $html -match 'class="evidence-flow') "UI shell exposes decision, ledger, and evidence-flow structure"
     Assert-Condition (-not $html.Contains("등록 → 관찰 → 검토 → 실행") -and -not $html.Contains("진행 순서") -and -not $html.Contains("대시보드 보기")) "UI shell removes retired onboarding and Assurance presentation copy"
     Assert-Condition ($html -match 'id="home-onboarding"' -and $html -match 'id="home-next-action-section"' -and $html -match 'id="assurance-refresh"' -and $html -match 'data-view="guide"') "UI shell exposes the v0.13 first-use, guide, next-action, and Assurance controls"
-    Assert-Condition ($html.Contains('/ui/app.css?v=0.14.0') -and $html.Contains('/ui/app.js?v=0.14.0')) "UI shell version-pins release assets to avoid stale browser caches"
+    Assert-Condition ($html.Contains('/ui/app.css?v=0.15.0') -and $html.Contains('/ui/app.js?v=0.15.0')) "UI shell version-pins release assets to avoid stale browser caches"
     Assert-Condition ($html -match 'id="assurance-demo-board"' -and $html -match 'id="assurance-demo"' -and $html.Contains("실제 기록으로 돌아가기")) "Assurance empty state offers an explicit, non-persistent dashboard demo"
     Assert-Condition ($html -match 'id="environment"[^>]*aria-live="polite"' -and $html -match 'id="provider-statuses"[^>]*aria-live="polite"') "UI diagnostic regions announce state changes"
 
