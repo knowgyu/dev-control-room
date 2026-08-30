@@ -25,16 +25,14 @@ jobs:
           test -z "$(gofmt -l $(git ls-files '*.go'))"
           node --check internal/app/ui/app.js
           git diff --check
-      - name: Test
-        run: go test -count=1 ./...
-      - name: Race test
+      - name: Windows cross-build, vet, and verify modules
         env:
-          CGO_ENABLED: "1"
-        run: go test -count=1 -race ./...
-      - name: Vet, build, and verify modules
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
         run: |
           go vet ./...
-          go build ./...
+          go build -trimpath ./...
           go mod verify
 
   windows:
@@ -59,6 +57,7 @@ jobs:
         shell: pwsh
         run: |
           go test -count=1 ./...
+          go test -count=1 -race ./...
           go vet ./...
           go build ./...
           go mod verify
