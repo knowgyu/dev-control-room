@@ -162,6 +162,7 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 - [UI 연구와 제품 대응](docs/AI_GENERATED_UI_RESEARCH_2026-08-30.md)
 - [사용 가이드](docs/USER_GUIDE.md)
 - [v0.14.0 릴리즈 노트](docs/RELEASE_NOTES_v0.14.0.md)
+- [v0.14.0 검증 기록](docs/VERIFICATION_v0.14.0.md)
 - [v0.13.1 검증 기록](docs/VERIFICATION_v0.13.1.md)
 - [v0.13.1 릴리즈 노트](docs/RELEASE_NOTES_v0.13.1.md)
 - [v0.13.0 검증 기록](docs/VERIFICATION_v0.13.0.md)

@@ -2,6 +2,17 @@
 
 Updated: 2026-08-30
 
+## 2026-08-30 v0.14.0 quality improvement release candidate
+
+Source candidate `6543ca67139f2e86545a338b960116b4f5dc32d8` adds the
+quality-first improvement loop: a human-owned Quality Objective lifecycle,
+fail-closed Go coverage evidence, read-only local quality-tool discovery, and
+clearer empty/demo states for the quality surfaces. It passed the full source
+gate, 15 native Windows resilience assertions, and the 373-assertion local
+journey gate. The candidate will publish only a Windows amd64 ZIP plus
+`SHA256SUMS`; arm64 is cross-build verification only. See
+[VERIFICATION_v0.14.0.md](VERIFICATION_v0.14.0.md) for the exact gate record.
+
 ## 2026-08-30 v0.13.1 diagnostics patch release
 
 The patch release keeps the v0.13 product surface and fixes the diagnostics
