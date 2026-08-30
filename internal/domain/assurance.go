@@ -17,56 +17,61 @@ import (
 )
 
 const (
-	AssuranceSessionKind           = "AssuranceSession"
-	AssuranceSpecKind              = "AssuranceSpec"
-	AgentInvocationKind            = "AgentInvocation"
-	QualityCampaignKind            = "QualityCampaign"
-	QualityRunKind                 = "QualityRun"
-	PRCIBaselineKind               = "PRCIBaseline"
-	ArtifactKind                   = "AssuranceArtifact"
-	EffectKind                     = "AssuranceEffect"
-	ProviderPricingSnapshotKind    = "ProviderPricingSnapshot"
-	UnattendedApprovalScopeKind    = "UnattendedApprovalScope"
-	AssuranceQuestionKind          = "AssuranceQuestion"
-	AssuranceProposalKind          = "AssuranceProposal"
-	AssuranceStateDraft            = "draft"
-	AssuranceStateAwaitingAnswer   = "awaiting_answer"
-	AssuranceStateReady            = "ready"
-	AssuranceStateQueued           = "queued"
-	AssuranceStateRunning          = "running"
-	AssuranceStateCancelling       = "cancelling"
-	AssuranceStateInterrupted      = "interrupted"
-	AssuranceStateSucceeded        = "succeeded"
-	AssuranceStateFailed           = "failed"
-	AssuranceStateTimedOut         = "timed_out"
-	AssuranceStateCancelled        = "cancelled"
-	AssuranceStateStale            = "stale"
-	AssuranceStateExpired          = "expired"
-	BaselineRequired               = "required"
-	BaselineObserved               = "observed"
-	BaselineLocalEquivalent        = "local_equivalent"
-	BaselineUnknown                = "unknown"
-	QualityTechniqueStaticSecurity = "static_security"
-	QualityTechniqueMutation       = "mutation"
-	QualityTechniqueProperty       = "property"
-	QualityTechniqueFuzz           = "fuzz"
-	QualityTechniqueTargetedE2E    = "targeted_e2e"
-	ArtifactRetentionActive        = "active"
-	ArtifactRetentionPinned        = "pinned"
-	ArtifactRetentionArchived      = "archived"
-	ArtifactRetentionDeleted       = "deleted"
-	EffectMeasured                 = "measured"
-	EffectPreventedRegression      = "prevented_regression"
-	EffectUserEstimated            = "user_estimated"
-	EffectAIInference              = "ai_inference"
-	EffectUnavailable              = "unavailable"
-	UnattendedScopeDraft           = "draft"
-	UnattendedScopeApproved        = "approved"
-	UnattendedScopeRevoked         = "revoked"
-	UnattendedScopeExpired         = "expired"
-	NetworkPolicyOffline           = "offline"
-	NetworkPolicyPublicDocs        = "public_docs"
-	NetworkPolicyAllowlist         = "allowlist"
+	AssuranceSessionKind               = "AssuranceSession"
+	AssuranceSpecKind                  = "AssuranceSpec"
+	AgentInvocationKind                = "AgentInvocation"
+	QualityCampaignKind                = "QualityCampaign"
+	QualityRunKind                     = "QualityRun"
+	PRCIBaselineKind                   = "PRCIBaseline"
+	ArtifactKind                       = "AssuranceArtifact"
+	EffectKind                         = "AssuranceEffect"
+	ProviderPricingSnapshotKind        = "ProviderPricingSnapshot"
+	UnattendedApprovalScopeKind        = "UnattendedApprovalScope"
+	AssuranceQuestionKind              = "AssuranceQuestion"
+	AssuranceProposalKind              = "AssuranceProposal"
+	AssuranceStateDraft                = "draft"
+	AssuranceStateAwaitingAnswer       = "awaiting_answer"
+	AssuranceStateReady                = "ready"
+	AssuranceStateQueued               = "queued"
+	AssuranceStateRunning              = "running"
+	AssuranceStateCancelling           = "cancelling"
+	AssuranceStateInterrupted          = "interrupted"
+	AssuranceStateSucceeded            = "succeeded"
+	AssuranceStateFailed               = "failed"
+	AssuranceStateTimedOut             = "timed_out"
+	AssuranceStateCancelled            = "cancelled"
+	AssuranceStateStale                = "stale"
+	AssuranceStateExpired              = "expired"
+	BaselineRequired                   = "required"
+	BaselineObserved                   = "observed"
+	BaselineLocalEquivalent            = "local_equivalent"
+	BaselineUnknown                    = "unknown"
+	QualityTechniqueStaticSecurity     = "static_security"
+	QualityTechniqueMutation           = "mutation"
+	QualityTechniqueProperty           = "property"
+	QualityTechniqueFuzz               = "fuzz"
+	QualityTechniqueTargetedE2E        = "targeted_e2e"
+	QualityTechniqueGoTestCoverage     = "go_test_coverage"
+	QualityRunOutcomeTestsFailed       = "tests_failed"
+	QualityRunOutcomeCoverageCollected = "coverage_collected"
+	QualityRunOutcomeRunnerUnavailable = "runner_unavailable"
+	QualityRunOutcomeInconclusive      = "inconclusive"
+	ArtifactRetentionActive            = "active"
+	ArtifactRetentionPinned            = "pinned"
+	ArtifactRetentionArchived          = "archived"
+	ArtifactRetentionDeleted           = "deleted"
+	EffectMeasured                     = "measured"
+	EffectPreventedRegression          = "prevented_regression"
+	EffectUserEstimated                = "user_estimated"
+	EffectAIInference                  = "ai_inference"
+	EffectUnavailable                  = "unavailable"
+	UnattendedScopeDraft               = "draft"
+	UnattendedScopeApproved            = "approved"
+	UnattendedScopeRevoked             = "revoked"
+	UnattendedScopeExpired             = "expired"
+	NetworkPolicyOffline               = "offline"
+	NetworkPolicyPublicDocs            = "public_docs"
+	NetworkPolicyAllowlist             = "allowlist"
 )
 
 var requiredUnattendedProhibitions = []string{
@@ -241,31 +246,44 @@ type QualityRun struct {
 }
 
 type QualityRunSpec struct {
-	CampaignID             string         `json:"campaignId"`
-	ProjectID              string         `json:"projectId"`
-	RepositoryID           string         `json:"repositoryId"`
-	WorktreeID             string         `json:"worktreeId"`
-	Branch                 string         `json:"branch,omitempty"`
-	Head                   string         `json:"head"`
-	BaselineID             string         `json:"baselineId,omitempty"`
-	Technique              string         `json:"technique"`
-	Runner                 string         `json:"runner"`
-	Command                CheckCommand   `json:"command"`
-	ConfigDigest           string         `json:"configDigest"`
-	State                  string         `json:"state"`
-	Summary                string         `json:"summary,omitempty"`
-	ExitCode               int            `json:"exitCode,omitempty"`
-	StartedAt              time.Time      `json:"startedAt"`
-	CompletedAt            *time.Time     `json:"completedAt,omitempty"`
-	ArtifactIDs            []string       `json:"artifactIds,omitempty"`
-	InvocationIDs          []string       `json:"invocationIds,omitempty"`
-	InputDigest            string         `json:"inputDigest,omitempty"`
-	OutputDigest           string         `json:"outputDigest,omitempty"`
-	TraceID                string         `json:"traceId,omitempty"`
-	IsReverification       bool           `json:"isReverification,omitempty"`
-	ReverificationEffectID string         `json:"reverificationEffectId,omitempty"`
-	Evidence               map[string]any `json:"evidence,omitempty"`
-	StaleReason            string         `json:"staleReason,omitempty"`
+	CampaignID             string           `json:"campaignId"`
+	ProjectID              string           `json:"projectId"`
+	RepositoryID           string           `json:"repositoryId"`
+	WorktreeID             string           `json:"worktreeId"`
+	Branch                 string           `json:"branch,omitempty"`
+	Head                   string           `json:"head"`
+	BaselineID             string           `json:"baselineId,omitempty"`
+	Technique              string           `json:"technique"`
+	Runner                 string           `json:"runner"`
+	Command                CheckCommand     `json:"command"`
+	ConfigDigest           string           `json:"configDigest"`
+	State                  string           `json:"state"`
+	Outcome                string           `json:"outcome,omitempty"`
+	Summary                string           `json:"summary,omitempty"`
+	ExitCode               int              `json:"exitCode,omitempty"`
+	Coverage               *QualityCoverage `json:"coverage,omitempty"`
+	StartedAt              time.Time        `json:"startedAt"`
+	CompletedAt            *time.Time       `json:"completedAt,omitempty"`
+	ArtifactIDs            []string         `json:"artifactIds,omitempty"`
+	InvocationIDs          []string         `json:"invocationIds,omitempty"`
+	InputDigest            string           `json:"inputDigest,omitempty"`
+	OutputDigest           string           `json:"outputDigest,omitempty"`
+	TraceID                string           `json:"traceId,omitempty"`
+	IsReverification       bool             `json:"isReverification,omitempty"`
+	ReverificationEffectID string           `json:"reverificationEffectId,omitempty"`
+	Evidence               map[string]any   `json:"evidence,omitempty"`
+	StaleReason            string           `json:"staleReason,omitempty"`
+}
+
+// QualityCoverage is the bounded, structured summary of a native Go coverage
+// profile. It is evidence only; coverage percentage is not a quality score.
+type QualityCoverage struct {
+	Mode              string  `json:"mode"`
+	FileCount         int     `json:"fileCount"`
+	TotalStatements   int     `json:"totalStatements"`
+	CoveredStatements int     `json:"coveredStatements"`
+	Percent           float64 `json:"percent"`
+	ProfileArtifactID string  `json:"profileArtifactId"`
 }
 
 type BaselineEntry struct {
@@ -564,6 +582,24 @@ func (r QualityRun) Validate() error {
 	}
 	if !validIdentifier(r.Spec.CampaignID) || !validQualityTechnique(r.Spec.Technique) || strings.TrimSpace(r.Spec.Runner) == "" || !validAssuranceState(r.Spec.State) || r.Spec.StartedAt.IsZero() {
 		return errors.New("quality run contract is incomplete")
+	}
+	if r.Spec.Outcome != "" && !validQualityRunOutcome(r.Spec.Outcome) {
+		return errors.New("quality run outcome is invalid")
+	}
+	if r.Spec.Coverage != nil && r.Spec.Coverage.Validate() != nil {
+		return errors.New("quality run coverage summary is invalid")
+	}
+	return nil
+}
+
+func (c QualityCoverage) Validate() error {
+	switch c.Mode {
+	case "set", "count", "atomic":
+	default:
+		return errors.New("quality coverage mode is invalid")
+	}
+	if c.FileCount < 0 || c.TotalStatements < 0 || c.CoveredStatements < 0 || c.CoveredStatements > c.TotalStatements || c.Percent < 0 || c.Percent > 100 || strings.TrimSpace(c.ProfileArtifactID) == "" || !validIdentifier(c.ProfileArtifactID) {
+		return errors.New("quality coverage values are invalid")
 	}
 	return nil
 }
@@ -1022,7 +1058,15 @@ func validAssuranceState(value string) bool {
 }
 func validQualityTechnique(value string) bool {
 	switch value {
-	case QualityTechniqueStaticSecurity, QualityTechniqueMutation, QualityTechniqueProperty, QualityTechniqueFuzz, QualityTechniqueTargetedE2E:
+	case QualityTechniqueStaticSecurity, QualityTechniqueMutation, QualityTechniqueProperty, QualityTechniqueFuzz, QualityTechniqueTargetedE2E, QualityTechniqueGoTestCoverage:
+		return true
+	}
+	return false
+}
+
+func validQualityRunOutcome(value string) bool {
+	switch value {
+	case QualityRunOutcomeTestsFailed, QualityRunOutcomeCoverageCollected, QualityRunOutcomeRunnerUnavailable, QualityRunOutcomeInconclusive:
 		return true
 	}
 	return false

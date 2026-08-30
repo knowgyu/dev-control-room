@@ -2,6 +2,9 @@
 /dev-control-room
 /dev-control-room.exe
 /artifacts/
+.codex-test-temp/
+/internal/app/.quality-coverage-*/
+/internal/app/.codex-quality-coverage-*/
 *.test
 *.out
 

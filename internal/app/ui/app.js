@@ -26,6 +26,8 @@
     assuranceImpactError: "",
     assuranceStorageError: "",
     assuranceTraceError: "",
+    qualityHome: { status: "loading", data: null, error: "" },
+    qualityTools: { status: "loading", data: null, error: "" },
     assuranceFilters: { days: "30", provider: "", model: "", project: "" },
     assuranceEffectFilter: "all",
     workItems: [],
@@ -54,9 +56,16 @@
     surfaceErrors: { checksets: "", actions: "", cleanup: "", safeguards: "", profiles: "", integrations: "", externalGroups: "", runbooks: "" },
     loaded: { work: false, diagnostics: false },
     loading: { work: false, diagnostics: false },
+    qualityObjective: {
+      selectedID: "",
+      status: "idle",
+      data: null,
+      error: "",
+      mutation: { kind: "", status: "idle", error: "", draft: {} },
+    },
   };
   const routeTitles = {
-    home: "상태",
+    home: "개선",
     projects: "프로젝트",
     work: "작업",
     assurance: "검증",
@@ -379,12 +388,20 @@
     const [path, query = ""] = location.hash.slice(1).split("?", 2);
     const [name, projectID = ""] = path.split("/", 2);
     let findingID = "";
+    let objectiveID = "";
     try {
-      findingID = new URLSearchParams(query).get("finding") || "";
+      const params = new URLSearchParams(query);
+      findingID = params.get("finding") || "";
+      objectiveID = params.get("objective") || "";
     } catch (_) {
       findingID = "";
+      objectiveID = "";
     }
-    return { name, projectID: decodeURIComponentSafe(projectID), findingID, query };
+    return { name, projectID: decodeURIComponentSafe(projectID), findingID, objectiveID, query };
+  };
+  const isAssuranceDemoRoute = () => {
+    const target = routeState();
+    return target.name === "assurance" && new URLSearchParams(target.query || "").get("demo") === "1";
   };
   const guideSlideIndex = () => {
     const query = new URLSearchParams(routeState().query || "");
@@ -469,7 +486,12 @@
   async function request(path, options = {}) {
     const response = await fetch(path, options);
     const body = await response.json();
-    if (!response.ok || !body.ok) throw new Error(body.error?.message || `요청에 실패했습니다. (${response.status})`);
+    if (!response.ok || !body.ok) {
+      const error = new Error(body.error?.message || `요청에 실패했습니다. (${response.status})`);
+      error.status = response.status;
+      error.code = body.error?.code || "";
+      throw error;
+    }
     return body.data;
   }
 
@@ -491,6 +513,7 @@
     activeRoute = active;
     if (active === "assurance") applyAssuranceRouteState(target);
     pendingFindingID = active === "projects" ? target.findingID : "";
+    state.qualityObjective.selectedID = active === "home" ? decodeURIComponentSafe(target.objectiveID) : "";
     if (active === "projects" && target.projectID) state.activeProjectID = target.projectID;
     document.querySelectorAll("[data-view]").forEach(view => { view.hidden = view.dataset.view !== active; });
     document.querySelectorAll("[data-route]").forEach(link => {
@@ -501,6 +524,8 @@
     if (main) main.setAttribute("aria-label", routeTitles[active]);
     document.title = `${routeTitles[active]} · Dev Control Room`;
     if (active === "guide") renderGuide();
+    if (active === "assurance" && initialized) renderAssuranceDashboard();
+    if (active === "home") renderQualityObjectiveDetail();
     window.scrollTo({ top: 0 });
     if (active === "projects" && initialized) renderProjects();
     window.clearTimeout(routeFocusTimer);
@@ -567,35 +592,322 @@
     </article>`;
   }
 
+  const qualityHomeObject = value => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const normalizeQualityHome = value => {
+    const data = qualityHomeObject(value);
+    return {
+      summary: qualityHomeObject(data.summary),
+      queue: Array.isArray(data.queue) ? data.queue.filter(item => item && typeof item === "object") : [],
+      objectives: Array.isArray(data.objectives) ? data.objectives : [],
+    };
+  };
+  const normalizeQualityTools = value => {
+    const data = qualityHomeObject(value);
+    return {
+      checkedAt: data.checkedAt || "",
+      tools: Array.isArray(data.tools) ? data.tools.filter(item => item && typeof item === "object") : [],
+      capabilities: Array.isArray(data.capabilities) ? data.capabilities.filter(item => item && typeof item === "object") : [],
+    };
+  };
+  const qualityToolsStateLabels = {
+    available: "탐색됨",
+    present_unverified: "후보 발견 · 미검증",
+    needs_target: "대상 필요",
+    missing: "탐색되지 않음",
+    installed_not_registered: "설치됐지만 미등록",
+    untrusted: "신뢰 확인 안 됨",
+  };
+  const qualityToolsStateLabel = value => qualityToolsStateLabels[value] || "상태 미상";
+  const qualityToolsStateClass = value => Object.prototype.hasOwnProperty.call(qualityToolsStateLabels, value) ? value : "unknown";
+  const qualityToolsErrorMessage = error => {
+    const raw = String(error?.message || "").trim();
+    const technical = error?.name === "SyntaxError" || error?.name === "TypeError" || /JSON|fetch|network|failed to load|요청에 실패했습니다\.\s*\(\d{3}\)/i.test(raw);
+    if (raw && !technical) return `품질 도구 탐색 결과를 불러오지 못했습니다. 서버 안내: ${raw} 서버 버전과 연결 상태를 확인한 뒤 다시 확인하세요.`;
+    return "품질 도구 탐색 결과를 불러오지 못했습니다. 서버 버전과 연결 상태를 확인한 뒤 다시 확인하세요.";
+  };
+  const qualityToolsItemMeta = item => [
+    item.version ? `버전 ${item.version}` : "",
+    item.path ? `경로 ${item.path}` : "",
+    item.runnerId ? `실행기 ${item.runnerId}` : "",
+    item.toolId ? `도구 ${item.toolId}` : "",
+  ].filter(Boolean).join(" · ");
+  const renderQualityToolsItem = (item, kind) => {
+    const stateValue = String(item?.state || "");
+    const stateClass = qualityToolsStateClass(stateValue);
+    const name = String(item?.name || item?.id || "이름 없는 품질 항목");
+    const reason = String(item?.reason || "상태 설명이 제공되지 않았습니다.");
+    const guidance = String(item?.installGuidance || "설치·설정 안내가 제공되지 않았습니다.");
+    const meta = qualityToolsItemMeta(item);
+    return `<article class="quality-tools-entry quality-tools-entry--${stateClass}">
+      <div class="quality-tools-entry__heading"><div><h4>${escapeHTML(name)}</h4><p class="quality-tools-entry__kind">${escapeHTML(kind)}</p></div><span class="quality-tools-state quality-tools-state--${stateClass}" aria-label="상태: ${escapeHTML(qualityToolsStateLabel(stateValue))}">${escapeHTML(qualityToolsStateLabel(stateValue))}</span></div>
+      <p class="quality-tools-entry__reason"><span>탐색 설명</span>${escapeHTML(reason)}</p>
+      <p class="quality-tools-entry__guidance"><span>설치·설정 안내</span>${escapeHTML(guidance)}</p>
+      ${meta ? `<p class="quality-tools-entry__meta">${escapeHTML(meta)}</p>` : ""}
+    </article>`;
+  };
+  function renderQualityTools() {
+    const container = document.getElementById("quality-tools");
+    if (!container) return;
+    const qualityTools = state.qualityTools || { status: "loading", data: null, error: "" };
+    const data = normalizeQualityTools(qualityTools.data);
+    const loading = qualityTools.status === "loading";
+    const failed = qualityTools.status === "error";
+    const hasTools = data.tools.length > 0;
+    const hasCapabilities = data.capabilities.length > 0;
+    container.setAttribute("aria-busy", String(loading));
+    if (loading) {
+      container.innerHTML = '<div class="quality-tools-loading"><strong>로컬 도구 탐색 결과를 불러오는 중입니다.</strong><span>서버가 제공한 도구·기능 탐색 결과를 읽고 있습니다.</span></div>';
+      return;
+    }
+    if (failed) {
+      container.innerHTML = `<div class="quality-tools-error" role="alert"><strong>품질 도구 탐색 결과를 확인하지 못했습니다.</strong><span>${escapeHTML(qualityTools.error || "서버 버전과 연결 상태를 확인한 뒤 다시 확인하세요.")}</span><button class="button small" type="button" data-quality-tools-retry>다시 확인</button></div>`;
+      return;
+    }
+    if (!hasTools && !hasCapabilities) {
+      container.innerHTML = '<div class="quality-tools-empty"><strong>탐색 결과에 품질 도구나 기능이 없습니다.</strong><span>이 서버가 제공한 도구·기능 탐색 결과가 비어 있습니다.</span></div>';
+      return;
+    }
+    const checkedAt = data.checkedAt ? `<span>탐색 시각 ${escapeHTML(formatDate(data.checkedAt))}</span>` : "";
+    container.innerHTML = `<div class="quality-tools-summary">${checkedAt}<span>도구 ${formatCount(data.tools.length)}개 · 기능 ${formatCount(data.capabilities.length)}개</span></div>${hasTools ? `<section class="quality-tools-group" aria-labelledby="quality-tools-installed-title"><h3 id="quality-tools-installed-title">도구 항목</h3><div class="quality-tools-list">${data.tools.map(item => renderQualityToolsItem(item, "도구")).join("")}</div></section>` : ""}${hasCapabilities ? `<section class="quality-tools-group" aria-labelledby="quality-tools-capabilities-title"><h3 id="quality-tools-capabilities-title">품질 기능 항목</h3><div class="quality-tools-list">${data.capabilities.map(item => renderQualityToolsItem(item, "기능")).join("")}</div></section>` : ""}`;
+  }
+  const qualitySummaryCount = (summary, key) => {
+    const value = Number(summary?.[key]);
+    return Number.isFinite(value) && value >= 0 ? formatCount(value) : "—";
+  };
+  const qualityQueueKindLabels = {
+    QualityObjective: "품질 목표",
+    QualityRun: "품질 점검",
+    PRCIBaseline: "PR/CI 기준선",
+    AssuranceProposal: "검증 제안",
+    Finding: "확인 항목",
+    Proposal: "점검 제안",
+  };
+  const qualityQueueStateLabels = {
+    critic_advisory: "검토 대기",
+    proposed: "검토 대기",
+  };
+  const qualityQueueKindLabel = kind => qualityQueueKindLabels[kind] || kind || "개선 항목";
+  const qualityQueueStateLabel = stateValue => qualityQueueStateLabels[stateValue] || label(stateValue);
+  const qualityQueueTone = item => {
+    const severity = String(item?.severity || "").toLowerCase();
+    const itemState = String(item?.state || "").toLowerCase();
+    if (["critical", "high"].includes(severity) || ["failed", "timed_out", "interrupted"].includes(itemState)) return "negative";
+    if (["attention"].includes(severity) || ["blocked", "stale", "pending", "proposed", "critic_advisory"].includes(itemState)) return "attention";
+    return "neutral";
+  };
+  const qualityQueueScope = item => [item?.projectId, item?.repositoryId, item?.worktreeId].filter(Boolean).join(" / ") || "전체 범위";
+  const qualityQueueAction = item => {
+    const kind = String(item?.kind || "");
+    const stateValue = String(item?.state || "");
+    const projectID = String(item?.projectId || "");
+    const referenceID = String(item?.referenceId || "");
+    const projectPath = projectID ? `#projects/${encode(projectID)}` : "#projects";
+    if (kind === "Finding") {
+      return { label: "확인 항목 열기", href: projectID && referenceID ? `${projectPath}?finding=${encode(referenceID)}` : projectPath };
+    }
+    if (kind === "QualityObjective") return { label: "개선 과제 열기", href: referenceID ? `#home?objective=${encode(referenceID)}` : "#home" };
+    if (kind === "Proposal") return { label: "점검 제안 검토", href: "#work" };
+    if (kind === "QualityRun") return { label: ["queued", "running", "cancelling"].includes(stateValue) ? "진행 상태 보기" : "검증 결과 보기", href: "#assurance" };
+    if (kind === "PRCIBaseline") return { label: "기준선 확인", href: "#assurance" };
+    if (kind === "AssuranceProposal") return { label: "검증 제안 검토", href: "#assurance" };
+    return { label: "관련 기록 보기", href: "#activity" };
+  };
+
+  function renderQualityQueueItem(item, index) {
+    const tone = qualityQueueTone(item);
+    const kind = qualityQueueKindLabel(String(item.kind || ""));
+    const stateValue = String(item.state || "");
+    const title = String(item.title || "").trim() || "제목이 기록되지 않은 개선 항목";
+    const reason = String(item.summary || "").trim() || "개선 사유가 기록되지 않았습니다.";
+    const action = qualityQueueAction(item);
+    const itemID = String(item.id || item.referenceId || `queue-${index}`);
+    return `<article class="quality-queue-item ${rowToneClass(tone)}" data-quality-queue-id="${escapeHTML(itemID)}">
+      <div class="quality-queue-item__status">
+        <span class="eyebrow">${escapeHTML(kind)}</span>
+        ${stateText(qualityQueueStateLabel(stateValue), tone)}
+      </div>
+      <div class="quality-queue-item__body">
+        <div class="quality-queue-item__heading"><h3>${escapeHTML(title)}</h3></div>
+        <p class="quality-queue-item__why"><span>이유</span>${escapeHTML(reason)}</p>
+        <div class="quality-queue-item__footer"><span class="quality-queue-item__scope">${escapeHTML(qualityQueueScope(item))} · 업데이트 ${escapeHTML(formatDate(item.updatedAt))}</span><a class="button small quality-queue-item__action" href="${escapeHTML(action.href)}">${escapeHTML(action.label)}</a></div>
+      </div>
+    </article>`;
+  }
+
+  function renderQualityHome() {
+    const metrics = document.getElementById("home-metrics");
+    const queueContainer = document.getElementById("home-findings");
+    const queueStatus = document.getElementById("quality-queue-status");
+    const nextAction = document.getElementById("home-next-action");
+    if (!metrics || !queueContainer || !nextAction) return;
+    const qualityHome = state.qualityHome || { status: "loading", data: null, error: "" };
+    const data = normalizeQualityHome(qualityHome.data);
+    const loading = qualityHome.status === "loading";
+    const failed = qualityHome.status === "error";
+    const queue = data.queue;
+    const firstItem = queue[0];
+    const setMetric = (id, value) => { const element = document.getElementById(id); if (element) element.textContent = value; };
+    metrics.setAttribute("aria-busy", String(loading));
+    queueContainer.setAttribute("aria-busy", String(loading));
+    nextAction.setAttribute("aria-busy", String(loading));
+    setMetric("m-quality-queue", qualityHome.status === "ready" ? qualitySummaryCount(data.summary, "queueItems") : "—");
+    setMetric("m-quality-findings", qualityHome.status === "ready" ? qualitySummaryCount(data.summary, "openFindings") : "—");
+    setMetric("m-quality-failed-runs", qualityHome.status === "ready" ? qualitySummaryCount(data.summary, "failedRuns") : "—");
+    setMetric("m-quality-objectives", qualityHome.status === "ready" ? qualitySummaryCount(data.summary, "activeObjectives") : "—");
+    if (queueStatus) {
+      queueStatus.textContent = loading ? "응답을 기다리는 중" : failed ? "읽기 실패" : `${formatCount(queue.length)}개 · 목표 ${formatCount(data.objectives.length)}개`;
+    }
+    if (loading) {
+      queueContainer.innerHTML = '<div class="quality-queue-loading"><strong>품질 개선 항목을 불러오는 중입니다.</strong><span>저장된 QualityHome 결과를 읽고 있습니다.</span></div>';
+      nextAction.innerHTML = '<div class="quality-queue-next-state"><strong>다음 행동을 계산하는 중입니다.</strong><p>개선 큐의 첫 항목을 확인하고 있습니다.</p></div>';
+      return;
+    }
+    if (failed) {
+      const errorMessage = qualityHome.error || "품질 개선 큐를 읽지 못했습니다.";
+      queueContainer.innerHTML = `<div class="quality-queue-error" role="alert"><strong>품질 개선 큐를 불러오지 못했습니다.</strong><span>${escapeHTML(errorMessage)}</span><button class="button small" type="button" data-quality-retry>다시 불러오기</button></div>`;
+      nextAction.innerHTML = `<div class="quality-queue-next-state"><strong>품질 개선 큐를 다시 불러오세요.</strong><p>다른 프로젝트·실행·활동 데이터는 계속 확인할 수 있습니다.</p><button class="button small" type="button" data-quality-retry>다시 불러오기</button></div>`;
+      return;
+    }
+    queueContainer.innerHTML = queue.length
+      ? `<div class="quality-queue-list">${queue.map(renderQualityQueueItem).join("")}</div>`
+      : '<div class="quality-queue-empty"><strong>현재 확인할 품질 개선 항목이 없습니다.</strong><span>저장된 QualityHome 결과에 개선 큐가 비어 있습니다.</span></div>';
+    if (firstItem) {
+      const title = String(firstItem.title || "").trim() || "첫 번째 개선 항목";
+      const action = qualityQueueAction(firstItem);
+      nextAction.innerHTML = `<div class="quality-queue-next-state"><span class="eyebrow">큐 첫 항목</span><strong>${escapeHTML(title)}</strong><p>${escapeHTML(String(firstItem.summary || "개선 사유가 기록되지 않았습니다."))}</p><a class="button primary small" href="${escapeHTML(action.href)}">${escapeHTML(action.label)}</a></div>`;
+      return;
+    }
+    const hasProjects = (state.snapshot.projects || []).length > 0;
+    nextAction.innerHTML = hasProjects
+      ? '<div class="quality-queue-next-state"><strong>새 개선 항목을 확인하세요.</strong><p>현재 큐가 비어 있습니다. 작업에서 Quality Run을 실행하면 새 결과를 확인할 수 있습니다.</p><a class="button primary small" href="#work">Quality Run 실행으로 이동</a></div>'
+      : '<div class="quality-queue-next-state"><strong>품질 개선을 시작하세요.</strong><p>프로젝트를 등록하면 저장된 품질 결과를 바탕으로 개선 큐를 만들 수 있습니다.</p><a class="button primary small" href="#projects">프로젝트 등록으로 이동</a></div>';
+  }
+
+  const qualityObjectiveStateLabels = {
+    draft: "초안",
+    baseline_pending: "기준 확인 대기",
+    ready: "개선 준비",
+    running: "점검 중",
+    review: "개선 확인 대기",
+    adopted: "개선 완료",
+    rejected: "제외됨",
+    stale: "근거 오래됨",
+    blocked: "보류됨",
+  };
+  const qualityObjectiveOutcomeLabels = {
+    improved: "개선 확인",
+    not_improved: "아직 개선되지 않음",
+    inconclusive: "확인 불가",
+  };
+  const qualityObjectiveSignalLabels = {
+    finding: "확인 항목",
+    go_coverage: "Go 커버리지 점검",
+  };
+  const qualityObjectiveStateLabel = value => qualityObjectiveStateLabels[value] || "상태 미상";
+  const qualityObjectiveOutcomeLabel = value => qualityObjectiveOutcomeLabels[value] || "결과 미상";
+  const qualityObjectiveSignalLabel = value => qualityObjectiveSignalLabels[value] || "원본 신호 미상";
+  const qualityObjectiveTone = value => {
+    if (["adopted", "review"].includes(value)) return "positive";
+    if (["rejected", "stale"].includes(value)) return "negative";
+    if (["blocked", "baseline_pending"].includes(value)) return "attention";
+    return "neutral";
+  };
+  const qualityObjectiveSpec = value => value?.spec && typeof value.spec === "object" ? value.spec : {};
+  const qualityObjectiveLatest = spec => (Array.isArray(spec.revalidations) ? spec.revalidations : []).slice().sort((left, right) => {
+    const rightTime = new Date(right.checkedAt || 0).getTime();
+    const leftTime = new Date(left.checkedAt || 0).getTime();
+    if (rightTime !== leftTime) return rightTime - leftTime;
+    return Number(right.sequence || 0) - Number(left.sequence || 0);
+  })[0] || null;
+  const qualityObjectiveDraftValue = (draft, key) => String(draft?.[key] ?? "");
+  const qualityObjectiveMutationError = error => error?.status === 409
+    ? "다른 화면에서 과제가 변경되었습니다. 최신 상태를 다시 불러온 뒤 확인하세요."
+    : error?.message || "요청을 완료하지 못했습니다. 잠시 후 다시 시도하세요.";
+  const qualityObjectiveDecisionStates = new Set(["draft", "baseline_pending", "blocked"]);
+
+  function renderQualityObjectiveDecisionForm(spec, draft) {
+    if (!qualityObjectiveDecisionStates.has(spec.state)) return "";
+    const disposition = qualityObjectiveDraftValue(draft, "disposition");
+    const coverage = spec.primarySignal?.kind === "go_coverage";
+    return `<section class="quality-objective-form" aria-labelledby="quality-objective-decision-title">
+      <div class="section-heading"><div><span class="eyebrow">사람의 결정</span><h3 id="quality-objective-decision-title">이 과제를 어떻게 다룰까요?</h3></div></div>
+      <form data-quality-objective-decision class="form-grid">
+        <label><span>처리 방침</span><select name="disposition" data-quality-objective-disposition required><option value="">선택하세요</option><option value="pursue" ${disposition === "pursue" ? "selected" : ""}>개선하기</option><option value="defer" ${disposition === "defer" ? "selected" : ""}>보류하기</option><option value="dismiss" ${disposition === "dismiss" ? "selected" : ""}>제외하기</option></select></label>
+        <label><span>담당자</span><input name="actor" value="${escapeHTML(qualityObjectiveDraftValue(draft, "actor"))}" autocomplete="off" required placeholder="직접 입력"></label>
+        ${disposition === "pursue" ? `<label class="wide"><span>하기로 한 일</span><textarea name="action" rows="3" required placeholder="예: 경계 입력 테스트를 추가합니다.">${escapeHTML(qualityObjectiveDraftValue(draft, "action"))}</textarea></label>` : ""}
+        ${["defer", "dismiss"].includes(disposition) ? `<label class="wide"><span>이유</span><textarea name="reason" rows="3" required placeholder="결정 이유를 직접 입력하세요.">${escapeHTML(qualityObjectiveDraftValue(draft, "reason"))}</textarea></label>` : ""}
+        ${coverage ? `<label><span>최소 커버리지 (%)</span><input name="minimumPercent" type="number" min="0" max="100" step="0.01" value="${escapeHTML(qualityObjectiveDraftValue(draft, "minimumPercent"))}" placeholder="기준을 직접 입력"></label>` : ""}
+        <div class="item-actions wide"><button class="button primary small" type="submit">결정 저장</button></div>
+      </form>
+    </section>`;
+  }
+
+  function renderQualityObjectiveRevalidationForm(spec, draft) {
+    if (!spec.decision || ["adopted", "rejected", "stale"].includes(spec.state)) return "";
+    const sourceKind = qualityObjectiveDraftValue(draft, "sourceKind") || (spec.primarySignal?.kind === "finding" ? "finding" : "qualityRun");
+    const fieldName = sourceKind === "finding" ? "findingId" : "qualityRunId";
+    const sourceHint = sourceKind === "finding" ? "후속 Finding ID" : "후속 Quality Run ID";
+    return `<section class="quality-objective-form" aria-labelledby="quality-objective-revalidation-title">
+      <div class="section-heading"><div><span class="eyebrow">결과 연결</span><h3 id="quality-objective-revalidation-title">후속 점검 결과 연결</h3></div></div>
+      <form data-quality-objective-revalidation class="form-grid">
+        <fieldset class="quality-objective-source-choice wide"><legend>결과 종류</legend><label><input type="radio" name="sourceKind" value="finding" data-quality-objective-source ${sourceKind === "finding" ? "checked" : ""}> Finding</label><label><input type="radio" name="sourceKind" value="qualityRun" data-quality-objective-source ${sourceKind === "qualityRun" ? "checked" : ""}> Quality Run</label></fieldset>
+        <label class="wide"><span>${sourceHint}</span><input name="sourceId" value="${escapeHTML(qualityObjectiveDraftValue(draft, "sourceValue"))}" autocomplete="off" required placeholder="ID를 직접 입력"><small>서버가 저장된 결과를 확인해 개선 여부를 판정합니다.</small></label>
+        <div class="item-actions wide"><button class="button small" type="submit">결과 연결</button></div>
+      </form>
+    </section>`;
+  }
+
+  function renderQualityObjectiveDetail() {
+    const panel = document.getElementById("quality-objective-detail");
+    if (!panel) return;
+    const detail = state.qualityObjective || { selectedID: "", status: "idle", data: null, error: "", mutation: { draft: {} } };
+    const selectedID = detail.selectedID;
+    panel.hidden = !selectedID;
+    if (!selectedID) {
+      panel.innerHTML = "";
+      return;
+    }
+    const loading = detail.status === "loading" || detail.status === "idle";
+    panel.setAttribute("aria-busy", String(loading));
+    if (loading) {
+      panel.innerHTML = '<div class="quality-objective-loading"><strong>개선 과제 상세를 불러오는 중입니다.</strong><span>원본 신호와 최신 재검증 기록을 확인합니다.</span></div>';
+      return;
+    }
+    if (detail.status === "not_found") {
+      panel.innerHTML = '<div class="quality-objective-error" role="alert"><strong>개선 과제를 찾지 못했습니다.</strong><span>큐에서 항목이 제거되었거나 주소가 오래되었습니다.</span><a class="button small" href="#home">큐로 돌아가기</a></div>';
+      return;
+    }
+    if (detail.status === "error" || !detail.data) {
+      panel.innerHTML = `<div class="quality-objective-error" role="alert"><strong>개선 과제 상세를 불러오지 못했습니다.</strong><span>${escapeHTML(detail.error || "잠시 후 다시 시도하세요.")}</span><button class="button small" type="button" data-quality-objective-retry>다시 불러오기</button></div>`;
+      return;
+    }
+    const spec = qualityObjectiveSpec(detail.data);
+    const stateValue = String(spec.state || "");
+    const latest = qualityObjectiveLatest(spec);
+    const draft = detail.mutation?.draft || {};
+    const mutationError = detail.mutation?.error ? `<p class="quality-objective-mutation-error" role="alert">${escapeHTML(detail.mutation.error)}</p>` : "";
+    const signal = spec.primarySignal;
+    const signalDetail = signal ? `<dl class="detail-grid"><div><dt>종류</dt><dd>${escapeHTML(qualityObjectiveSignalLabel(signal.kind))}</dd></div><div><dt>원본 ID</dt><dd><code>${escapeHTML(signal.id)}</code></dd></div>${signal.fingerprint ? `<div class="wide"><dt>Fingerprint</dt><dd><code>${escapeHTML(signal.fingerprint)}</code></dd></div>` : ""}${signal.head ? `<div><dt>원본 HEAD</dt><dd><code>${escapeHTML(signal.head)}</code></dd></div>` : ""}${signal.configDigest ? `<div><dt>Config digest</dt><dd><code>${escapeHTML(signal.configDigest)}</code></dd></div>` : ""}<div><dt>관측 시각</dt><dd>${escapeHTML(formatDate(signal.observedAt))}</dd></div></dl>` : '<p class="empty-state">연결된 원본 신호가 없습니다.</p>';
+    const decision = spec.decision;
+    const decisionDetail = decision ? `<dl class="detail-grid"><div><dt>처리 방침</dt><dd>${escapeHTML(decision.disposition === "pursue" ? "개선하기" : decision.disposition === "defer" ? "보류하기" : decision.disposition === "dismiss" ? "제외하기" : "상태 미상")}</dd></div><div><dt>담당자</dt><dd>${escapeHTML(decision.actor || "기록 없음")}</dd></div>${decision.action ? `<div class="wide"><dt>하기로 한 일</dt><dd>${escapeHTML(decision.action)}</dd></div>` : ""}${decision.reason ? `<div class="wide"><dt>이유</dt><dd>${escapeHTML(decision.reason)}</dd></div>` : ""}${signal?.kind === "go_coverage" && decision.minimumPercent ? `<div><dt>최소 커버리지</dt><dd>${escapeHTML(decision.minimumPercent)}%</dd></div>` : ""}<div><dt>결정 시각</dt><dd>${escapeHTML(formatDate(decision.decidedAt))}</dd></div></dl>` : '<p class="empty-state">아직 처리 방침을 정하지 않았습니다.</p>';
+    const revalidations = Array.isArray(spec.revalidations) ? spec.revalidations : [];
+    const timeline = revalidations.length ? `<ol class="quality-objective-timeline">${revalidations.map(item => `<li><div><strong>${escapeHTML(qualityObjectiveOutcomeLabel(item.outcome))}</strong><span>${escapeHTML(formatDate(item.checkedAt))}</span></div><p>${escapeHTML(item.sourceKind === "finding" ? "Finding" : item.sourceKind === "go_coverage" ? "Quality Run" : "원본 신호 미상")} · <code>${escapeHTML(item.sourceId || "기록 없음")}</code></p><small>${escapeHTML(item.reasonCode || "판정 이유 없음")}</small></li>`).join("")}</ol>` : '<p class="empty-state">아직 연결한 재검증 결과가 없습니다.</p>';
+    const canConfirm = stateValue === "review" && latest?.outcome === "improved";
+    const confirm = canConfirm ? '<div class="quality-objective-confirm"><p>최신 결과에서 개선이 확인되었습니다. 현재 Worktree를 다시 확인한 뒤 완료 처리할 수 있습니다.</p><button class="button primary small" type="button" data-quality-objective-confirm>완료 확인</button></div>' : "";
+    const staleNote = stateValue === "stale" ? '<p class="quality-objective-notice" role="status">현재 Worktree와 저장된 근거가 달라 다시 확인해야 합니다.</p>' : "";
+    panel.innerHTML = `<div class="quality-objective-detail-header"><div><span class="eyebrow">선택한 개선 과제</span><h2 id="quality-objective-detail-title">근거와 다음 단계</h2><p class="meta">${escapeHTML([spec.projectId, spec.repositoryId, spec.worktreeId].filter(Boolean).join(" / ") || "범위 기록 없음")}</p></div><span class="quality-objective-state quality-objective-state--${escapeHTML(qualityObjectiveTone(stateValue))}">${escapeHTML(qualityObjectiveStateLabel(stateValue))}</span></div>${staleNote}${mutationError}<div class="quality-objective-sections"><section><div class="section-heading"><div><span class="eyebrow">시작 신호</span><h3>무엇을 보고 시작했나요?</h3></div></div>${signalDetail}</section><section><div class="section-heading"><div><span class="eyebrow">결정</span><h3>사람이 정한 처리 방향</h3></div></div>${decisionDetail}</section><section><div class="section-heading"><div><span class="eyebrow">재검증 기록</span><h3>최근 결과 ${latest ? `· ${escapeHTML(qualityObjectiveOutcomeLabel(latest.outcome))}` : ""}</h3></div></div>${timeline}</section></div>${renderQualityObjectiveDecisionForm(spec, draft)}${renderQualityObjectiveRevalidationForm(spec, draft)}${confirm}`;
+  }
+
   function renderHome() {
     const projects = state.snapshot.projects || [];
-    const repositories = projectRepositories();
     const findings = openFindings();
     const established = projects.length > 0;
-    const readyProviders = state.providerStatuses.filter(item => item.state === "ready").length;
-    const environmentReady = requiredEnvironmentReady(state.environment);
-    const environmentNeedsAttention = Boolean(state.environment.generatedAt) && !environmentReady;
     document.querySelectorAll("[data-home-established-only]").forEach(element => { element.hidden = !established; });
-    document.getElementById("home-title").textContent = established ? "오늘 확인할 일을 정리합니다." : "먼저 저장소를 고릅니다.";
-    document.getElementById("home-subtitle").textContent = established ? "변경 사항과 다음 할 일을 확인합니다." : "선택한 폴더에서 Git 저장소를 찾습니다. 파일은 읽기만 합니다.";
+    document.getElementById("home-title").textContent = established ? "개선할 일을 정리합니다." : "품질 개선을 시작하세요.";
+    document.getElementById("home-subtitle").textContent = established ? "지금 손볼 품질 항목과 다음 행동을 확인합니다." : "프로젝트를 등록하면 저장된 품질 결과에서 개선 항목을 찾습니다.";
     document.getElementById("home-onboarding").hidden = established;
-    document.getElementById("m-projects").textContent = projects.length;
-    document.getElementById("m-repos").textContent = repositories.length;
-    document.getElementById("m-findings").textContent = findings.length;
     document.getElementById("m-scan").textContent = formatDate(state.snapshot.generated_at);
-    document.getElementById("m-environment").textContent = state.environment.generatedAt ? (environmentReady ? `연결한 도구 ${readyProviders}개` : "필수 도구 확인") : "미점검";
-
-    const ordered = findings.slice().sort((left, right) => {
-      const rank = { critical: 4, high: 3, attention: 2, info: 1 };
-      return (rank[right.spec.severity] || 0) - (rank[left.spec.severity] || 0);
-    });
-    const findingsSection = document.querySelector(".home-findings-section");
-    const nextActionSection = document.getElementById("home-next-action-section");
-    if (findingsSection) findingsSection.hidden = !established;
-    if (nextActionSection) nextActionSection.hidden = !established || ordered.length > 0;
-    document.getElementById("home-findings").innerHTML = ordered.length
-      ? `<div class="finding-list">${ordered.slice(0, 5).map(item => findingCard(item, "home-finding")).join("")}</div>`
-      : '<div class="empty-state"><strong>지금 확인할 항목이 없습니다.</strong><span>새 상태를 확인하려면 ‘지금 점검’을 실행하세요.</span></div>';
+    renderQualityHome();
 
     document.getElementById("home-projects").innerHTML = projects.length
       ? `<div class="item-list">${projects.map(project => {
@@ -611,11 +923,6 @@
     document.getElementById("home-runs").innerHTML = recentRuns.length
       ? `<div class="item-list">${recentRuns.slice(0, 5).map(item => { const tone = eventTone(item); return `<article class="ledger-row ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(item.spec.status || item.spec.conclusion || "recorded")}"><div class="ledger-row__state">${stateText("기록", tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(localize(item.spec.summary))}</h3></div><div class="ledger-row__context">${escapeHTML(formatDate(item.spec.occurredAt))}</div><div class="ledger-row__action"></div></article>`; }).join("")}</div>`
       : '<div class="empty-state"><strong>아직 실행 결과가 없습니다.</strong><span>작업 화면에서 검토된 점검이나 Action을 실행할 수 있습니다.</span></div>';
-    document.getElementById("home-next-action").innerHTML = !established
-      ? '<div class="list-item state-ok"><strong>프로젝트 등록</strong><p>첫 저장소를 등록하면 읽기 전용 점검을 시작합니다.</p><div class="item-actions"><a class="button primary small" href="#projects">프로젝트 등록</a></div></div>'
-      : environmentNeedsAttention
-        ? '<div class="list-item state-warn"><strong>필수 실행 기능 확인</strong><p>진단에서 차단된 기능과 안전한 복구 방법을 확인합니다.</p><div class="item-actions"><a class="button small" href="#diagnostics">진단</a></div></div>'
-        : '<div class="list-item state-ok"><strong>다음 점검</strong><p>열린 확인 항목이 없습니다. 최신 상태를 확인합니다.</p><div class="item-actions"><button class="button small" type="button" data-home-scan>지금 점검</button></div></div>';
     renderProviderStatuses("home-providers", true);
     const assurance = state.assuranceDashboard || {};
     const runs = state.assuranceRuns || [];
@@ -900,7 +1207,69 @@
     container.innerHTML = `<div class="trace-overview"><div><strong>${escapeHTML(effect.label || "효과 기록")}</strong><p class="meta">Effect ID <code>${escapeHTML(state.assuranceTraceEffectID)}</code></p></div><span class="chip ${trace.complete ? "ok" : "warn"}">${trace.complete ? "근거 완결" : "부분 연결"}</span></div><div class="trace-flow"><div><p class="eyebrow">구성 요소</p>${nodes.length ? nodes.map(node => `<article class="trace-node"><strong>${escapeHTML(node.label || node.kind || "기록")}</strong><code>${escapeHTML(node.id || "알 수 없음")}</code><span>${escapeHTML(node.state || node.head || "")}</span></article>`).join("") : '<p class="meta">연결된 노드가 없습니다.</p>'}</div><div><p class="eyebrow">연결 관계</p>${links.length ? `<ul class="trace-links">${links.map(link => `<li><code>${escapeHTML(link.from || link.fromId || "?")}</code> → ${escapeHTML(link.relation || "연결")} → <code>${escapeHTML(link.to || link.toId || "?")}</code></li>`).join("")}</ul>` : '<p class="meta">연결 관계가 없습니다.</p>'}</div></div><div class="trace-evidence"><p class="eyebrow">근거 파일</p>${artifacts.length ? `<div class="item-list">${artifacts.map(artifact => `<article class="trace-artifact"><div class="list-item-header"><div><strong>${escapeHTML(artifact.name || "근거 artifact")}</strong><p class="meta">${escapeHTML(artifact.sourceType || "출처 미상")} · <code>${escapeHTML(artifact.id || "알 수 없음")}</code></p></div><span class="chip ${artifact.present ? "ok" : "bad"}">${artifact.present ? escapeHTML(artifact.retention || "확인됨") : "누락"}</span></div><p class="meta">SHA-256 <code>${escapeHTML(artifact.sha256 || "기록 없음")}</code> · ${escapeHTML(formatCount(artifact.size))} bytes</p></article>`).join("")}</div>` : '<p class="meta">연결된 artifact가 없습니다.</p>'}</div>${(trace.missingRefs || []).length ? `<p class="safety-note">누락된 참조 ${escapeHTML(formatCount(trace.missingRefs.length))}개가 있어 효과를 완결된 근거로 볼 수 없습니다.</p>` : ""}`;
   }
 
+  function renderAssuranceDemo(show) {
+    const view = document.querySelector('[data-view="assurance"]');
+    const banner = document.getElementById("assurance-demo-banner");
+    const board = document.getElementById("assurance-demo-board");
+    const empty = document.getElementById("assurance-empty");
+    const method = document.querySelector(".assurance-method");
+    const impactError = document.getElementById("assurance-impact-error");
+    const tracePanel = document.getElementById("assurance-trace-panel");
+    if (!banner || !board) return;
+    view?.classList.toggle("is-demo", show);
+    banner.hidden = !show;
+    board.hidden = !show;
+    if (!show) {
+      method && (method.hidden = false);
+      tracePanel && (tracePanel.hidden = !state.assuranceTraceEffectID);
+      return;
+    }
+
+    document.querySelectorAll("[data-assurance-populated]").forEach(element => { element.hidden = true; });
+    if (empty) empty.hidden = true;
+    if (method) method.hidden = true;
+    if (impactError) impactError.hidden = true;
+    if (tracePanel) tracePanel.hidden = true;
+
+    const kpis = [
+      ["통과한 검증", "6 / 7", "Quality Run", ""],
+      ["재검증률", "86%", "6회 재실행 / 7회", "demo-kpi--accent"],
+      ["기록된 시간 절감", "2시간 40분", "측정 1시간 20분 · 추정 1시간 20분", ""],
+      ["근거 연결", "92%", "11 / 12 trace", "demo-kpi--warning"],
+    ];
+    const kpiContainer = document.getElementById("assurance-demo-kpis");
+    if (kpiContainer) {
+      kpiContainer.innerHTML = kpis.map(([labelText, value, note, tone]) => `<article class="demo-kpi ${tone}"><span>${escapeHTML(labelText)}</span><strong>${escapeHTML(value)}</strong><small>${escapeHTML(note)}</small></article>`).join("");
+    }
+
+    const runs = [
+      ["ok", "통과", "PR CI 점검", "web-console · main · abc1234", "테스트 18개 · artifact 3개 · 근거 완결", "2026-08-28T14:20:00+09:00", "2026. 8. 28. 14:20"],
+      ["ok", "통과", "배포 전 회귀 점검", "billing-api · release/0.13 · 7bd92e1", "회귀 시나리오 12개 · 재검증 연결", "2026-08-26T09:10:00+09:00", "2026. 8. 26. 09:10"],
+      ["warn", "주의", "Worktree 정리 전 확인", "web-console · feature/cleanup", "변경 파일 4개 · 사람 확인 필요", "2026-08-24T16:42:00+09:00", "2026. 8. 24. 16:42"],
+    ];
+    const runContainer = document.getElementById("assurance-demo-runs");
+    if (runContainer) {
+      runContainer.innerHTML = runs.map(([tone, labelText, title, scope, note, datetime, date]) => `<article class="demo-run"><span class="demo-run__state ${tone}" aria-hidden="true"></span><div><strong>${escapeHTML(title)}</strong><p>${escapeHTML(scope)}</p><p>${escapeHTML(note)}</p></div><div><span class="chip ${tone}">${escapeHTML(labelText)}</span><time datetime="${escapeHTML(datetime)}">${escapeHTML(date)}</time></div></article>`).join("");
+    }
+
+    const trend = [
+      ["08/04", "92%", "3회 검증", 55],
+      ["08/11", "94%", "4회 검증", 68],
+      ["08/18", "96%", "5회 검증", 80],
+      ["08/25", "97%", "6회 검증", 92],
+    ];
+    const trendContainer = document.getElementById("assurance-demo-trend");
+    if (trendContainer) {
+      trendContainer.innerHTML = trend.map(([period, value, note, width]) => `<div class="demo-trend-row"><strong>${escapeHTML(period)}</strong><div class="demo-trend-track" role="img" aria-label="${escapeHTML(`${period} 근거 연결 ${value}`)}"><span class="demo-trend-fill" style="--demo-bar-width:${width}%"></span></div><span>${escapeHTML(value)} · ${escapeHTML(note)}</span></div>`).join("");
+    }
+  }
+
   function renderAssuranceDashboard() {
+    if (isAssuranceDemoRoute()) {
+      renderAssuranceDemo(true);
+      return;
+    }
+    renderAssuranceDemo(false);
     const dashboard = state.assuranceDashboard || {};
     const runs = state.assuranceRuns || [];
     const invocations = dashboard.invocations || [];
@@ -1191,6 +1560,7 @@
       return !providerFinding;
     }).filter((item, index, all) => all.findIndex(candidate => candidate.type === item.type && candidate.target === item.target) === index);
     document.getElementById("environment").innerHTML = `<div class="list-item ${environment.generatedAt && environmentReady ? "state-ok" : "state-warn"}"><strong>${!environment.generatedAt ? "아직 환경을 확인하지 않았습니다." : environmentReady ? "필수 도구를 사용할 수 있습니다." : "필수 도구를 확인하세요."}</strong><p class="meta">필수 도구의 상태는 아래에서 확인합니다.</p></div>${visibleEnvironmentFindings.length ? `<div class="finding-list diagnostic-findings">${visibleEnvironmentFindings.map(item => { const tone = findingTone(String(item.severity || "info")); return `<article class="ledger-row finding ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-severity="${escapeHTML(item.severity || "info")}"><div class="ledger-row__state">${stateText(severityLabels[item.severity] || item.severity, tone)}</div><div class="ledger-row__main"><h3>${escapeHTML(environmentSource(item.type))} · ${escapeHTML(item.target || item.type)}</h3><p>${escapeHTML(localize(item.summary))}</p><p class="next">다음 단계: ${escapeHTML(localize(item.recommendedNextAction))}</p></div><div class="ledger-row__context">환경 확인</div><div class="ledger-row__action"></div></article>`; }).join("")}</div>` : ""}`;
+    renderQualityTools();
     renderProviderStatuses("provider-statuses");
 
     const targets = targetOptions();
@@ -1327,6 +1697,7 @@
     if (state.loading.diagnostics || (state.loaded.diagnostics && !force)) return;
     state.loading.diagnostics = true;
     await Promise.all([
+      loadQualityTools(force),
       loadSurface("cleanup", () => request("/api/cleanup/candidates"), items => { state.cleanup = items; }),
       loadSurface("safeguards", () => request("/api/safeguards/rules"), items => { state.safeguards = items; }),
       loadSurface("profiles", () => request("/api/agent-profiles"), items => { state.profiles = items; }),
@@ -1361,6 +1732,140 @@
     renderHome();
     renderAssuranceDashboard();
   }
+
+  let loadingQualityHome = false;
+  const normalizeQualityHomeError = error => {
+    const raw = String(error?.message || "").trim();
+    const technical = error?.name === "SyntaxError" || error?.name === "TypeError" || /JSON|fetch|network|failed to load|요청에 실패했습니다\.\s*\(\d{3}\)/i.test(raw);
+    if (raw && !technical) return `품질 개선 큐를 불러오지 못했습니다. 서버 안내: ${raw} 서버 버전과 연결 상태를 확인한 뒤 다시 불러오세요.`;
+    return "품질 개선 큐를 불러오지 못했습니다. 서버 버전과 연결 상태를 확인한 뒤 다시 불러오세요.";
+  };
+  async function loadQualityHome() {
+    if (loadingQualityHome) return;
+    loadingQualityHome = true;
+    state.qualityHome = { status: "loading", data: null, error: "" };
+    renderQualityHome();
+    try {
+      state.qualityHome = { status: "ready", data: normalizeQualityHome(await request("/api/quality/home")), error: "" };
+    } catch (error) {
+      state.qualityHome = { status: "error", data: null, error: normalizeQualityHomeError(error) };
+    } finally {
+      loadingQualityHome = false;
+      renderQualityHome();
+    }
+  }
+
+  let qualityObjectiveRequest = 0;
+  async function loadQualityObjective(id, force) {
+    const selectedID = String(id || "");
+    if (!selectedID) {
+      state.qualityObjective = { selectedID: "", status: "idle", data: null, error: "", mutation: { kind: "", status: "idle", error: "", draft: {} } };
+      renderQualityObjectiveDetail();
+      return;
+    }
+    if (!force && state.qualityObjective.selectedID === selectedID && state.qualityObjective.status === "ready") return;
+    const requestID = ++qualityObjectiveRequest;
+    const previousDraft = state.qualityObjective.selectedID === selectedID ? state.qualityObjective.mutation?.draft || {} : {};
+    state.qualityObjective = { selectedID, status: "loading", data: null, error: "", mutation: { kind: "", status: "idle", error: "", draft: previousDraft } };
+    renderQualityObjectiveDetail();
+    try {
+      const data = await request(`/api/quality/objectives/${encode(selectedID)}`);
+      if (requestID !== qualityObjectiveRequest || state.qualityObjective.selectedID !== selectedID) return;
+      state.qualityObjective = { selectedID, status: "ready", data, error: "", mutation: { kind: "", status: "idle", error: "", draft: previousDraft } };
+    } catch (error) {
+      if (requestID !== qualityObjectiveRequest || state.qualityObjective.selectedID !== selectedID) return;
+      state.qualityObjective = { selectedID, status: error.status === 404 ? "not_found" : "error", data: null, error: error.message, mutation: { kind: "", status: "idle", error: "", draft: previousDraft } };
+    }
+    renderQualityObjectiveDetail();
+  }
+
+  let loadingQualityTools = false;
+  async function loadQualityTools(force) {
+    if (loadingQualityTools || (!force && state.qualityTools.status === "ready")) return;
+    loadingQualityTools = true;
+    state.qualityTools = { status: "loading", data: null, error: "" };
+    renderQualityTools();
+    try {
+      state.qualityTools = { status: "ready", data: normalizeQualityTools(await request("/api/quality/tools")), error: "" };
+    } catch (error) {
+      state.qualityTools = { status: "error", data: null, error: qualityToolsErrorMessage(error) };
+    } finally {
+      loadingQualityTools = false;
+      renderQualityTools();
+    }
+  }
+
+  const qualityObjectiveFormDraft = form => {
+    const values = Object.fromEntries(new FormData(form).entries());
+    if (values.sourceKind) values.sourceValue = values.sourceId || "";
+    delete values.sourceId;
+    return values;
+  };
+  const qualityObjectiveMutationState = (kind, status, error, draft) => {
+    state.qualityObjective.mutation = { kind, status, error, draft: draft || {} };
+  };
+
+  document.addEventListener("change", event => {
+    const input = event.target;
+    if (!(input instanceof HTMLElement)) return;
+    if (!input.matches("[data-quality-objective-disposition], [data-quality-objective-source]")) return;
+    const form = input.closest("form");
+    if (!form) return;
+    const draft = qualityObjectiveFormDraft(form);
+    if (input.matches("[data-quality-objective-source]")) draft.sourceKind = input.value;
+    if (input.matches("[data-quality-objective-disposition]")) draft.disposition = input.value;
+    state.qualityObjective.mutation.draft = draft;
+    renderQualityObjectiveDetail();
+  });
+
+  document.addEventListener("submit", async event => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const isDecision = form.matches("[data-quality-objective-decision]");
+    const isRevalidation = form.matches("[data-quality-objective-revalidation]");
+    if (!isDecision && !isRevalidation) return;
+    event.preventDefault();
+    const detail = state.qualityObjective;
+    const id = detail.selectedID;
+    const spec = qualityObjectiveSpec(detail.data);
+    const draft = qualityObjectiveFormDraft(form);
+    const expectedRevision = Number(spec.revision);
+    if (!id || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      qualityObjectiveMutationState("", "error", "최신 과제 상태를 확인한 뒤 다시 시도하세요.", draft);
+      renderQualityObjectiveDetail();
+      return;
+    }
+    let path = "";
+    let payload = { expectedRevision };
+    let kind = "";
+    if (isDecision) {
+      kind = "decision";
+      payload.disposition = String(draft.disposition || "");
+      payload.actor = String(draft.actor || "").trim();
+      if (payload.disposition === "pursue") payload.action = String(draft.action || "").trim();
+      if (["defer", "dismiss"].includes(payload.disposition)) payload.reason = String(draft.reason || "").trim();
+      if (spec.primarySignal?.kind === "go_coverage" && String(draft.minimumPercent || "").trim() !== "") payload.minimumPercent = Number(draft.minimumPercent);
+      path = `/api/quality/objectives/${encode(id)}/decision`;
+    } else {
+      kind = "revalidation";
+      const sourceKind = String(draft.sourceKind || "");
+      const sourceID = String(draft.sourceValue || "").trim();
+      if (sourceKind === "finding") payload.findingId = sourceID;
+      if (sourceKind === "qualityRun") payload.qualityRunId = sourceID;
+      path = `/api/quality/objectives/${encode(id)}/revalidations`;
+    }
+    qualityObjectiveMutationState(kind, "submitting", "", draft);
+    renderQualityObjectiveDetail();
+    try {
+      await request(path, { method: "POST", headers: mutationHeaders(), body: JSON.stringify(payload) });
+      qualityObjectiveMutationState("", "idle", "", {});
+      showNotice(kind === "decision" ? "개선 과제의 처리 방침을 저장했습니다." : "후속 점검 결과를 연결했습니다.");
+      await Promise.all([loadQualityHome(), loadQualityObjective(id, true)]);
+    } catch (error) {
+      qualityObjectiveMutationState(kind, "error", qualityObjectiveMutationError(error), draft);
+      renderQualityObjectiveDetail();
+    }
+  });
 
   async function loadAssuranceTrace(effectID, opener) {
     if (!effectID) return;
@@ -1416,6 +1921,7 @@
   async function loadRouteData(route, force) {
     if (route === "work") await loadWorkData(force);
     if (route === "diagnostics") await loadDiagnosticsData(force);
+    if (route === "home") await loadQualityObjective(routeState().objectiveID, force);
   }
 
   let assuranceFiltering = false;
@@ -1479,7 +1985,7 @@
       initialized = true;
       await loadRouteData(currentRoute(), true);
       renderAll();
-      await loadAssuranceProductData();
+      await Promise.all([loadQualityHome(), loadAssuranceProductData()]);
     } catch (error) {
       showNotice(`로컬 서비스에서 상태를 불러오지 못했습니다. ${error.message}`, true);
     } finally {
@@ -1677,6 +2183,50 @@
         return;
       }
       setGuideSlide(0);
+      return;
+    }
+    if (button.dataset.qualityRetry !== undefined) {
+      button.disabled = true;
+      await loadQualityHome();
+      button.disabled = false;
+      return;
+    }
+    if (button.dataset.qualityToolsRetry !== undefined || button.id === "quality-tools-refresh") {
+      button.disabled = true;
+      try {
+        await loadQualityTools(true);
+      } finally {
+        button.disabled = false;
+      }
+      return;
+    }
+    if (button.dataset.qualityObjectiveRetry !== undefined) {
+      button.disabled = true;
+      await loadQualityObjective(state.qualityObjective.selectedID, true);
+      return;
+    }
+    if (button.dataset.qualityObjectiveConfirm !== undefined) {
+      const detail = state.qualityObjective;
+      const id = detail.selectedID;
+      const spec = qualityObjectiveSpec(detail.data);
+      const expectedRevision = Number(spec.revision);
+      if (!id || !Number.isInteger(expectedRevision) || expectedRevision < 1) return;
+      button.disabled = true;
+      qualityObjectiveMutationState("confirm", "submitting", "", {});
+      renderQualityObjectiveDetail();
+      try {
+        await request(`/api/quality/objectives/${encode(id)}/confirm`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          body: JSON.stringify({ expectedRevision }),
+        });
+        qualityObjectiveMutationState("", "idle", "", {});
+        showNotice("개선 과제를 완료로 확인했습니다.");
+        await Promise.all([loadQualityHome(), loadQualityObjective(id, true)]);
+      } catch (error) {
+        qualityObjectiveMutationState("confirm", "error", qualityObjectiveMutationError(error), {});
+        renderQualityObjectiveDetail();
+      }
       return;
     }
     if (button.dataset.retry) {
@@ -2294,6 +2844,15 @@
       button.disabled = false;
     }
   });
+
+  function setAssuranceDemoRoute(show) {
+    history.replaceState(null, "", show ? "#assurance?demo=1" : "#assurance");
+    setRoute();
+    renderAssuranceDashboard();
+  }
+
+  document.getElementById("assurance-demo")?.addEventListener("click", () => setAssuranceDemoRoute(true));
+  document.getElementById("assurance-demo-exit")?.addEventListener("click", () => setAssuranceDemoRoute(false));
 
   document.getElementById("assurance-refresh").addEventListener("click", async event => {
     const button = event.currentTarget;

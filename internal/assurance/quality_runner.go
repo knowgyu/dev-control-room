@@ -33,36 +33,42 @@ const (
 )
 
 const (
-	QualityRunnerGoVetID               = "quality.go.vet"
-	QualityRunnerGoVetConfigID         = "quality.go.vet.v1"
-	QualityRunnerGoMutationID          = "quality.go.mutation"
-	QualityRunnerGoMutationConfigID    = "quality.go.mutation.v1"
-	QualityRunnerGoPropertyID          = "quality.go.property"
-	QualityRunnerGoPropertyConfigID    = "quality.go.property.v1"
-	QualityRunnerGoFuzzID              = "quality.go.fuzz"
-	QualityRunnerGoFuzzConfigID        = "quality.go.fuzz.v1"
-	QualityRunnerGoE2EID               = "quality.go.e2e"
-	QualityRunnerGoE2EConfigID         = "quality.go.e2e.v1"
-	QualityRunnerBlockedRunnerID       = "quality.blocked"
-	QualityRunnerDefinitionVersion     = "quality-runner.v1"
-	QualityRunnerGoToolID              = "go.exe"
-	QualityRunnerMutationToolID        = "go-mutesting.exe"
-	QualityRunnerGoVetTimeout          = 2 * time.Minute
-	QualityRunnerGoMutationTimeout     = 5 * time.Minute
-	QualityRunnerGoPropertyTimeout     = 2 * time.Minute
-	QualityRunnerGoFuzzTimeout         = 30 * time.Second
-	QualityRunnerGoTargetedE2ETimeout  = 2 * time.Minute
-	QualityRunnerReasonNoAdapter       = "runner.adapter_unreviewed"
-	QualityRunnerReasonGoUnavailable   = "tool.go_unavailable"
-	QualityRunnerReasonGoUntrusted     = "tool.go_untrusted"
-	QualityRunnerReasonGoModMissing    = "worktree.go_mod_missing"
-	QualityRunnerReasonMutationMissing = "tool.go_mutesting_unavailable"
-	QualityRunnerReasonMutationUnsafe  = "tool.go_mutesting_untrusted"
-	QualityRunnerReasonTargetMissing   = "target.go_test_missing"
-	QualityRunnerReasonTargetAmbiguous = "target.go_test_ambiguous"
-	QualityRunnerReasonSourceInvalid   = "worktree.go_source_invalid"
-	QualityRunnerReasonSourceBounds    = "worktree.go_source_bounds_exceeded"
-	QualityRunnerReasonSourceSymlink   = "worktree.go_source_symlink_rejected"
+	QualityRunnerGoVetID                = "quality.go.vet"
+	QualityRunnerGoVetConfigID          = "quality.go.vet.v1"
+	QualityRunnerGoMutationID           = "quality.go.mutation"
+	QualityRunnerGoMutationConfigID     = "quality.go.mutation.v1"
+	QualityRunnerGoPropertyID           = "quality.go.property"
+	QualityRunnerGoPropertyConfigID     = "quality.go.property.v1"
+	QualityRunnerGoFuzzID               = "quality.go.fuzz"
+	QualityRunnerGoFuzzConfigID         = "quality.go.fuzz.v1"
+	QualityRunnerGoE2EID                = "quality.go.e2e"
+	QualityRunnerGoE2EConfigID          = "quality.go.e2e.v1"
+	QualityRunnerGoTestCoverageID       = "quality.go.test_coverage"
+	QualityRunnerGoTestCoverageConfigID = "quality.go.test_coverage.v1"
+	QualityRunnerBlockedRunnerID        = "quality.blocked"
+	QualityRunnerDefinitionVersion      = "quality-runner.v1"
+	QualityRunnerGoToolID               = "go.exe"
+	QualityRunnerMutationToolID         = "go-mutesting.exe"
+	QualityRunnerGoVetTimeout           = 2 * time.Minute
+	QualityRunnerGoMutationTimeout      = 5 * time.Minute
+	QualityRunnerGoPropertyTimeout      = 2 * time.Minute
+	QualityRunnerGoFuzzTimeout          = 30 * time.Second
+	QualityRunnerGoTargetedE2ETimeout   = 2 * time.Minute
+	QualityRunnerGoTestCoverageTimeout  = 2 * time.Minute
+	QualityRunnerReasonNoAdapter        = "runner.adapter_unreviewed"
+	QualityRunnerReasonGoUnavailable    = "tool.go_unavailable"
+	QualityRunnerReasonGoUntrusted      = "tool.go_untrusted"
+	QualityRunnerReasonGoModMissing     = "worktree.go_mod_missing"
+	QualityRunnerReasonGoModInvalid     = "worktree.go_mod_invalid"
+	QualityRunnerReasonCoverageMissing  = "runner.coverage_path_missing"
+	QualityRunnerReasonCoverageUnsafe   = "runner.coverage_path_unsafe"
+	QualityRunnerReasonMutationMissing  = "tool.go_mutesting_unavailable"
+	QualityRunnerReasonMutationUnsafe   = "tool.go_mutesting_untrusted"
+	QualityRunnerReasonTargetMissing    = "target.go_test_missing"
+	QualityRunnerReasonTargetAmbiguous  = "target.go_test_ambiguous"
+	QualityRunnerReasonSourceInvalid    = "worktree.go_source_invalid"
+	QualityRunnerReasonSourceBounds     = "worktree.go_source_bounds_exceeded"
+	QualityRunnerReasonSourceSymlink    = "worktree.go_source_symlink_rejected"
 )
 
 const (
@@ -70,6 +76,7 @@ const (
 	qualityRunnerMaxSourceBytes   = 8 << 20
 	qualityRunnerMaxSourceFile    = 512 << 10
 	qualityRunnerMaxTargetMatches = 64
+	qualityRunnerMaxGoModBytes    = 64 << 10
 	qualityRunnerFuzzTime         = "10s"
 )
 
@@ -80,6 +87,7 @@ var ErrQualityTechniqueNotRegistered = errors.New("quality technique is not regi
 type QualityRunnerSelectionRequest struct {
 	TechniqueID  string `json:"techniqueId"`
 	WorktreeRoot string `json:"worktreeRoot"`
+	CoveragePath string `json:"coveragePath,omitempty"`
 }
 
 // QualityRunnerDefinition is reviewed metadata for one registry entry. It is
@@ -217,6 +225,11 @@ var qualityRunnerRegistry = map[string]qualityRunnerRegistration{
 		TechniqueID: domain.QualityTechniqueTargetedE2E, ToolID: QualityRunnerGoToolID,
 		ConfigID: QualityRunnerGoE2EConfigID, Timeout: QualityRunnerGoTargetedE2ETimeout,
 	}},
+	domain.QualityTechniqueGoTestCoverage: {definition: QualityRunnerDefinition{
+		RunnerID: QualityRunnerGoTestCoverageID, DefinitionVersion: QualityRunnerDefinitionVersion,
+		TechniqueID: domain.QualityTechniqueGoTestCoverage, ToolID: QualityRunnerGoToolID,
+		ConfigID: QualityRunnerGoTestCoverageConfigID, Timeout: QualityRunnerGoTestCoverageTimeout,
+	}},
 }
 
 type qualityRunnerLookPath func(string) (string, error)
@@ -277,6 +290,9 @@ func (r QualityRunnerRegistry) Select(request QualityRunnerSelectionRequest) (Qu
 	if err != nil || goModInfo == nil || goModInfo.Mode()&os.ModeSymlink != 0 || !goModInfo.Mode().IsRegular() {
 		return unavailableQualityRunnerSelection(selection, &QualityRunnerUnavailableReason{Code: QualityRunnerReasonGoModMissing, Detail: "selected worktree has no regular go.mod"})
 	}
+	if err := validateQualityGoModule(goMod); err != nil {
+		return unavailableQualityRunnerSelection(selection, &QualityRunnerUnavailableReason{Code: QualityRunnerReasonGoModInvalid, Detail: "selected worktree go.mod is not a valid module declaration"})
+	}
 
 	switch request.TechniqueID {
 	case domain.QualityTechniqueStaticSecurity:
@@ -291,6 +307,18 @@ func (r QualityRunnerRegistry) Select(request QualityRunnerSelectionRequest) (Qu
 			return unavailableQualityRunnerSelection(selection, reason)
 		}
 		selection.Command = TypedCommand{Executable: mutationPath, Arguments: []string{"./..."}}
+	case domain.QualityTechniqueGoTestCoverage:
+		if strings.TrimSpace(request.CoveragePath) == "" {
+			return unavailableQualityRunnerSelection(selection, &QualityRunnerUnavailableReason{Code: QualityRunnerReasonCoverageMissing, Detail: "coverage runner requires a server-owned absolute .out path"})
+		}
+		if !isValidAbsolutePath(request.CoveragePath) || !strings.EqualFold(filepath.Ext(request.CoveragePath), ".out") {
+			return unavailableQualityRunnerSelection(selection, &QualityRunnerUnavailableReason{Code: QualityRunnerReasonCoverageUnsafe, Detail: "coverage runner requires a server-owned absolute .out path"})
+		}
+		goPath, reason := resolveNativeQualityTool(lookPath, lstat, QualityRunnerGoToolID, QualityRunnerReasonGoUnavailable, QualityRunnerReasonGoUntrusted)
+		if reason != nil {
+			return unavailableQualityRunnerSelection(selection, reason)
+		}
+		selection.Command = qualityCoverageCommand(goPath, request.CoveragePath)
 	case domain.QualityTechniqueProperty, domain.QualityTechniqueFuzz, domain.QualityTechniqueTargetedE2E:
 		prefix := qualityTargetPrefix(request.TechniqueID)
 		targets, reason := discoverQualityGoTargets(request.WorktreeRoot, prefix, lstat)
@@ -362,6 +390,12 @@ func ValidateQualityRunnerCommand(command TypedCommand) error {
 		if len(command.Arguments) == 3 && command.Arguments[0] == "vet" && command.Arguments[1] == "-mod=readonly" && command.Arguments[2] == "./..." {
 			return nil
 		}
+		if len(command.Arguments) == 6 && command.Arguments[0] == "test" && command.Arguments[1] == "-mod=readonly" && command.Arguments[2] == "-count=1" && command.Arguments[3] == "-covermode=set" && strings.HasPrefix(command.Arguments[4], "-coverprofile=") && command.Arguments[5] == "./..." {
+			path := strings.TrimPrefix(command.Arguments[4], "-coverprofile=")
+			if isValidAbsolutePath(path) && strings.EqualFold(filepath.Ext(path), ".out") {
+				return nil
+			}
+		}
 		if len(command.Arguments) == 6 && command.Arguments[0] == "test" && command.Arguments[1] == "-mod=readonly" && validGoPackageArgument(command.Arguments[2]) && command.Arguments[3] == "-run" && command.Arguments[5] == "-count=1" {
 			if validExactGoTestRegex(command.Arguments[4], "TestProperty") || validExactGoTestRegex(command.Arguments[4], "TestE2E") {
 				return nil
@@ -427,6 +461,76 @@ func qualityTargetCommand(technique, goPath string, target qualityGoTarget) Type
 	default:
 		return TypedCommand{Arguments: []string{}}
 	}
+}
+
+func qualityCoverageCommand(goPath, profilePath string) TypedCommand {
+	return TypedCommand{Executable: goPath, Arguments: []string{"test", "-mod=readonly", "-count=1", "-covermode=set", "-coverprofile=" + profilePath, "./..."}}
+}
+
+func validateQualityGoModule(path string) error {
+	data, err := readBoundedQualitySource(path, qualityRunnerMaxGoModBytes)
+	if err != nil {
+		return err
+	}
+	withoutComments, err := stripQualityGoModComments(data)
+	if err != nil {
+		return err
+	}
+	for _, rawLine := range strings.Split(withoutComments, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != "module" || !validGoModulePath(fields[1]) {
+			return errors.New("go.mod module directive is invalid")
+		}
+		return nil
+	}
+	return errors.New("go.mod has no module directive")
+}
+
+func stripQualityGoModComments(data []byte) (string, error) {
+	var cleaned strings.Builder
+	cleaned.Grow(len(data))
+
+	for i := 0; i < len(data); {
+		switch {
+		case data[i] == '/' && i+1 < len(data) && data[i+1] == '/':
+			cleaned.WriteByte(' ')
+			i += 2
+			for i < len(data) && data[i] != '\n' {
+				i++
+			}
+		case data[i] == '/' && i+1 < len(data) && data[i+1] == '*':
+			cleaned.WriteByte(' ')
+			i += 2
+			terminated := false
+			for i < len(data) {
+				if data[i] == '*' && i+1 < len(data) && data[i+1] == '/' {
+					i += 2
+					terminated = true
+					break
+				}
+				if data[i] == '\n' {
+					cleaned.WriteByte('\n')
+				}
+				i++
+			}
+			if !terminated {
+				return "", errors.New("go.mod block comment is unterminated")
+			}
+		default:
+			cleaned.WriteByte(data[i])
+			i++
+		}
+	}
+
+	return cleaned.String(), nil
+}
+
+func validGoModulePath(value string) bool {
+	return value != "" && value != "." && value != ".." && !strings.ContainsAny(value, "\\\t\r\n") && !strings.Contains(value, "/../") && !strings.HasPrefix(value, "../") && !strings.HasSuffix(value, "/..")
 }
 
 var (

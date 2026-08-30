@@ -86,6 +86,43 @@ func TestOpenReturnsContextDeadlineWhenStorageLockWaitExpires(t *testing.T) {
 	}
 }
 
+func TestStorageLockPreservesControllingContextDeadlineAtSchedulerBoundary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireStorageLock(context.Background(), databaseLockPath(absolutePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	// Model the narrow boundary where the clock passes a context deadline before
+	// the context cancellation signal is observable by the lock polling loop.
+	ctx := delayedDeadlineContext{
+		Context:  context.Background(),
+		deadline: time.Now().Add(-time.Millisecond),
+		done:     make(chan struct{}),
+	}
+	_, err = acquireStorageLockWithin(ctx, databaseLockPath(absolutePath), time.Second)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("lock error = %T %v, want context deadline", err, err)
+	}
+}
+
+type delayedDeadlineContext struct {
+	context.Context
+	deadline time.Time
+	done     <-chan struct{}
+}
+
+func (c delayedDeadlineContext) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func (c delayedDeadlineContext) Done() <-chan struct{} { return c.done }
+
+func (delayedDeadlineContext) Err() error { return nil }
+
 func TestStorageLockReturnsTypedBusyAfterBoundedWait(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	absolutePath, err := filepath.Abs(path)

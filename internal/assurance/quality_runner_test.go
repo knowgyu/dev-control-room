@@ -47,6 +47,25 @@ func TestQualityRunnerRegistrySelectsReviewedGoVetForRegisteredGoWorktree(t *tes
 	}
 }
 
+func TestQualityRunnerRegistrySelectsNativeGoCoverageWithFixedProfilePath(t *testing.T) {
+	root := qualityGoWorktree(t)
+	goPath := qualityFakeTool(t, QualityRunnerGoToolID)
+	profilePath := filepath.Join(t.TempDir(), "coverage.out")
+	selection, err := qualityRegistryWithTools(root, map[string]string{QualityRunnerGoToolID: goPath}).Select(QualityRunnerSelectionRequest{
+		TechniqueID: domain.QualityTechniqueGoTestCoverage, WorktreeRoot: root, CoveragePath: profilePath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"test", "-mod=readonly", "-count=1", "-covermode=set", "-coverprofile=" + profilePath, "./..."}
+	if selection.State != QualityRunnerSelectionAvailable || selection.Definition.RunnerID != QualityRunnerGoTestCoverageID || !reflect.DeepEqual(selection.Command.Arguments, want) {
+		t.Fatalf("coverage selection = %#v, want argv %#v", selection, want)
+	}
+	if selection.Definition.Timeout != QualityRunnerGoTestCoverageTimeout || selection.Metadata.ConfigDigest == "" {
+		t.Fatalf("coverage definition/metadata = %#v / %#v", selection.Definition, selection.Metadata)
+	}
+}
+
 func TestQualityRunnerRegistrySelectsActualGoPropertyTarget(t *testing.T) {
 	root := qualityGoWorktree(t)
 	qualityWriteFile(t, root, filepath.Join("internal", "checks", "property_test.go"), `package checks
@@ -167,6 +186,81 @@ func TestQualityRunnerSelectionReportsMissingGoAndGoModAsUnavailable(t *testing.
 	}
 	if selection.State != QualityRunnerSelectionUnavailable || selection.Unavailable == nil || selection.Unavailable.Code != QualityRunnerReasonGoUnavailable || selection.Command.Executable != "" {
 		t.Fatalf("missing go selection = %#v", selection)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selection, err = registry.Select(QualityRunnerSelectionRequest{TechniqueID: domain.QualityTechniqueStaticSecurity, WorktreeRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.State != QualityRunnerSelectionUnavailable || selection.Unavailable == nil || selection.Unavailable.Code != QualityRunnerReasonGoModInvalid {
+		t.Fatalf("invalid go.mod selection = %#v", selection)
+	}
+}
+
+func TestValidateQualityGoModuleHandlesCommentsAndRejectsMalformedDirectives(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{
+			name:    "inline line comment",
+			content: "module example.com/fixture // module comment\n",
+		},
+		{
+			name:    "line comment block before directive",
+			content: "// module metadata\n// continues here\nmodule example.com/fixture\n",
+		},
+		{
+			name:    "inline block comment",
+			content: "module /* module comment */ example.com/fixture\n",
+		},
+		{
+			name:    "multiline block comment before directive",
+			content: "/* module metadata\n   continues here */\nmodule example.com/fixture\n",
+		},
+		{
+			name:    "missing module path",
+			content: "module // missing path\n",
+			wantErr: true,
+		},
+		{
+			name:    "extra module argument",
+			content: "module example.com/fixture unexpected\n",
+			wantErr: true,
+		},
+		{
+			name:    "non-module directive",
+			content: "go 1.23\n",
+			wantErr: true,
+		},
+		{
+			name:    "unsafe module path",
+			content: "module ../fixture\n",
+			wantErr: true,
+		},
+		{
+			name:    "unterminated block comment",
+			content: "module example.com/fixture /* missing terminator\n",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "go.mod")
+			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			err := validateQualityGoModule(path)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateQualityGoModule() error = %v, wantErr %t", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -323,6 +417,7 @@ func TestQualityRunnerRejectsShellSurfacesArbitraryOptionsAndUnsafePaths(t *test
 	validMutationPath := `C:\Tools\go-mutesting.exe`
 	validCommands := []TypedCommand{
 		{Executable: validGoPath, Arguments: []string{"vet", "-mod=readonly", "./..."}},
+		{Executable: validGoPath, Arguments: []string{"test", "-mod=readonly", "-count=1", "-covermode=set", "-coverprofile=C:\\tmp\\coverage.out", "./..."}},
 		{Executable: validGoPath, Arguments: []string{"test", "-mod=readonly", "./pkg", "-run", "^TestPropertyRoundTrip$", "-count=1"}},
 		{Executable: validGoPath, Arguments: []string{"test", "-mod=readonly", "./pkg", "-run", "^$", "-fuzz", "^FuzzParser$", "-fuzztime=10s"}},
 		{Executable: validGoPath, Arguments: []string{"test", "-mod=readonly", "./pkg", "-run", "^TestE2EHealthCheck$", "-count=1"}},
@@ -341,6 +436,7 @@ func TestQualityRunnerRejectsShellSurfacesArbitraryOptionsAndUnsafePaths(t *test
 		{Executable: validGoPath, Arguments: []string{"test", "-mod=readonly", "./pkg", "-run", "TestPropertyRoundTrip", "-count=1"}},
 		{Executable: validGoPath, Arguments: []string{"test", "-mod=readonly", "./pkg", "-run", "^TestPropertyroundTrip$", "-count=1"}},
 		{Executable: validGoPath, Arguments: []string{"test", "-mod=readonly", "./pkg", "-run", "^$", "-fuzz", "^FuzzParser$", "-fuzztime=30s"}},
+		{Executable: validGoPath, Arguments: []string{"test", "-mod=readonly", "-count=1", "-covermode=set", "-coverprofile=relative.out", "./..."}},
 		{Executable: validMutationPath, Arguments: []string{"./...", "--exec", "go test"}},
 		{Executable: `C:\Tools\go.exe`, Arguments: []string{"vet", "./...", "&&", "whoami"}},
 	}

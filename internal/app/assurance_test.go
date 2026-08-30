@@ -8,12 +8,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/assurance"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/environment"
 	"github.com/knowgyu/dev-control-room/internal/masking"
 )
 
@@ -28,6 +30,42 @@ func tempGoGitRepository(t *testing.T, name string) string {
 	}
 	gitFixture(t, directory, "add", "go.mod", "main.go")
 	gitFixture(t, directory, "commit", "-m", "add minimal Go fixture")
+	return directory
+}
+
+func tempGoCoverageGitRepository(t *testing.T, name string) string {
+	t.Helper()
+	directory := qualityCoverageTempDir(t)
+	gitFixture(t, directory, "init", "--initial-branch=main")
+	gitFixture(t, directory, "config", "user.email", "test@example.invalid")
+	gitFixture(t, directory, "config", "user.name", "Dev Room Test")
+	if err := os.WriteFile(filepath.Join(directory, "README.md"), []byte(name+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"go.mod": "module fixture.example/coverage\n\ngo 1.23\n",
+		"covered.go": `package fixture
+
+func Covered() int { return 42 }
+`,
+		"covered_test.go": `package fixture
+
+import "testing"
+
+func TestCovered(t *testing.T) {
+	if Covered() != 42 {
+		t.Fatal("unexpected fixture value")
+	}
+}
+`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitFixture(t, directory, "add", "README.md", "go.mod", "covered.go", "covered_test.go")
+	gitFixture(t, directory, "commit", "-m", "add coverage fixture")
 	return directory
 }
 
@@ -755,6 +793,269 @@ func TestQualityRunUsesRegisteredGoVetRunnerAndPersistsBoundedReport(t *testing.
 	}
 	if revision, err := service.store.AssuranceRevision(context.Background(), domain.QualityRunKind, run.Metadata.ID); err != nil || revision != 3 {
 		t.Fatalf("quality run revision = %d, err=%v", revision, err)
+	}
+}
+
+func newQualityCoverageFixture(t *testing.T) (*App, domain.QualityCampaign, string) {
+	t.Helper()
+	service, err := New(qualityCoverageTempDir(t), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := service.Close(); err != nil {
+			t.Errorf("close service: %v", err)
+		}
+	})
+	path := tempGoCoverageGitRepository(t, "quality-coverage")
+	project := domain.NewProject("quality-coverage", "Quality coverage", []domain.Repository{domain.NewRepository("repo-1", "Quality coverage", path)})
+	if err := service.store.SaveProject(context.Background(), project); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := service.store.ReplaceWorktrees(context.Background(), project.Metadata.ID, "repo-1", []domain.Worktree{{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind},
+		Metadata: domain.ObjectMeta{ID: "primary", Name: "primary"},
+		Spec: domain.WorktreeSpec{
+			ProjectID: project.Metadata.ID, RepositoryID: "repo-1", CanonicalPath: path, PathFingerprint: worktreePathFingerprint(path),
+			AssociationFingerprint: "sha256:coverage-fixture", Trust: domain.WorktreeTrustVerifiedReadOnly, Primary: true,
+			Head: "head", Branch: "main", LastObserved: now,
+		},
+	}}, true); err != nil {
+		t.Fatal(err)
+	}
+	campaign, err := service.CreateQualityCampaign(context.Background(), QualityCampaignInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Name: "coverage fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service, campaign, path
+}
+
+func qualityCoveragePersistence(service *App, path string) qualityRunPersistence {
+	persistence := service.qualityRunPersistence()
+	persistence.revalidateWorktree = func(context.Context, domain.Worktree) (string, error) {
+		return path, nil
+	}
+	return persistence
+}
+
+func newStoredQualityCampaignFixture(t *testing.T) (*App, domain.QualityCampaign) {
+	t.Helper()
+	service, err := New(qualityCoverageTempDir(t), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := service.Close(); err != nil {
+			t.Errorf("close service: %v", err)
+		}
+	})
+	path := qualityCoverageTempDir(t)
+	project := domain.NewProject("campaign-project", "Campaign project", []domain.Repository{domain.NewRepository("repository", "Repository", path)})
+	if err := service.store.SaveProject(context.Background(), project); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := service.store.ReplaceWorktrees(context.Background(), project.Metadata.ID, "repository", []domain.Worktree{{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.WorktreeKind},
+		Metadata: domain.ObjectMeta{ID: "primary", Name: "primary"},
+		Spec: domain.WorktreeSpec{
+			ProjectID: project.Metadata.ID, RepositoryID: "repository", CanonicalPath: path, PathFingerprint: "sha256:path",
+			Trust: domain.WorktreeTrustVerifiedReadOnly, Primary: true, Head: "head", LastObserved: now,
+		},
+	}}, true); err != nil {
+		t.Fatal(err)
+	}
+	campaign := domain.QualityCampaign{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityCampaignKind},
+		Metadata: domain.ObjectMeta{ID: "campaign-concurrent", Name: "Concurrent campaign"},
+		Spec: domain.QualityCampaignSpec{
+			ProjectID: project.Metadata.ID, RepositoryID: "repository", WorktreeID: "primary", Name: "Concurrent campaign",
+			State: domain.AssuranceStateDraft, CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	if err := service.store.SaveQualityCampaign(context.Background(), campaign); err != nil {
+		t.Fatal(err)
+	}
+	return service, campaign
+}
+
+func TestQualityRunPersistsNormalizedGoCoverageAndLinkedArtifacts(t *testing.T) {
+	service, campaign, path := newQualityCoverageFixture(t)
+	run, err := service.runQualityWithPersistence(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: domain.QualityTechniqueGoTestCoverage}, qualityCoveragePersistence(service, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Spec.State != domain.AssuranceStateSucceeded || run.Spec.Outcome != domain.QualityRunOutcomeCoverageCollected || run.Spec.Coverage == nil || len(run.Spec.ArtifactIDs) != 2 {
+		t.Fatalf("coverage run = %#v", run)
+	}
+	if run.Spec.Coverage.Mode != "set" || run.Spec.Coverage.FileCount != 1 || run.Spec.Coverage.TotalStatements == 0 || run.Spec.Coverage.CoveredStatements == 0 || run.Spec.Coverage.Percent <= 0 || run.Spec.Coverage.ProfileArtifactID == "" {
+		t.Fatalf("coverage summary = %#v", run.Spec.Coverage)
+	}
+	artifacts, err := service.AssuranceArtifacts(context.Background())
+	if err != nil || len(artifacts) != 2 {
+		t.Fatalf("coverage artifacts = %#v, %v", artifacts, err)
+	}
+	var profile, report domain.Artifact
+	for _, artifact := range artifacts {
+		switch artifact.Spec.MIME {
+		case "text/plain":
+			profile = artifact
+		case "application/json":
+			report = artifact
+		}
+	}
+	if profile.Metadata.ID == "" || report.Metadata.ID == "" || profile.Metadata.ID != run.Spec.Coverage.ProfileArtifactID || !containsText(run.Spec.ArtifactIDs, profile.Metadata.ID) || !containsText(run.Spec.ArtifactIDs, report.Metadata.ID) {
+		t.Fatalf("coverage artifact links = profile=%#v report=%#v run=%#v", profile, report, run)
+	}
+	reportData, err := os.ReadFile(report.Spec.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reportObject map[string]any
+	if err := json.Unmarshal(reportData, &reportObject); err != nil {
+		t.Fatal(err)
+	}
+	coverage, ok := reportObject["coverage"].(map[string]any)
+	if !ok || coverage["profileArtifactId"] != profile.Metadata.ID {
+		t.Fatalf("normalized report coverage = %#v", reportObject["coverage"])
+	}
+	campaigns, err := service.QualityCampaigns(context.Background())
+	if err != nil || len(campaigns) != 1 || !containsText(campaigns[0].Spec.RunIDs, run.Metadata.ID) {
+		t.Fatalf("campaign run ids = %#v, %v", campaigns, err)
+	}
+}
+
+func TestQualityRunReportPersistenceFailureCompensatesCoverageArtifactAndClosesRun(t *testing.T) {
+	service, campaign, path := newQualityCoverageFixture(t)
+	reportErr := errors.New("report persistence fixture failure")
+	persistence := qualityCoveragePersistence(service, path)
+	baseSaveArtifact := persistence.saveArtifact
+	persistence.saveArtifact = func(ctx context.Context, input ArtifactInput) (domain.Artifact, error) {
+		if strings.HasSuffix(input.Name, ".json") {
+			return domain.Artifact{}, reportErr
+		}
+		return baseSaveArtifact(ctx, input)
+	}
+
+	run, err := service.runQualityWithPersistence(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: domain.QualityTechniqueGoTestCoverage}, persistence)
+	if !errors.Is(err, reportErr) || !strings.Contains(err.Error(), "persist quality run report artifact") {
+		t.Fatalf("report persistence error = %v", err)
+	}
+	if run.Spec.State != domain.AssuranceStateFailed || run.Spec.Outcome != domain.QualityRunOutcomeInconclusive || run.Spec.StaleReason != "quality.persistence_failed" || len(run.Spec.ArtifactIDs) != 0 {
+		t.Fatalf("closed report-failure run = %#v", run)
+	}
+	storedRuns, err := service.QualityRuns(context.Background())
+	if err != nil || len(storedRuns) != 1 || storedRuns[0].Spec.State != domain.AssuranceStateFailed || storedRuns[0].Spec.Outcome != domain.QualityRunOutcomeInconclusive {
+		t.Fatalf("stored report-failure run = %#v, %v", storedRuns, err)
+	}
+	if revision, err := service.store.AssuranceRevision(context.Background(), domain.QualityRunKind, run.Metadata.ID); err != nil || revision != 3 {
+		t.Fatalf("report-failure run revision = %d, err=%v", revision, err)
+	}
+	artifacts, err := service.AssuranceArtifacts(context.Background())
+	if err != nil || len(artifacts) != 1 || artifacts[0].Spec.Retention != domain.ArtifactRetentionDeleted {
+		t.Fatalf("compensated report-failure artifacts = %#v, %v", artifacts, err)
+	}
+	if _, err := os.Stat(artifacts[0].Spec.Path); !os.IsNotExist(err) {
+		t.Fatalf("compensated profile path = %v", err)
+	}
+}
+
+func TestQualityRunFinalRevisionFailureCompensatesPersistedArtifactsAndClosesRun(t *testing.T) {
+	service, campaign, path := newQualityCoverageFixture(t)
+	finalErr := errors.New("final revision fixture failure")
+	persistence := qualityCoveragePersistence(service, path)
+	baseUpdateRevision := persistence.updateAssuranceRevision
+	persistence.updateAssuranceRevision = func(ctx context.Context, kind, id string, revision int, state string, updatedAt time.Time, value any) error {
+		if kind == domain.QualityRunKind && revision == 3 {
+			if err := baseUpdateRevision(ctx, kind, id, revision, state, updatedAt, value); err != nil {
+				return err
+			}
+			return finalErr
+		}
+		return baseUpdateRevision(ctx, kind, id, revision, state, updatedAt, value)
+	}
+
+	run, err := service.runQualityWithPersistence(context.Background(), QualityRunInput{CampaignID: campaign.Metadata.ID, Technique: domain.QualityTechniqueGoTestCoverage}, persistence)
+	if !errors.Is(err, finalErr) || !strings.Contains(err.Error(), "persist quality run final revision") {
+		t.Fatalf("final revision persistence error = %v", err)
+	}
+	if run.Spec.State != domain.AssuranceStateFailed || run.Spec.Outcome != domain.QualityRunOutcomeInconclusive || run.Spec.StaleReason != "quality.persistence_failed" || len(run.Spec.ArtifactIDs) != 0 {
+		t.Fatalf("closed final-failure run = %#v", run)
+	}
+	if revision, err := service.store.AssuranceRevision(context.Background(), domain.QualityRunKind, run.Metadata.ID); err != nil || revision != 4 {
+		t.Fatalf("final-failure run revision = %d, err=%v", revision, err)
+	}
+	artifacts, err := service.AssuranceArtifacts(context.Background())
+	if err != nil || len(artifacts) != 2 {
+		t.Fatalf("compensated final-failure artifacts = %#v, %v", artifacts, err)
+	}
+	for _, artifact := range artifacts {
+		if artifact.Spec.Retention != domain.ArtifactRetentionDeleted {
+			t.Fatalf("final-failure artifact retention = %#v", artifact)
+		}
+		if _, err := os.Stat(artifact.Spec.Path); !os.IsNotExist(err) {
+			t.Fatalf("final-failure artifact path = %v", err)
+		}
+	}
+}
+
+func TestQualityCampaignRunIDsUseBoundedRevisionCASRetry(t *testing.T) {
+	service, campaign := newStoredQualityCampaignFixture(t)
+	release := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(2)
+	results := make(chan error, 2)
+	for _, runID := range []string{"run-concurrent-a", "run-concurrent-b"} {
+		runID := runID
+		firstUpdate := true
+		go func() {
+			err := service.appendQualityRunToCampaignWithHook(context.Background(), campaign.Metadata.ID, runID, time.Now().UTC(), func() {
+				if firstUpdate {
+					firstUpdate = false
+					ready.Done()
+				}
+				<-release
+			})
+			results <- err
+		}()
+	}
+	ready.Wait()
+	close(release)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatalf("concurrent campaign update: %v", err)
+		}
+	}
+	campaigns, err := service.QualityCampaigns(context.Background())
+	if err != nil || len(campaigns) != 1 || len(campaigns[0].Spec.RunIDs) != 2 || !containsText(campaigns[0].Spec.RunIDs, "run-concurrent-a") || !containsText(campaigns[0].Spec.RunIDs, "run-concurrent-b") {
+		t.Fatalf("concurrent campaign run ids = %#v, %v", campaigns, err)
+	}
+	if revision, err := service.store.AssuranceRevision(context.Background(), domain.QualityCampaignKind, campaign.Metadata.ID); err != nil || revision != 3 {
+		t.Fatalf("concurrent campaign revision = %d, err=%v", revision, err)
+	}
+}
+
+func TestQualityRunProcessOutcomeDistinguishesFailureTimeoutAndInconclusive(t *testing.T) {
+	tests := []struct {
+		name        string
+		result      environment.Result
+		processErr  error
+		wantState   string
+		wantOutcome string
+		wantReason  string
+	}{
+		{name: "tests failed", result: environment.Result{ExitCode: 1}, processErr: errors.New("exit status 1"), wantState: domain.AssuranceStateFailed, wantOutcome: domain.QualityRunOutcomeTestsFailed, wantReason: "runner.tests_failed"},
+		{name: "timeout", processErr: context.DeadlineExceeded, wantState: domain.AssuranceStateTimedOut, wantOutcome: domain.QualityRunOutcomeInconclusive, wantReason: "runner.timeout"},
+		{name: "bounded output", processErr: errors.New("process output exceeded bounded limit"), wantState: domain.AssuranceStateFailed, wantOutcome: domain.QualityRunOutcomeInconclusive, wantReason: "runner.inconclusive"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state, outcome, _, reason := qualityRunProcessOutcome(test.result, test.processErr)
+			if state != test.wantState || outcome != test.wantOutcome || reason != test.wantReason {
+				t.Fatalf("outcome = %q/%q/%q", state, outcome, reason)
+			}
+		})
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/action"
+	"github.com/knowgyu/dev-control-room/internal/assurance"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/environment"
@@ -64,6 +65,10 @@ type QueryService interface {
 	AssuranceQuestions(context.Context, string) ([]domain.AssuranceQuestion, error)
 	AssuranceSpecs(context.Context, string) ([]domain.AssuranceSpec, error)
 	AssuranceProposals(context.Context, string) ([]domain.AssuranceProposal, error)
+	QualityObjectives(context.Context) ([]domain.QualityObjective, error)
+	QualityObjective(context.Context, string) (domain.QualityObjective, error)
+	QualityHome(context.Context) (QualityHome, error)
+	QualityTools(context.Context) (assurance.QualityToolsReadModel, error)
 	QualityCampaigns(context.Context) ([]domain.QualityCampaign, error)
 	QualityRuns(context.Context) ([]domain.QualityRun, error)
 	AgentInvocations(context.Context) ([]domain.AgentInvocation, error)
@@ -143,6 +148,10 @@ type CommandService interface {
 	CreateAssuranceSpec(context.Context, AssuranceSpecInput) (domain.AssuranceSpec, error)
 	CreateAssuranceProposal(context.Context, AssuranceProposalInput) (domain.AssuranceProposal, error)
 	ReviewAssuranceProposal(context.Context, string, string) (domain.AssuranceProposal, error)
+	CreateQualityObjective(context.Context, QualityObjectiveInput) (domain.QualityObjective, error)
+	DecideQualityObjective(context.Context, string, QualityObjectiveDecisionInput) (domain.QualityObjective, error)
+	RevalidateQualityObjective(context.Context, string, QualityObjectiveRevalidationInput) (domain.QualityObjective, error)
+	ConfirmQualityObjective(context.Context, string, QualityObjectiveConfirmationInput) (domain.QualityObjective, error)
 	CreatePRCIBaseline(context.Context, BaselineInput) (domain.PRCIBaseline, error)
 	CreateQualityCampaign(context.Context, QualityCampaignInput) (domain.QualityCampaign, error)
 	RunQuality(context.Context, QualityRunInput) (domain.QualityRun, error)
@@ -436,6 +445,41 @@ type QualityCampaignInput struct {
 	WorktreeID   string `json:"worktreeId"`
 	Name         string `json:"name"`
 	SessionID    string `json:"sessionId"`
+}
+
+type QualityObjectiveInput struct {
+	ProjectID     string                         `json:"projectId"`
+	RepositoryID  string                         `json:"repositoryId"`
+	WorktreeID    string                         `json:"worktreeId"`
+	Owner         string                         `json:"owner"`
+	Title         string                         `json:"title"`
+	Description   string                         `json:"description"`
+	FindingIDs    []string                       `json:"findingIds"`
+	SessionID     string                         `json:"sessionId"`
+	BaselineID    string                         `json:"baselineId"`
+	CampaignID    string                         `json:"campaignId"`
+	RunIDs        []string                       `json:"runIds"`
+	ProposalIDs   []string                       `json:"proposalIds"`
+	PrimarySignal *domain.QualityObjectiveSignal `json:"primarySignal,omitempty"`
+}
+
+type QualityObjectiveDecisionInput struct {
+	ExpectedRevision int     `json:"expectedRevision"`
+	Disposition      string  `json:"disposition"`
+	Action           string  `json:"action"`
+	Reason           string  `json:"reason"`
+	Actor            string  `json:"actor"`
+	MinimumPercent   float64 `json:"minimumPercent,omitempty"`
+}
+
+type QualityObjectiveRevalidationInput struct {
+	ExpectedRevision int    `json:"expectedRevision"`
+	FindingID        string `json:"findingId,omitempty"`
+	QualityRunID     string `json:"qualityRunId,omitempty"`
+}
+
+type QualityObjectiveConfirmationInput struct {
+	ExpectedRevision int `json:"expectedRevision"`
 }
 
 type QualityRunInput struct {

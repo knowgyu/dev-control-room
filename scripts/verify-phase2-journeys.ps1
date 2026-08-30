@@ -502,18 +502,19 @@ function Assert-UIContract {
     Assert-Condition ($response.StatusCode -eq 200) "UI shell returns HTTP 200"
     $html = [string]$response.Content
     Assert-Condition (-not $html.Contains("__MUTATION_TOKEN__")) "UI shell replaces the mutation token placeholder"
-    Assert-Condition ($html -match 'class="skip-link"[^>]*href="#main-content"' -and $html -match 'id="main-content"[^>]*tabindex="-1"[^>]*aria-label="상태"') "UI skip link and programmatic main focus target use the 상태 label"
+    Assert-Condition ($html -match 'class="skip-link"[^>]*href="#main-content"' -and $html -match 'id="main-content"[^>]*tabindex="-1"[^>]*aria-label="개선"') "UI skip link and programmatic main focus target use the 개선 label"
     Assert-Condition (-not $html.Contains('aria-labelledby="view-title"') -and -not $html.Contains('id="view-title"')) "UI shell has no retired duplicated view-title context"
     Assert-Condition (-not $html.Contains("side-nav")) "UI shell keeps the seven-route top navigation without a sidebar"
     Assert-Condition ($html -match 'class="page-heading"' -and $html -match 'class="section-heading"') "UI shell exposes page and section heading primitives"
     Assert-Condition ($html -match 'class="decision-strip' -and $html -match 'class="ledger"' -and $html -match 'class="evidence-flow') "UI shell exposes decision, ledger, and evidence-flow structure"
     Assert-Condition (-not $html.Contains("등록 → 관찰 → 검토 → 실행") -and -not $html.Contains("진행 순서") -and -not $html.Contains("대시보드 보기")) "UI shell removes retired onboarding and Assurance presentation copy"
     Assert-Condition ($html -match 'id="home-onboarding"' -and $html -match 'id="home-next-action-section"' -and $html -match 'id="assurance-refresh"' -and $html -match 'data-view="guide"') "UI shell exposes the v0.13 first-use, guide, next-action, and Assurance controls"
-    Assert-Condition ($html.Contains('/ui/app.css?v=0.13.1') -and $html.Contains('/ui/app.js?v=0.13.1')) "UI shell version-pins release assets to avoid stale browser caches"
+    Assert-Condition ($html.Contains('/ui/app.css?v=0.14.0') -and $html.Contains('/ui/app.js?v=0.14.0')) "UI shell version-pins release assets to avoid stale browser caches"
+    Assert-Condition ($html -match 'id="assurance-demo-board"' -and $html -match 'id="assurance-demo"' -and $html.Contains("실제 기록으로 돌아가기")) "Assurance empty state offers an explicit, non-persistent dashboard demo"
     Assert-Condition ($html -match 'id="environment"[^>]*aria-live="polite"' -and $html -match 'id="provider-statuses"[^>]*aria-live="polite"') "UI diagnostic regions announce state changes"
 
     $navLabels = @{
-        home = "상태"
+        home = "개선"
         projects = "프로젝트"
         work = "작업"
         assurance = "검증"
@@ -557,7 +558,7 @@ function Assert-UIContract {
         ".project-card .ledger-row__context { display: none; }",
         "grid-template-columns: minmax(116px, 140px) minmax(0, 1fr) auto",
         ".diagnostic-findings .finding", "#environment > .list-item",
-        "#environment > .list-item > p { margin: 0; }"
+        "#environment > .list-item > p { margin: 0; }", ".provider-card { border-left: 0; }", "--space-7: 32px", "--control-height: 40px", ".button.primary:disabled", ".flow-step", ".assurance-empty", ".demo-board", ".demo-kpis"
     )) {
         Assert-Condition ($css.Contains($value)) ("UI stylesheet keeps the v0.13 contract: " + $value)
     }
@@ -566,13 +567,14 @@ function Assert-UIContract {
     $javascriptResponse = Invoke-WebRequest -UseBasicParsing -Uri ("http://$($script:listenAddress)/ui/app.js") -TimeoutSec 10
     Assert-Condition ($javascriptResponse.StatusCode -eq 200) "UI script returns HTTP 200"
     $javascript = [string]$javascriptResponse.Content
-    Assert-Condition ($javascript -match 'home\s*:\s*"상태"') "route title handling keeps Home as 상태"
+    Assert-Condition ($javascript -match 'home\s*:\s*"개선"') "route title handling keeps Home as 개선"
     Assert-Condition ($javascript.Contains('<caption>') -and $javascript.Contains('<th scope="col">')) "Activity table includes a caption and column-scoped headers"
     Assert-Condition ($javascript.Contains('id="expected-revision" name="expectedRevision" autocomplete="off"') -and $javascript.Contains('id="handoff-model" name="model" autocomplete="off"')) "dynamic planning inputs have name and autocomplete metadata"
     Assert-Condition ($javascript.Contains('data-runbook-param="${escapeHTML(parameter)}" data-runbook-id="${escapeHTML(item.id)}" name="${escapeHTML(parameter)}" autocomplete="off"')) "dynamic runbook inputs have name and autocomplete metadata"
     Assert-Condition ($html.Contains('id="unregister-confirmation" name="confirmation" autocomplete="off"')) "confirmation input has name and autocomplete metadata"
     Assert-Condition (-not $javascript.Contains('<strong>${escapeHTML(localize(ordered[0].spec.summary))}</strong>')) "Home next action does not repeat the finding summary"
     Assert-Condition ($javascript.Contains("applyAssuranceRouteState") -and $javascript.Contains("syncAssuranceRouteState")) "Assurance filters persist in the route URL"
+    Assert-Condition ($javascript.Contains("isAssuranceDemoRoute") -and $javascript.Contains("renderAssuranceDemo") -and $javascript.Contains("#assurance?demo=1")) "Assurance demo mode is deep-linkable and kept separate from real records"
     Assert-Condition ($javascript.Contains("const guideSlides = [") -and $javascript.Contains("#guide?slide=") -and $javascript.Contains("data-guide-next")) "guide deck keeps slide state in the URL"
 
     $fontResponse = Invoke-WebRequest -UseBasicParsing -Uri ("http://$($script:listenAddress)/ui/PretendardVariable.woff2") -TimeoutSec 10

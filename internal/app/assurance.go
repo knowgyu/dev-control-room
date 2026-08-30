@@ -402,7 +402,32 @@ func (a *App) CreateQualityCampaign(ctx context.Context, input QualityCampaignIn
 	return item, nil
 }
 
+type qualityRunPersistence struct {
+	saveArtifact               func(context.Context, ArtifactInput) (domain.Artifact, error)
+	updateAssuranceRevision    func(context.Context, string, string, int, string, time.Time, any) error
+	deleteArtifact             func(context.Context, string) error
+	appendQualityRunToCampaign func(context.Context, string, string, time.Time) error
+	revalidateWorktree         func(context.Context, domain.Worktree) (string, error)
+}
+
 func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.QualityRun, error) {
+	return a.runQualityWithPersistence(ctx, input, a.qualityRunPersistence())
+}
+
+func (a *App) qualityRunPersistence() qualityRunPersistence {
+	return qualityRunPersistence{
+		saveArtifact:            a.SaveAssuranceArtifact,
+		updateAssuranceRevision: a.store.UpdateAssuranceRevision,
+		deleteArtifact: func(ctx context.Context, id string) error {
+			_, err := a.DeleteAssuranceArtifact(ctx, id, "DELETE")
+			return err
+		},
+		appendQualityRunToCampaign: a.appendQualityRunToCampaign,
+		revalidateWorktree:         a.revalidateAssuranceWorktree,
+	}
+}
+
+func (a *App) runQualityWithPersistence(ctx context.Context, input QualityRunInput, persistence qualityRunPersistence) (domain.QualityRun, error) {
 	campaigns, err := a.QualityCampaigns(ctx)
 	if err != nil {
 		return domain.QualityRun{}, err
@@ -417,6 +442,10 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	if campaign.Metadata.ID == "" {
 		return domain.QualityRun{}, contract.NotFound("quality campaign not found")
 	}
+	revalidateWorktree := persistence.revalidateWorktree
+	if revalidateWorktree == nil {
+		revalidateWorktree = a.revalidateAssuranceWorktree
+	}
 	worktree, err := a.Worktree(ctx, campaign.Spec.ProjectID, campaign.Spec.RepositoryID, campaign.Spec.WorktreeID)
 	if err != nil {
 		return domain.QualityRun{}, err
@@ -424,18 +453,28 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	if !validTechnique(input.Technique) {
 		return domain.QualityRun{}, contract.InvalidInput("quality technique is not enabled in v1")
 	}
-	executionRoot, revalidationErr := a.revalidateAssuranceWorktree(ctx, worktree)
+	now := time.Now().UTC()
+	runID := assuranceID("run", campaign.Metadata.ID, input.Technique, now.String())
+	executionRoot, revalidationErr := revalidateWorktree(ctx, worktree)
 	var selection assurance.QualityRunnerSelection
 	var selectionErr error
+	coveragePath := ""
 	if revalidationErr == nil {
-		selection, selectionErr = assurance.NewQualityRunnerRegistry().Select(assurance.QualityRunnerSelectionRequest{
-			TechniqueID:  input.Technique,
-			WorktreeRoot: executionRoot,
-		})
+		if input.Technique == domain.QualityTechniqueGoTestCoverage {
+			var cleanup func()
+			coveragePath, cleanup, selectionErr = a.newQualityCoverageProfile(runID)
+			defer cleanup()
+		}
+		if selectionErr == nil {
+			selection, selectionErr = assurance.NewQualityRunnerRegistry().Select(assurance.QualityRunnerSelectionRequest{
+				TechniqueID:  input.Technique,
+				WorktreeRoot: executionRoot,
+				CoveragePath: coveragePath,
+			})
+		}
 	} else {
 		selectionErr = revalidationErr
 	}
-	now := time.Now().UTC()
 	runnerID := "quality.registry"
 	traceID := assuranceID("trace", campaign.Metadata.ID, input.Technique, now.String())
 	configDigest := digestText(input.Technique)
@@ -447,8 +486,9 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 		selectionState = string(selection.State)
 		unavailable = selection.Unavailable
 	}
-	run := domain.QualityRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityRunKind}, Metadata: domain.ObjectMeta{ID: assuranceID("run", campaign.Metadata.ID, input.Technique, now.String()), Name: "Quality Run"}, Spec: domain.QualityRunSpec{CampaignID: campaign.Metadata.ID, ProjectID: campaign.Spec.ProjectID, RepositoryID: campaign.Spec.RepositoryID, WorktreeID: campaign.Spec.WorktreeID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Technique: input.Technique, Runner: runnerID, ConfigDigest: configDigest, InputDigest: digestText(worktree.Spec.Head, input.Technique, configDigest), TraceID: traceID, State: domain.AssuranceStateQueued, StartedAt: now, Evidence: map[string]any{"provider": strings.TrimSpace(input.Provider), "model": strings.TrimSpace(input.Model), "selectionState": selectionState, "configDigest": configDigest}}}
+	run := domain.QualityRun{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.QualityRunKind}, Metadata: domain.ObjectMeta{ID: runID, Name: "Quality Run"}, Spec: domain.QualityRunSpec{CampaignID: campaign.Metadata.ID, ProjectID: campaign.Spec.ProjectID, RepositoryID: campaign.Spec.RepositoryID, WorktreeID: campaign.Spec.WorktreeID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Technique: input.Technique, Runner: runnerID, ConfigDigest: configDigest, InputDigest: digestText(worktree.Spec.Head, input.Technique, configDigest), TraceID: traceID, State: domain.AssuranceStateQueued, StartedAt: now, Evidence: map[string]any{"provider": strings.TrimSpace(input.Provider), "model": strings.TrimSpace(input.Model), "selectionState": selectionState, "configDigest": configDigest}}}
 	if revalidationErr != nil {
+		run.Spec.Outcome = domain.QualityRunOutcomeRunnerUnavailable
 		run.Spec.Evidence["unavailable"] = &assurance.QualityRunnerUnavailableReason{Code: "worktree.revalidation_failed", Detail: "selected Worktree could not be revalidated"}
 	} else if selectionErr == nil {
 		run.Spec.Evidence["runnerMetadata"] = selection.Metadata
@@ -470,14 +510,17 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	executed := false
 	if revalidationErr != nil {
 		run.Spec.State = domain.AssuranceStateFailed
+		run.Spec.Outcome = domain.QualityRunOutcomeRunnerUnavailable
 		run.Spec.Summary = "선택한 Worktree를 다시 확인할 수 없습니다."
 		run.Spec.StaleReason = "worktree.revalidation_failed"
 	} else if selectionErr != nil {
 		run.Spec.State = domain.AssuranceStateFailed
+		run.Spec.Outcome = domain.QualityRunOutcomeRunnerUnavailable
 		run.Spec.Summary = "Quality Runner를 사용할 수 없습니다."
 		run.Spec.StaleReason = "runner.selection_unavailable"
 	} else if selection.State != assurance.QualityRunnerSelectionAvailable {
 		run.Spec.State = domain.AssuranceStateFailed
+		run.Spec.Outcome = domain.QualityRunOutcomeRunnerUnavailable
 		run.Spec.Summary = "선택한 Quality Runner를 사용할 수 없습니다."
 		if unavailable != nil {
 			run.Spec.StaleReason = unavailable.Code + ": " + unavailable.Detail
@@ -489,9 +532,7 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 		executed = true
 		processResult, processErr = (environment.ProcessRunner{OutputLimit: 128 << 10}).RunInDirectory(ctx, selection.Command.Executable, selection.Command.Arguments, qualityRunnerEnvironment(), selection.WorktreeRoot, selection.Definition.Timeout)
 		if processErr != nil {
-			run.Spec.State = domain.AssuranceStateFailed
-			run.Spec.Summary = "선택한 Quality Runner가 실패했습니다."
-			run.Spec.StaleReason = "runner.execution_failed"
+			run.Spec.State, run.Spec.Outcome, run.Spec.Summary, run.Spec.StaleReason = qualityRunProcessOutcome(processResult, processErr)
 		} else {
 			run.Spec.State = domain.AssuranceStateSucceeded
 			run.Spec.Summary = "선택한 Quality Runner가 완료되었습니다."
@@ -502,32 +543,196 @@ func (a *App) RunQuality(ctx context.Context, input QualityRunInput) (domain.Qua
 	if executed {
 		run.Spec.ExitCode = processResult.ExitCode
 	}
-	run.Spec.Evidence["result"] = qualityRunResultEvidence(a.masker, run.Spec.State, processResult, processErr, executed)
+	if executed && input.Technique == domain.QualityTechniqueGoTestCoverage {
+		profile, truncated, profileErr := readBoundedQualityCoverage(coveragePath)
+		if profileErr != nil {
+			if processErr == nil {
+				run.Spec.State = domain.AssuranceStateFailed
+				run.Spec.Outcome = domain.QualityRunOutcomeInconclusive
+				run.Spec.Summary = "Go coverage profile을 읽을 수 없습니다."
+				run.Spec.StaleReason = qualityRunCoverageProfileInconclusiveReason
+			}
+		} else if len(profile) > 0 {
+			profileArtifact, artifactErr := persistence.saveArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".coverage.out", MIME: "text/plain", Content: profile, TraceID: traceID})
+			if artifactErr != nil {
+				return a.failQualityRunPersistence(ctx, persistence, run, fmt.Errorf("persist quality run coverage artifact: %w", artifactErr), run.Spec.ArtifactIDs)
+			}
+			run.Spec.ArtifactIDs = append(run.Spec.ArtifactIDs, profileArtifact.Metadata.ID)
+			if processErr == nil {
+				coverageSummary, parseErr := assurance.ParseGoCoverageProfile(profile)
+				if truncated || parseErr != nil {
+					run.Spec.State = domain.AssuranceStateFailed
+					run.Spec.Outcome = domain.QualityRunOutcomeInconclusive
+					run.Spec.Summary = "Go coverage profile을 확정할 수 없습니다."
+					run.Spec.StaleReason = qualityRunCoverageProfileInconclusiveReason
+				} else {
+					run.Spec.Outcome = domain.QualityRunOutcomeCoverageCollected
+					run.Spec.Coverage = qualityCoverageSummary(coverageSummary, profileArtifact.Metadata.ID)
+				}
+			}
+		} else if processErr == nil {
+			run.Spec.State = domain.AssuranceStateFailed
+			run.Spec.Outcome = domain.QualityRunOutcomeInconclusive
+			run.Spec.Summary = "Go coverage profile이 생성되지 않았습니다."
+			run.Spec.StaleReason = qualityRunCoverageProfileMissingReason
+		}
+	}
+	resultEvidence := qualityRunResultEvidence(a.masker, run.Spec.State, processResult, processErr, executed)
+	if run.Spec.Outcome != "" {
+		resultEvidence["outcome"] = run.Spec.Outcome
+	}
+	if run.Spec.Coverage != nil {
+		resultEvidence["coverage"] = run.Spec.Coverage
+	}
+	run.Spec.Evidence["result"] = resultEvidence
 	report, marshalErr := json.Marshal(qualityRunArtifact(run, executed))
 	if marshalErr != nil {
-		return domain.QualityRun{}, marshalErr
+		return a.failQualityRunPersistence(ctx, persistence, run, fmt.Errorf("marshal quality run report: %w", marshalErr), run.Spec.ArtifactIDs)
 	}
 	run.Spec.OutputDigest = digestText(report)
-	artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".json", MIME: "application/json", Content: report, TraceID: traceID})
+	artifact, artifactErr := persistence.saveArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".json", MIME: "application/json", Content: report, TraceID: traceID})
 	if artifactErr != nil {
-		return domain.QualityRun{}, artifactErr
+		return a.failQualityRunPersistence(ctx, persistence, run, fmt.Errorf("persist quality run report artifact: %w", artifactErr), run.Spec.ArtifactIDs)
 	}
-	run.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
-	if err := a.store.UpdateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, 3, run.Spec.State, completed, run); err != nil {
-		return domain.QualityRun{}, err
+	run.Spec.ArtifactIDs = append(run.Spec.ArtifactIDs, artifact.Metadata.ID)
+	if err := persistence.updateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, 3, run.Spec.State, completed, run); err != nil {
+		return a.failQualityRunPersistence(ctx, persistence, run, fmt.Errorf("persist quality run final revision: %w", err), run.Spec.ArtifactIDs)
 	}
-	campaign.Spec.RunIDs = append(campaign.Spec.RunIDs, run.Metadata.ID)
-	campaign.Spec.UpdatedAt = completed
-	if revision, revisionErr := a.store.AssuranceRevision(ctx, domain.QualityCampaignKind, campaign.Metadata.ID); revisionErr == nil {
-		_ = a.store.UpdateAssuranceRevision(ctx, domain.QualityCampaignKind, campaign.Metadata.ID, revision+1, campaign.Spec.State, completed, campaign)
+	if err := persistence.appendQualityRunToCampaign(ctx, campaign.Metadata.ID, run.Metadata.ID, completed); err != nil {
+		return a.failQualityRunPersistence(ctx, persistence, run, fmt.Errorf("persist quality campaign run reference: %w", err), run.Spec.ArtifactIDs)
 	}
 	if selectionErr != nil || (selectionErr == nil && selection.State != assurance.QualityRunnerSelectionAvailable) {
 		return run, contract.Unavailable("selected Quality Runner is unavailable")
 	}
-	if processErr != nil {
+	if processErr != nil || run.Spec.Outcome == domain.QualityRunOutcomeInconclusive {
 		return run, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "quality run did not succeed"}
 	}
 	return run, nil
+}
+
+const (
+	qualityRunPersistenceAttempts = 3
+	qualityRunCompensationTimeout = 5 * time.Second
+)
+
+func (a *App) failQualityRunPersistence(ctx context.Context, persistence qualityRunPersistence, run domain.QualityRun, primary error, artifactIDs []string) (domain.QualityRun, error) {
+	compensationContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), qualityRunCompensationTimeout)
+	defer cancel()
+
+	compensationErr := compensateQualityRunArtifacts(compensationContext, persistence.deleteArtifact, artifactIDs)
+	if compensationErr == nil {
+		run.Spec.ArtifactIDs = nil
+		run.Spec.Coverage = nil
+		run.Spec.OutputDigest = ""
+	}
+	terminalErr := a.persistTerminalQualityRunFailure(compensationContext, persistence, &run)
+
+	errorsToJoin := []error{primary}
+	if compensationErr != nil {
+		errorsToJoin = append(errorsToJoin, fmt.Errorf("compensate quality run artifacts: %w", compensationErr))
+	}
+	if terminalErr != nil {
+		errorsToJoin = append(errorsToJoin, fmt.Errorf("persist terminal quality run state: %w", terminalErr))
+	}
+	return run, errors.Join(errorsToJoin...)
+}
+
+func compensateQualityRunArtifacts(ctx context.Context, deleteArtifact func(context.Context, string) error, artifactIDs []string) error {
+	if len(artifactIDs) == 0 {
+		return nil
+	}
+	if deleteArtifact == nil {
+		return errors.New("quality run artifact compensation is unavailable")
+	}
+	var compensationErrors []error
+	seen := make(map[string]struct{}, len(artifactIDs))
+	for _, id := range artifactIDs {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if err := deleteArtifact(ctx, id); err != nil {
+			compensationErrors = append(compensationErrors, fmt.Errorf("delete artifact %q: %w", id, err))
+		}
+	}
+	return errors.Join(compensationErrors...)
+}
+
+func (a *App) persistTerminalQualityRunFailure(ctx context.Context, persistence qualityRunPersistence, run *domain.QualityRun) error {
+	now := time.Now().UTC()
+	if run.Spec.CompletedAt == nil {
+		run.Spec.CompletedAt = &now
+	}
+	run.Spec.State = domain.AssuranceStateFailed
+	run.Spec.Outcome = domain.QualityRunOutcomeInconclusive
+	run.Spec.Summary = "Quality Run 결과 저장에 실패했습니다."
+	run.Spec.StaleReason = "quality.persistence_failed"
+	if run.Spec.Evidence == nil {
+		run.Spec.Evidence = map[string]any{}
+	}
+	run.Spec.Evidence["persistence"] = map[string]any{"state": domain.AssuranceStateFailed, "outcome": domain.QualityRunOutcomeInconclusive, "reason": "quality.persistence_failed"}
+	if result, ok := run.Spec.Evidence["result"].(map[string]any); ok {
+		result["state"] = run.Spec.State
+		result["outcome"] = run.Spec.Outcome
+		result["error"] = "quality run persistence failed"
+	}
+	if persistence.updateAssuranceRevision == nil {
+		return errors.New("quality run terminal persistence is unavailable")
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < qualityRunPersistenceAttempts; attempt++ {
+		revision, err := a.store.AssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID)
+		if err != nil {
+			lastErr = fmt.Errorf("read quality run revision: %w", err)
+			continue
+		}
+		if err := persistence.updateAssuranceRevision(ctx, domain.QualityRunKind, run.Metadata.ID, revision+1, run.Spec.State, *run.Spec.CompletedAt, *run); err != nil {
+			lastErr = fmt.Errorf("update quality run terminal revision %d: %w", revision+1, err)
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func (a *App) appendQualityRunToCampaign(ctx context.Context, campaignID, runID string, completed time.Time) error {
+	return a.appendQualityRunToCampaignWithHook(ctx, campaignID, runID, completed, nil)
+}
+
+func (a *App) appendQualityRunToCampaignWithHook(ctx context.Context, campaignID, runID string, completed time.Time, beforeUpdate func()) error {
+	for attempt := 0; attempt < qualityRunPersistenceAttempts; attempt++ {
+		var campaign domain.QualityCampaign
+		revision, err := a.store.GetAssuranceWithRevision(ctx, domain.QualityCampaignKind, campaignID, &campaign)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return contract.NotFound("quality campaign not found")
+			}
+			return fmt.Errorf("load quality campaign %q: %w", campaignID, err)
+		}
+		if err := campaign.Validate(); err != nil {
+			return fmt.Errorf("validate quality campaign %q: %w", campaignID, err)
+		}
+		if containsText(campaign.Spec.RunIDs, runID) {
+			return nil
+		}
+		campaign.Spec.RunIDs = append(campaign.Spec.RunIDs, runID)
+		campaign.Spec.UpdatedAt = completed
+		if beforeUpdate != nil {
+			beforeUpdate()
+		}
+		if err := a.store.UpdateAssuranceRevision(ctx, domain.QualityCampaignKind, campaignID, revision+1, campaign.Spec.State, completed, campaign); err != nil {
+			if attempt+1 == qualityRunPersistenceAttempts {
+				return fmt.Errorf("update quality campaign %q revision %d: %w", campaignID, revision+1, err)
+			}
+			continue
+		}
+		return nil
+	}
+	return errors.New("quality campaign update retries exhausted")
 }
 
 func qualityCheckCommand(command assurance.TypedCommand, timeout time.Duration) domain.CheckCommand {
@@ -593,6 +798,12 @@ func qualityRunArtifact(run domain.QualityRun, executed bool) map[string]any {
 		"configDigest":   run.Spec.ConfigDigest,
 		"state":          run.Spec.State,
 		"result":         run.Spec.Evidence["result"],
+	}
+	if run.Spec.Outcome != "" {
+		report["outcome"] = run.Spec.Outcome
+	}
+	if run.Spec.Coverage != nil {
+		report["coverage"] = run.Spec.Coverage
 	}
 	if metadata, ok := run.Spec.Evidence["runnerMetadata"]; ok {
 		report["runnerMetadata"] = metadata
@@ -1392,7 +1603,7 @@ func discoverBaseline(root string) ([]domain.BaselineEntry, string, []string, er
 
 func validTechnique(value string) bool {
 	switch value {
-	case domain.QualityTechniqueStaticSecurity, domain.QualityTechniqueMutation, domain.QualityTechniqueProperty, domain.QualityTechniqueFuzz, domain.QualityTechniqueTargetedE2E:
+	case domain.QualityTechniqueStaticSecurity, domain.QualityTechniqueMutation, domain.QualityTechniqueProperty, domain.QualityTechniqueFuzz, domain.QualityTechniqueTargetedE2E, domain.QualityTechniqueGoTestCoverage:
 		return true
 	}
 	return false

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,13 @@ import (
 	"time"
 
 	"github.com/knowgyu/dev-control-room/internal/domain"
+)
+
+var (
+	ErrQualityObjectiveNotFound      = errors.New("quality objective is missing")
+	ErrQualityObjectiveKindMismatch  = errors.New("quality objective kind mismatch")
+	ErrQualityObjectiveRevisionStale = errors.New("quality objective revision is stale")
+	ErrQualityObjectiveRequiresCAS   = errors.New("quality objective updates require UpdateQualityObjectiveRevisionCAS")
 )
 
 // SaveAssurance* methods keep the additive assurance records revisioned and
@@ -113,6 +121,10 @@ func (s *Store) SaveAgentInvocation(ctx context.Context, item domain.AgentInvoca
 
 func (s *Store) SaveQualityCampaign(ctx context.Context, item domain.QualityCampaign) error {
 	return s.saveAssurance(ctx, domain.QualityCampaignKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, 1, item.Spec.CreatedAt, item.Spec.UpdatedAt, item, item.Validate())
+}
+
+func (s *Store) SaveQualityObjective(ctx context.Context, item domain.QualityObjective) error {
+	return s.saveAssurance(ctx, domain.QualityObjectiveKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, item.Spec.Revision, item.Spec.CreatedAt, item.Spec.UpdatedAt, item, item.Validate())
 }
 
 func (s *Store) SaveQualityRun(ctx context.Context, item domain.QualityRun) error {
@@ -244,10 +256,15 @@ func (s *Store) saveAssurance(ctx context.Context, kind, id, projectID, reposito
 	return nil
 }
 
-// UpdateAssuranceRevision is the only mutable path for an assurance object.
+// UpdateAssuranceRevision is the mutable path for non-QualityObjective
+// assurance objects. QualityObjective updates must use the exact-revision CAS
+// method below so a lifecycle command cannot overwrite a newer snapshot.
 // A caller must provide a strictly larger revision; a stale worker therefore
 // cannot overwrite a newer state after restart or lease expiry.
 func (s *Store) UpdateAssuranceRevision(ctx context.Context, kind, id string, revision int, state string, updatedAt time.Time, value any) error {
+	if kind == domain.QualityObjectiveKind {
+		return ErrQualityObjectiveRequiresCAS
+	}
 	if revision < 1 || strings.TrimSpace(kind) == "" || strings.TrimSpace(id) == "" || strings.TrimSpace(state) == "" || updatedAt.IsZero() {
 		return errors.New("assurance revision is invalid")
 	}
@@ -269,10 +286,72 @@ func (s *Store) UpdateAssuranceRevision(ctx context.Context, kind, id string, re
 	return nil
 }
 
+// UpdateQualityObjectiveRevisionCAS updates only a QualityObjective when its
+// kind, id, and expected revision still match the stored row. The object must
+// carry the single next revision that will be written to its JSON snapshot.
+func (s *Store) UpdateQualityObjectiveRevisionCAS(ctx context.Context, kind, id string, expectedRevision int, item domain.QualityObjective) error {
+	if kind != domain.QualityObjectiveKind || item.TypeMeta.Kind != domain.QualityObjectiveKind {
+		return ErrQualityObjectiveKindMismatch
+	}
+	if strings.TrimSpace(id) == "" || item.Metadata.ID != id || expectedRevision < 1 {
+		return errors.New("quality objective identity or revision is invalid")
+	}
+	if item.Spec.Revision != expectedRevision+1 {
+		return fmt.Errorf("%w: object revision must be %d", ErrQualityObjectiveRevisionStale, expectedRevision+1)
+	}
+	if err := item.Validate(); err != nil {
+		return err
+	}
+	object, err := s.maskedJSON(item)
+	if err != nil {
+		return err
+	}
+	digest, err := assuranceJSONDigest(object)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE assurance_objects SET state = ?, revision = revision + 1, digest = ?, updated_at = ?, object_json = ? WHERE kind = ? AND id = ? AND revision = ?`, item.Spec.State, digest, item.Spec.UpdatedAt.UTC().Format(timeFormat), object, kind, id, expectedRevision)
+	if err != nil {
+		return fmt.Errorf("update quality objective: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect quality objective update: %w", err)
+	}
+	if affected == 1 {
+		return nil
+	}
+
+	var storedKind string
+	var storedRevision int
+	if err := s.db.QueryRowContext(ctx, `SELECT kind, revision FROM assurance_objects WHERE id = ?`, id).Scan(&storedKind, &storedRevision); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %q", ErrQualityObjectiveNotFound, id)
+		}
+		return fmt.Errorf("inspect quality objective after update: %w", err)
+	}
+	if storedKind != domain.QualityObjectiveKind {
+		return fmt.Errorf("%w: %q", ErrQualityObjectiveKindMismatch, id)
+	}
+	return fmt.Errorf("%w: expected revision %d, stored revision %d", ErrQualityObjectiveRevisionStale, expectedRevision, storedRevision)
+}
+
 func (s *Store) AssuranceRevision(ctx context.Context, kind, id string) (int, error) {
 	var revision int
 	if err := s.db.QueryRowContext(ctx, `SELECT revision FROM assurance_objects WHERE kind = ? AND id = ?`, kind, id).Scan(&revision); err != nil {
 		return 0, err
+	}
+	return revision, nil
+}
+
+func (s *Store) GetAssuranceWithRevision(ctx context.Context, kind, id string, target any) (int, error) {
+	var revision int
+	var object string
+	if err := s.db.QueryRowContext(ctx, `SELECT revision, object_json FROM assurance_objects WHERE kind = ? AND id = ?`, kind, id).Scan(&revision, &object); err != nil {
+		return 0, err
+	}
+	if err := json.Unmarshal([]byte(object), target); err != nil {
+		return 0, fmt.Errorf("decode assurance object: %w", err)
 	}
 	return revision, nil
 }
@@ -330,6 +409,34 @@ func (s *Store) ListQualityCampaigns(ctx context.Context) ([]domain.QualityCampa
 	})
 	return items, err
 }
+
+func (s *Store) GetQualityObjective(ctx context.Context, id string) (domain.QualityObjective, error) {
+	var item domain.QualityObjective
+	if err := s.GetAssurance(ctx, domain.QualityObjectiveKind, id, &item); err != nil {
+		return domain.QualityObjective{}, err
+	}
+	if err := item.Validate(); err != nil {
+		return domain.QualityObjective{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) ListQualityObjectives(ctx context.Context) ([]domain.QualityObjective, error) {
+	items := []domain.QualityObjective{}
+	err := s.ListAssurance(ctx, domain.QualityObjectiveKind, func(data []byte) error {
+		var item domain.QualityObjective
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
+
 func (s *Store) ListAgentInvocations(ctx context.Context) ([]domain.AgentInvocation, error) {
 	items := []domain.AgentInvocation{}
 	err := s.ListAssurance(ctx, domain.AgentInvocationKind, func(data []byte) error {

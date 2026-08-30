@@ -1277,6 +1277,91 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusCreated, contract.Success(item))
 	}))
+	mux.HandleFunc("GET /api/quality/home", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.QualityHome(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/quality/tools", func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Cache-Control", "no-store")
+		item, err := service.QualityTools(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/quality/objectives", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.QualityObjectives(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/quality/objectives/{objectiveID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.QualityObjective(request.Context(), request.PathValue("objectiveID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("POST /api/quality/objectives", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input QualityObjectiveInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.CreateQualityObjective(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/quality/objectives/{objectiveID}/decision", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		input, err := decodeQualityObjectiveDecisionBody(response, request)
+		if err != nil {
+			writeServiceError(response, contract.InvalidInput(err.Error()))
+			return
+		}
+		item, err := service.DecideQualityObjective(request.Context(), request.PathValue("objectiveID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/quality/objectives/{objectiveID}/revalidations", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		input, err := decodeQualityObjectiveRevalidationBody(response, request)
+		if err != nil {
+			writeServiceError(response, contract.InvalidInput(err.Error()))
+			return
+		}
+		item, err := service.RevalidateQualityObjective(request.Context(), request.PathValue("objectiveID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/quality/objectives/{objectiveID}/confirm", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		input, err := decodeQualityObjectiveConfirmationBody(response, request)
+		if err != nil {
+			writeServiceError(response, contract.InvalidInput(err.Error()))
+			return
+		}
+		item, err := service.ConfirmQualityObjective(request.Context(), request.PathValue("objectiveID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
 	mux.HandleFunc("GET /api/assurance/runs", func(response http.ResponseWriter, request *http.Request) {
 		items, err := service.QualityRuns(request.Context())
 		if err != nil {

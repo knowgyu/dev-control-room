@@ -1,4 +1,4 @@
-# Dev Control Room 0.13.1
+# Dev Control Room 0.14.0
 
 Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만 관찰하고,
 근거가 있는 점검과 Action을 계획·승인·실행합니다. 서비스는 loopback에만
@@ -53,11 +53,11 @@ ZIP과 SHA-256 목록을 만듭니다. 실제 Jenkins, production, Scheduler, �
 작업은 패키징에 포함되지 않습니다.
 
 ```powershell
-pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.13.1
+pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.14.0
 ```
 
-이 명령은 `docs/RELEASE_NOTES_v0.13.1.md`와
-`docs/VERIFICATION_v0.13.1.md`가 모두 있을 때 패키지를 만듭니다.
+이 명령은 `docs/RELEASE_NOTES_v0.14.0.md`와
+`docs/VERIFICATION_v0.14.0.md`가 모두 있을 때 패키지를 만듭니다.
 
 검증까지 포함한 후보 확인은 다음 명령을 먼저 실행합니다.
 
@@ -65,7 +65,26 @@ pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.13.1
 pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 ```
 
-## 0.13.1 범위와 경계
+## 0.14.0 준비 범위와 경계
+
+- Quality Objective는 `draft → baseline_pending → ready → running → review → adopted`
+  lifecycle과 `blocked`, `stale`, `rejected` 예외 경로를 사용합니다. 사람의
+  disposition과 revision/CAS를 거치며, 최신 동일 HEAD의 개선된 재검증과
+  보관된 근거가 확인될 때만 채택할 수 있습니다.
+- Go coverage는 검토된 native `go test` runner와 서버 소유의 제한된
+  `.out` profile을 사용합니다. profile은 구조화된 Quality Run 근거로 요약하며,
+  HEAD·runner 설정 digest·artifact가 일치하지 않거나 확인되지 않으면
+  `inconclusive` 또는 `not improved`로 닫힙니다.
+- 품질 도구 화면은 고정된 검토 목록에 대해 PATH를 읽기 전용으로 탐색합니다.
+  후보를 실행하거나 버전·설치·신뢰 상태를 추정하지 않으며, 선택되지 않은
+  Worktree/test target도 대신 결정하지 않습니다.
+- 홈 개선 큐, Quality Objective 상세, 품질 도구 진단, 검증 화면의 빈 상태와
+  retry/오류/예시 표현을 정리했습니다. 예시 화면은 저장·비용·효과 집계에
+  포함되지 않는 읽기 전용 표시입니다.
+- 이번 문서는 0.14.0 준비 범위만 설명하며, 실제 final gate 결과나 출시 완료를
+  기록하지 않습니다. 패키지는 Windows amd64만 대상으로 하며 Linux/arm64
+  release asset은 만들지 않습니다. artifact 무결성과 승인 조건은 계속
+  fail-closed입니다.
 
 - 첫 화면에서 제품의 핵심 흐름을 `연결 → 확인 → 승인된 실행`으로 설명하고,
   상단 `사용법` 탭에서 네 단계 가이드를 제공합니다. 따뜻한 종이색 대신
@@ -130,7 +149,7 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
   승인이 필요합니다.
 - `FallbackRunbookID`는 참조만 저장하며 자동으로 PowerShell을 이어 실행하지
   않습니다. 이어 실행은 별도 계약과 승인이 필요합니다.
-- 0.13.1의 확인 범위는 자동화, native Windows process acceptance, 로컬
+- 이전 0.13.1의 확인 범위는 자동화, native Windows process acceptance, 로컬
   Windows Browser 관찰, disposable local Git fixture의 실제 Codex invocation입니다.
   회사 Jenkins/GitHub/Kubernetes,
   proxy, production, second-device, full Tab/Space, native dialog Esc driver
@@ -142,6 +161,7 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 - [효과 대시보드와 trace 계약](docs/ASSURANCE_EFFECT_DASHBOARD.md)
 - [UI 연구와 제품 대응](docs/AI_GENERATED_UI_RESEARCH_2026-08-30.md)
 - [사용 가이드](docs/USER_GUIDE.md)
+- [v0.14.0 릴리즈 노트](docs/RELEASE_NOTES_v0.14.0.md)
 - [v0.13.1 검증 기록](docs/VERIFICATION_v0.13.1.md)
 - [v0.13.1 릴리즈 노트](docs/RELEASE_NOTES_v0.13.1.md)
 - [v0.13.0 검증 기록](docs/VERIFICATION_v0.13.0.md)

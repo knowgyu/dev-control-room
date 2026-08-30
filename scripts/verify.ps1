@@ -148,9 +148,8 @@ try {
 
     Push-Location $repositoryRoot
     try {
-        $goFiles = @(Get-ChildItem -LiteralPath $repositoryRoot -Recurse -File -Filter "*.go" |
-            Where-Object { $_.FullName -notmatch "\\(?:\.git|vendor)\\" } |
-            Select-Object -ExpandProperty FullName)
+        $goFiles = @(& git -c ("safe.directory=" + $repositoryRoot) -C $repositoryRoot ls-files --cached --others --exclude-standard -- '*.go' |
+            ForEach-Object { Join-Path $repositoryRoot $_ })
         if ($goFiles.Count -eq 0) {
             throw "no Go files found"
         }

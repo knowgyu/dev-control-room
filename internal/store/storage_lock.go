@@ -75,7 +75,9 @@ func acquireStorageLockWithin(ctx context.Context, lockPath string, timeout time
 		timeout = storageLockPollInterval
 	}
 	deadline := time.Now().Add(timeout)
-	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+	contextDeadline, hasContextDeadline := ctx.Deadline()
+	contextDeadlineControlsWait := hasContextDeadline && !contextDeadline.After(deadline)
+	if contextDeadlineControlsWait {
 		deadline = contextDeadline
 	}
 
@@ -98,6 +100,11 @@ func acquireStorageLockWithin(ctx context.Context, lockPath string, timeout time
 		_ = file.Close()
 
 		if !time.Now().Before(deadline) {
+			// The clock can reach a context deadline just before cancellation
+			// propagation makes ctx.Err observable. Preserve the caller's bound.
+			if contextDeadlineControlsWait {
+				return nil, context.DeadlineExceeded
+			}
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
