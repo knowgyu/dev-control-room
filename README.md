@@ -46,6 +46,20 @@ Start-Process http://127.0.0.1:38471
 .\dev-control-room.exe serve --home "$env:TEMP\dev-control-room-fixture"
 ```
 
+## 재현 가능한 dogfood 측정
+
+현재 저장소의 고정된 읽기 전용 점검과 선택한 loopback 서버의 제한된
+latency 샘플을 기록하려면 PowerShell 7.6에서 다음을 실행합니다.
+
+```powershell
+pwsh -NoProfile -File .\scripts\measure-dogfood.ps1 -OutputDirectory .\artifacts\dogfood
+```
+
+실행 중인 로컬 서버까지 확인하려면 `-ProbeServer -ServerUri
+http://127.0.0.1:38471 -RequestCount 5`를 추가합니다. manifest와 사람이 읽는
+보고서의 계약, provenance 규칙, 한계는
+[`docs/DOGFOOD_MEASUREMENT.md`](docs/DOGFOOD_MEASUREMENT.md)에 있습니다.
+
 ## 패키지 만들기
 
 PowerShell 7.6과 Go가 설치된 Windows에서 다음 명령이 Windows amd64 portable
@@ -159,6 +173,7 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 ## 문서
 
 - [현재 상태와 handoff](docs/HANDOFF.md)
+- [dogfood 측정 계약과 절차](docs/DOGFOOD_MEASUREMENT.md)
 - [효과 대시보드와 trace 계약](docs/ASSURANCE_EFFECT_DASHBOARD.md)
 - [UI 연구와 제품 대응](docs/AI_GENERATED_UI_RESEARCH_2026-08-30.md)
 - [사용 가이드](docs/USER_GUIDE.md)
