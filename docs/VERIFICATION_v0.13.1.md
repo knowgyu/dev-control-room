@@ -1,6 +1,6 @@
 # v0.13.1 verification record
 
-Status: PASS for the local release candidate; remote publication pending.
+Status: PASS for the local candidate and downloaded GitHub release.
 Date: 2026-08-30
 
 ## Scope
@@ -55,3 +55,20 @@ SHA-256: authoritative in artifacts\0.13.1-candidate\SHA256SUMS
 No company Jenkins, production release, or destructive cleanup is part of this
 verification. Jenkins MCP execution remains behind the existing Action Broker
 approval boundary.
+
+## Remote release acceptance
+
+The GitHub release is [v0.13.1](https://github.com/knowgyu/dev-control-room/releases/tag/v0.13.1).
+Its Windows amd64 archive was downloaded into
+`artifacts\0.13.1-downloaded` and checked against the published `SHA256SUMS`:
+
+```text
+068ef373bc31a9d3c856aa9ba457a72db280a4fc471b13054468838252991ff0  dev-control-room_0.13.1_windows_amd64.zip
+```
+
+The extracted binary reported version `0.13.1` and returned a successful JSON
+help envelope. The running server at `127.0.0.1:38471` is the extracted release
+binary, and the browser loaded `/ui/app.css?v=0.13.1` and
+`/ui/app.js?v=0.13.1` on the `진단` route. The visible route had one heading,
+no document-level horizontal overflow, and no captured browser error or
+warning logs.

@@ -10,9 +10,11 @@ status column, unused context space is removed, and the required-tool health
 message is content-sized. The release package remains Windows amd64 only;
 ARM64 is verification-only and Linux is CI-only.
 
-The release verification record is
-[VERIFICATION_v0.13.1.md](VERIFICATION_v0.13.1.md). Remote release download
-and packaged-binary browser smoke are added there after publication.
+The [v0.13.1 GitHub release](https://github.com/knowgyu/dev-control-room/releases/tag/v0.13.1)
+is published with only the Windows amd64 ZIP and `SHA256SUMS`. The archive was
+downloaded, its checksum matched, and its extracted binary is the server
+currently running on `127.0.0.1:38471`. The complete record is in
+[VERIFICATION_v0.13.1.md](VERIFICATION_v0.13.1.md).
 
 ## 2026-08-30 v0.13.0 product-surface repair
 
