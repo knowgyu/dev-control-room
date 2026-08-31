@@ -588,6 +588,7 @@
   function focusElementByID(id) {
     const element = id ? document.getElementById(id) : null;
     if (!element) return false;
+    if (id === "main-content") element.classList.add("route-focus");
     element.focus({ preventScroll: true });
     return true;
   }
@@ -684,8 +685,8 @@
     const meta = qualityToolsItemMeta(item);
     return `<article class="quality-tools-entry quality-tools-entry--${stateClass}">
       <div class="quality-tools-entry__heading"><div><h4>${escapeHTML(name)}</h4><p class="quality-tools-entry__kind">${escapeHTML(kind)}</p></div><span class="quality-tools-state quality-tools-state--${stateClass}" aria-label="상태: ${escapeHTML(qualityToolsStateLabel(stateValue))}">${escapeHTML(qualityToolsStateLabel(stateValue))}</span></div>
-      <p class="quality-tools-entry__reason"><span>탐색 설명</span>${escapeHTML(reason)}</p>
-      <p class="quality-tools-entry__guidance"><span>설치·설정 안내</span>${escapeHTML(guidance)}</p>
+      <p class="quality-tools-entry__reason">${escapeHTML(reason)}</p>
+      <p class="quality-tools-entry__guidance"><span>다음 확인</span>${escapeHTML(guidance)}</p>
       ${meta ? `<p class="quality-tools-entry__meta">${escapeHTML(meta)}</p>` : ""}
     </article>`;
   };
@@ -783,6 +784,7 @@
     const queueContainer = document.getElementById("home-findings");
     const queueStatus = document.getElementById("quality-queue-status");
     const nextAction = document.getElementById("home-next-action");
+    const nextSection = document.getElementById("home-next-action-section");
     if (!metrics || !queueContainer || !nextAction) return;
     const qualityHome = state.qualityHome || { status: "loading", data: null, error: "" };
     const data = normalizeQualityHome(qualityHome.data);
@@ -802,11 +804,13 @@
       queueStatus.textContent = loading ? "응답을 기다리는 중" : failed ? "읽기 실패" : `${formatCount(queue.length)}개 · 목표 ${formatCount(data.objectives.length)}개`;
     }
     if (loading) {
+      nextSection?.classList.remove("home-next-action--empty");
       queueContainer.innerHTML = '<div class="quality-queue-loading"><strong>품질 개선 항목을 불러오는 중입니다.</strong><span>저장된 QualityHome 결과를 읽고 있습니다.</span></div>';
       nextAction.innerHTML = '<div class="quality-queue-next-state"><strong>다음 행동을 계산하는 중입니다.</strong><p>개선 큐의 첫 항목을 확인하고 있습니다.</p></div>';
       return;
     }
     if (failed) {
+      nextSection?.classList.remove("home-next-action--empty");
       const errorMessage = qualityHome.error || "품질 개선 큐를 읽지 못했습니다.";
       queueContainer.innerHTML = `<div class="quality-queue-error" role="alert"><strong>품질 개선 큐를 불러오지 못했습니다.</strong><span>${escapeHTML(errorMessage)}</span><button class="button small" type="button" data-quality-retry>다시 불러오기</button></div>`;
       nextAction.innerHTML = `<div class="quality-queue-next-state"><strong>품질 개선 큐를 다시 불러오세요.</strong><p>다른 프로젝트·실행·활동 데이터는 계속 확인할 수 있습니다.</p><button class="button small" type="button" data-quality-retry>다시 불러오기</button></div>`;
@@ -816,15 +820,17 @@
       ? `<div class="quality-queue-list">${queue.map(renderQualityQueueItem).join("")}</div>`
       : '<div class="quality-queue-empty"><strong>현재 확인할 품질 개선 항목이 없습니다.</strong><span>저장된 QualityHome 결과에 개선 큐가 비어 있습니다.</span></div>';
     if (firstItem) {
+      nextSection?.classList.remove("home-next-action--empty");
       const title = String(firstItem.title || "").trim() || "첫 번째 개선 항목";
       const action = qualityQueueAction(firstItem);
       nextAction.innerHTML = `<div class="quality-queue-next-state"><span class="eyebrow">큐 첫 항목</span><strong>${escapeHTML(title)}</strong><p>${escapeHTML(String(firstItem.summary || "개선 사유가 기록되지 않았습니다."))}</p><a class="button primary small" href="${escapeHTML(action.href)}">${escapeHTML(action.label)}</a></div>`;
       return;
     }
     const hasProjects = (state.snapshot.projects || []).length > 0;
+    nextSection?.classList.toggle("home-next-action--empty", !hasProjects);
     nextAction.innerHTML = hasProjects
       ? '<div class="quality-queue-next-state"><strong>새 개선 항목을 확인하세요.</strong><p>현재 큐가 비어 있습니다. 작업에서 Quality Run을 실행하면 새 결과를 확인할 수 있습니다.</p><a class="button primary small" href="#work">Quality Run 실행으로 이동</a></div>'
-      : '<div class="quality-queue-next-state"><strong>품질 개선을 시작하세요.</strong><p>프로젝트를 등록하면 저장된 품질 결과를 바탕으로 개선 큐를 만들 수 있습니다.</p><a class="button primary small" href="#projects">프로젝트 등록으로 이동</a></div>';
+      : '<div class="quality-queue-next-state quality-queue-next-state--inline"><strong>프로젝트를 연결하면 개선 큐가 열립니다.</strong></div>';
   }
 
   const qualityObjectiveStateLabels = {
@@ -1807,7 +1813,7 @@
 
   function renderActivity() {
     document.getElementById("events").innerHTML = state.events.length
-      ? `<div class="table-wrap"><table><caption>활동 기록</caption><thead><tr><th scope="col">시각</th><th scope="col">유형</th><th scope="col">내용</th><th scope="col">범위</th></tr></thead><tbody>${state.events.slice().reverse().map(item => `<tr><td>${escapeHTML(formatDate(item.spec.occurredAt))}</td><td><code>${escapeHTML(item.spec.type)}</code></td><td>${escapeHTML(localize(item.spec.summary))}</td><td>${escapeHTML([item.spec.projectId, item.spec.repositoryId].filter(Boolean).join(" / ") || "전체")}</td></tr>`).join("")}</tbody></table></div>`
+      ? `<div class="table-wrap" tabindex="0" role="region" aria-label="활동 기록 표. 좌우로 스크롤할 수 있습니다." aria-describedby="activity-table-scroll-hint"><p id="activity-table-scroll-hint" class="table-scroll-hint">좌우로 밀어 표 전체를 확인하세요.</p><table><caption>활동 기록</caption><thead><tr><th scope="col">시각</th><th scope="col">유형</th><th scope="col">내용</th><th scope="col">범위</th></tr></thead><tbody>${state.events.slice().reverse().map(item => `<tr><td>${escapeHTML(formatDate(item.spec.occurredAt))}</td><td><code>${escapeHTML(item.spec.type)}</code></td><td>${escapeHTML(localize(item.spec.summary))}</td><td>${escapeHTML([item.spec.projectId, item.spec.repositoryId].filter(Boolean).join(" / ") || "전체")}</td></tr>`).join("")}</tbody></table></div>`
       : '<div class="empty-state"><strong>아직 활동 기록이 없습니다.</strong><span>점검이나 등록 변경을 실행하면 감사 기록이 남습니다.</span></div>';
   }
 
@@ -2964,7 +2970,23 @@
 
   document.querySelector(".skip-link").addEventListener("click", event => {
     event.preventDefault();
-    document.getElementById("main-content").focus({ preventScroll: true });
+    focusElementByID("main-content");
+  });
+
+  document.addEventListener("keydown", event => {
+    const region = event.target?.closest?.(".table-wrap[tabindex]");
+    if (!region || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const maxScroll = region.scrollWidth - region.clientWidth;
+    if (maxScroll <= 0) return;
+    const step = Math.max(120, Math.floor(region.clientWidth * 0.8));
+    const nextScroll = event.key === "ArrowLeft"
+      ? Math.max(0, region.scrollLeft - step)
+      : event.key === "ArrowRight"
+        ? Math.min(maxScroll, region.scrollLeft + step)
+        : event.key === "Home" ? 0 : maxScroll;
+    if (nextScroll === region.scrollLeft) return;
+    region.scrollLeft = nextScroll;
+    event.preventDefault();
   });
 
   document.addEventListener("keydown", event => {
@@ -3119,17 +3141,34 @@
   document.getElementById("pick-folder")?.addEventListener("click", event => { void openFolderPicker(event.currentTarget); });
   document.getElementById("home-pick-folder")?.addEventListener("click", event => { void openFolderPicker(event.currentTarget); });
   document.getElementById("find-repositories").addEventListener("click", discoverRepositories);
-  document.getElementById("import-project").addEventListener("click", () => document.getElementById("import-project-file").click());
-  document.getElementById("import-project-file").addEventListener("change", async event => {
+  const projectImportFile = document.getElementById("import-project-file");
+  const projectImportStatus = document.getElementById("project-import-status");
+  const setProjectImportStatus = message => {
+    if (projectImportStatus) projectImportStatus.textContent = message;
+  };
+  document.getElementById("import-project").addEventListener("click", () => {
+    setProjectImportStatus("프로젝트 설정 파일 선택 대기 중입니다.");
+    projectImportFile?.click();
+  });
+  projectImportFile?.addEventListener("cancel", () => {
+    setProjectImportStatus("프로젝트 설정 파일을 선택하지 않았습니다.");
+  });
+  projectImportFile?.addEventListener("change", async event => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      setProjectImportStatus("프로젝트 설정 파일을 선택하지 않았습니다.");
+      return;
+    }
+    setProjectImportStatus("프로젝트 설정 파일을 읽는 중입니다…");
     try {
       const project = await request("/api/projects/import", { method: "POST", headers: mutationHeaders(), body: await file.text() });
       state.activeProjectID = project.metadata.id;
       pendingProjectFocusID = project.metadata.id;
+      setProjectImportStatus("프로젝트 설정 파일을 가져왔습니다.");
       showNotice("프로젝트 설정을 가져왔습니다. 비밀 값은 포함되지 않습니다.");
       await refreshAll();
     } catch (error) {
+      setProjectImportStatus("프로젝트 설정 파일을 가져오지 못했습니다.");
       showNotice(error.message, true);
     } finally {
       event.target.value = "";

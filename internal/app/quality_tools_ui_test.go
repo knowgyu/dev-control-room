@@ -63,7 +63,7 @@ func TestEmbeddedUIQualityToolsDiagnosticsSurfaceUsesLiveData(t *testing.T) {
 		"탐색되지 않음",
 		"신뢰 확인 안 됨",
 		`qualityToolsStateLabels[value] || "상태 미상"`,
-		"탐색 설명",
+		"다음 확인",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("quality tools UI missing live field or state %q", value)

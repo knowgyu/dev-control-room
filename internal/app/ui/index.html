@@ -222,10 +222,11 @@
               <p>등록한 저장소와 Worktree의 현재 상태를 확인합니다.</p>
             </div>
             <div class="item-actions page-actions">
-              <button id="import-project" class="button" type="button">프로젝트 가져오기</button>
+              <button id="import-project" class="button" type="button" aria-controls="import-project-file" aria-describedby="project-import-status">프로젝트 가져오기</button>
               <button id="show-register" class="button primary" type="button" aria-expanded="false" aria-controls="register-panel">프로젝트 등록</button>
             </div>
-            <input id="import-project-file" type="file" accept="application/json,.json" hidden>
+            <input id="import-project-file" name="project-import-file" type="file" accept="application/json,.json" hidden aria-label="가져올 프로젝트 설정 파일" aria-describedby="project-import-status">
+            <span id="project-import-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
           </header>
 
           <section id="register-panel" class="form-surface register-panel" hidden>
@@ -642,7 +643,7 @@
               <p>점검과 실행 결과를 시간순으로 확인합니다.</p>
             </div>
           </header>
-          <section class="activity-region" aria-label="활동 기록 표">
+          <section class="activity-region">
             <div id="events" class="loading">활동 기록을 불러오는 중입니다.</div>
           </section>
         </section>
