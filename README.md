@@ -174,6 +174,7 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 
 - [현재 상태와 handoff](docs/HANDOFF.md)
 - [dogfood 측정 계약과 절차](docs/DOGFOOD_MEASUREMENT.md)
+- [실제 측정 대시보드 workflow](docs/MEASUREMENT_DASHBOARD.md)
 - [v0.15.1 릴리즈 노트](docs/RELEASE_NOTES_v0.15.1.md)
 - [v0.15.1 검증 기록](docs/VERIFICATION_v0.15.1.md)
 - [효과 대시보드와 trace 계약](docs/ASSURANCE_EFFECT_DASHBOARD.md)

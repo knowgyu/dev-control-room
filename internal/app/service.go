@@ -11,6 +11,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/environment"
+	"github.com/knowgyu/dev-control-room/internal/measurement"
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
@@ -81,6 +82,9 @@ type QueryService interface {
 	ProviderStatuses(context.Context) ([]ProviderStatus, error)
 	PricingSnapshots(context.Context) ([]domain.ProviderPricingSnapshot, error)
 	AssuranceDashboard(context.Context, string, string) (AssuranceDashboard, error)
+	MeasurementRuns(context.Context) ([]MeasurementRunSummary, error)
+	MeasurementRun(context.Context, string) (MeasurementRunSummary, error)
+	MeasurementDashboard(context.Context) (MeasurementDashboard, error)
 	AssuranceImpact(context.Context, AssuranceImpactQuery) (AssuranceImpactDashboard, error)
 	AssuranceTrace(context.Context, string) (AssuranceTrace, error)
 	AssuranceArtifactStorage(context.Context) (ArtifactStorageSummary, error)
@@ -154,6 +158,7 @@ type CommandService interface {
 	ConfirmQualityObjective(context.Context, string, QualityObjectiveConfirmationInput) (domain.QualityObjective, error)
 	CreatePRCIBaseline(context.Context, BaselineInput) (domain.PRCIBaseline, error)
 	CreateQualityCampaign(context.Context, QualityCampaignInput) (domain.QualityCampaign, error)
+	ImportMeasurementRun(context.Context, measurement.Run) (MeasurementRunSummary, error)
 	RunQuality(context.Context, QualityRunInput) (domain.QualityRun, error)
 	RunAgentInvocation(context.Context, AgentInvocationInput) (domain.AgentInvocation, error)
 	RetryAgentInvocation(context.Context, string, string) (domain.AgentInvocation, error)

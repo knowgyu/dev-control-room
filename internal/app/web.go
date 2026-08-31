@@ -2,12 +2,14 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/measurement"
 )
 
 func newHTTPHandler(service ApplicationService, listen, mutationToken string) http.Handler {
@@ -1419,6 +1421,43 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusCreated, contract.Success(item))
 	}))
+	mux.HandleFunc("GET /api/assurance/measurement-runs", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.MeasurementRuns(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/assurance/measurement-runs/dashboard", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.MeasurementDashboard(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/assurance/measurement-runs/{runID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.MeasurementRun(request.Context(), request.PathValue("runID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("POST /api/assurance/measurement-runs/import", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		item, err := decodeMeasurementManifest(response, request)
+		if err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid measurement manifest"))
+			return
+		}
+		imported, err := service.ImportMeasurementRun(request.Context(), item)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(imported))
+	}))
 	mux.HandleFunc("GET /api/assurance/artifacts", func(response http.ResponseWriter, request *http.Request) {
 		items, err := service.AssuranceArtifacts(request.Context())
 		if err != nil {
@@ -1628,6 +1667,30 @@ func assuranceImpactDays(raw string) (int, error) {
 
 func decodeBody(response http.ResponseWriter, request *http.Request, target any) error {
 	return json.NewDecoder(http.MaxBytesReader(response, request.Body, 64<<10)).Decode(target)
+}
+
+func decodeMeasurementManifest(response http.ResponseWriter, request *http.Request) (measurement.Run, error) {
+	body := request.Body
+	if body == nil {
+		body = http.NoBody
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(response, body, measurement.MaxManifestBytes))
+	decoder.DisallowUnknownFields()
+	var item measurement.Run
+	if err := decoder.Decode(&item); err != nil {
+		return measurement.Run{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return measurement.Run{}, errors.New("measurement manifest contains multiple JSON values")
+		}
+		return measurement.Run{}, err
+	}
+	if err := item.Validate(); err != nil {
+		return measurement.Run{}, err
+	}
+	return item, nil
 }
 
 func readBody(response http.ResponseWriter, request *http.Request) ([]byte, error) {

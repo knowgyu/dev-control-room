@@ -503,6 +503,39 @@
             </footer>
           </section>
 
+          <section id="assurance-measurement-dashboard" class="measurement-dashboard" aria-labelledby="assurance-measurement-title">
+            <header class="measurement-dashboard-heading">
+              <div>
+                <span class="eyebrow">Dogfood Measurement · v1</span>
+                <h2 id="assurance-measurement-title">실제 측정 대시보드</h2>
+                <p>고정 runner가 만든 manifest만 가져와 필수 게이트와 비교 가능한 측정값을 표시합니다.</p>
+              </div>
+              <div class="item-actions measurement-import-actions">
+                <button id="assurance-measurement-import" class="button primary" type="button" aria-controls="assurance-measurement-file">측정 manifest 가져오기</button>
+                <input id="assurance-measurement-file" type="file" accept="application/json,.json" hidden aria-label="Dogfood measurement manifest 파일">
+              </div>
+            </header>
+            <p id="assurance-measurement-status" class="measurement-status" role="status" aria-live="polite">측정 manifest를 불러오는 중입니다…</p>
+            <section id="assurance-measurement-empty" class="empty-state measurement-empty" aria-live="polite" hidden>
+              <strong>가져온 측정 기록이 없습니다.</strong>
+              <span>고정 PowerShell runner를 실행한 뒤 생성된 <code translate="no">dogfood-measurement.json</code>을 선택하세요. 서버는 선택한 JSON만 검증·저장합니다.</span>
+            </section>
+            <div id="assurance-measurement-content" class="measurement-content" hidden>
+              <section id="assurance-measurement-gate" class="measurement-gate" aria-labelledby="assurance-measurement-gate-title"></section>
+              <div id="assurance-measurement-highlights" class="measurement-highlights"></div>
+              <section class="measurement-section" aria-labelledby="assurance-measurement-metrics-title">
+                <header class="section-heading"><div><h3 id="assurance-measurement-metrics-title">측정값</h3><p class="meta">요약값은 manifest에 기록된 표본에서만 표시합니다.</p></div></header>
+                <div id="assurance-measurement-metrics" class="measurement-metric-grid"></div>
+              </section>
+              <section id="assurance-measurement-comparison" class="measurement-section" aria-labelledby="assurance-measurement-comparison-title"></section>
+              <section id="assurance-measurement-actions" class="measurement-section" aria-labelledby="assurance-measurement-actions-title"></section>
+              <details class="measurement-reproducibility">
+                <summary><span><strong>재현성 metadata</strong><small>commit · HEAD · 구성 · 도구 버전</small></span><span class="summary-action">상세 보기</span></summary>
+                <div id="assurance-measurement-reproducibility" class="disclosure-body"></div>
+              </details>
+            </div>
+          </section>
+
           <section class="filter-bar" aria-labelledby="assurance-filter-title" data-assurance-populated>
             <header class="section-heading">
               <div>

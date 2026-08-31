@@ -17,6 +17,8 @@ const (
 	APIVersion          = "devroom/measurement/v1"
 	MeasurementRunKind  = "DogfoodMeasurementRun"
 	MeasurementKind     = "Measurement"
+	MaxManifestBytes    = 512 << 10
+	MaxMeasurements     = 128
 	MaxToolVersions     = 32
 	MaxRequiredFailures = 128
 )
@@ -225,6 +227,9 @@ func (r Run) Validate() error {
 	}
 	if r.Spec.Measurements == nil {
 		return errors.New("measurement run measurements must be an array")
+	}
+	if len(r.Spec.Measurements) > MaxMeasurements {
+		return errors.New("measurement run measurements are unbounded")
 	}
 	if r.Spec.RequiredFailures == nil || len(r.Spec.RequiredFailures) > MaxRequiredFailures {
 		return errors.New("measurement run required failures must be a bounded array")

@@ -15,6 +15,7 @@
     providerStatuses: [],
     assuranceDashboard: { invocations: [], effects: [], usageComplete: true, costState: "unknown" },
     assuranceRuns: [],
+    assuranceMeasurement: { status: "loading", data: null, error: "" },
     assuranceInvocations: [],
     assuranceArtifacts: [],
     assuranceEffects: [],
@@ -339,6 +340,23 @@
     pinned: "고정",
     archived: "보관됨",
     deleted: "삭제됨",
+  };
+  const measurementStatusLabels = { pass: "통과", fail: "실패", unknown: "알 수 없음" };
+  const measurementProvenanceLabels = { measured: "측정됨", estimated: "추정", inferred: "추론", unavailable: "사용할 수 없음" };
+  const measurementComparisonStateLabels = { empty: "기록 없음", comparable: "비교 가능", missing: "이전 실행 없음", unavailable: "비교 불가" };
+  const measurementMetricLabels = {
+    "quality.gofmt": "gofmt",
+    "quality.go.test": "Go test",
+    "quality.go.test_race": "Go test · race",
+    "quality.go.vet": "Go vet",
+    "quality.go.mod_verify": "Go mod verify",
+    "quality.go.build": "Go build",
+    "quality.ui.syntax": "UI syntax",
+    "quality.go.coverage": "Coverage 수집",
+    "quality.go.coverage_percent": "Coverage",
+    "performance.http.health.latency": "HTTP · /api/health",
+    "performance.http.state.latency": "HTTP · /api/state",
+    "process.dogfood.run_duration": "전체 runner 시간",
   };
   const numberFormatter = new Intl.NumberFormat("ko-KR");
   const localize = value => {
@@ -1237,6 +1255,7 @@
     const view = document.querySelector('[data-view="assurance"]');
     const banner = document.getElementById("assurance-demo-banner");
     const board = document.getElementById("assurance-demo-board");
+    const measurementPanel = document.getElementById("assurance-measurement-dashboard");
     const empty = document.getElementById("assurance-empty");
     const method = document.querySelector(".assurance-method");
     const impactError = document.getElementById("assurance-impact-error");
@@ -1245,6 +1264,7 @@
     view?.classList.toggle("is-demo", show);
     banner.hidden = !show;
     board.hidden = !show;
+    if (measurementPanel) measurementPanel.hidden = show;
     if (!show) {
       method && (method.hidden = false);
       tracePanel && (tracePanel.hidden = !state.assuranceTraceEffectID);
@@ -1290,12 +1310,146 @@
     }
   }
 
+  const measurementValue = (value, unit) => value === null || value === undefined ? "확인 불가" : formatImpactValue(value, unit);
+  const measurementSignedValue = (value, unit) => {
+    if (value === null || value === undefined) return "확인 불가";
+    const numeric = Number(value);
+    return `${numeric > 0 ? "+" : ""}${formatImpactValue(numeric, unit)}`;
+  };
+  const measurementTone = status => status === "fail" ? "bad" : status === "pass" ? "ok" : "warn";
+  const measurementMetricLabel = name => measurementMetricLabels[name] || name || "이름 없는 측정값";
+  const measurementStateLabel = state => measurementComparisonStateLabels[state] || "상태 미상";
+  const measurementStatusLabel = status => measurementStatusLabels[status] || "알 수 없음";
+  const measurementProvenanceLabel = provenance => measurementProvenanceLabels[provenance] || "출처 미상";
+
+  function renderMeasurementMetric(item, comparison) {
+    const tone = measurementTone(item.status);
+    const baseline = item.baseline === null || item.baseline === undefined ? "기록 없음" : measurementValue(item.baseline, item.unit);
+    const delta = item.delta === null || item.delta === undefined ? "기록 없음" : measurementSignedValue(item.delta, item.unit);
+    const comparisonText = comparison?.state === "comparable"
+      ? `이전 p50 ${measurementValue(comparison.previousP50, item.unit)} · Δ ${measurementSignedValue(comparison.deltaP50, item.unit)}`
+      : `이전 비교 ${measurementStateLabel(comparison?.state || "unavailable")}`;
+    return `<article class="measurement-metric measurement-metric--${tone}" data-measurement-id="${escapeHTML(item.id)}">
+      <header class="measurement-metric-heading"><div><h4>${escapeHTML(measurementMetricLabel(item.name))}</h4><code translate="no">${escapeHTML(item.id)}</code></div><span class="chip ${tone}">${escapeHTML(measurementStatusLabel(item.status))}</span></header>
+      <div class="measurement-values"><div><span>p50</span><strong>${escapeHTML(measurementValue(item.p50, item.unit))}</strong></div><div><span>p95</span><strong>${escapeHTML(measurementValue(item.p95, item.unit))}</strong></div></div>
+      <p class="meta">표본 ${escapeHTML(formatCount(item.sampleCount))}개 · ${escapeHTML(measurementProvenanceLabel(item.provenance))} · ${escapeHTML(item.unit || "단위 미상")}</p>
+      <p class="measurement-comparison-note">${escapeHTML(comparisonText)}</p>
+      <details><summary>측정 근거 보기</summary><dl class="detail-grid"><div><dt>최솟값 · 최댓값</dt><dd>${escapeHTML(measurementValue(item.min, item.unit))} · ${escapeHTML(measurementValue(item.max, item.unit))}</dd></div><div><dt>manifest baseline</dt><dd>${escapeHTML(baseline)}</dd></div><div><dt>manifest delta</dt><dd>${escapeHTML(delta)}</dd></div><div><dt>command ID</dt><dd><code translate="no">${escapeHTML(item.commandId || "기록 없음")}</code></dd></div><div><dt>종료 코드</dt><dd>${escapeHTML(item.exitCode === null || item.exitCode === undefined ? "기록 없음" : item.exitCode)}</dd></div><div><dt>필수 여부</dt><dd>${item.required ? "필수" : "선택"}</dd></div></dl></details>
+    </article>`;
+  }
+
+  function renderMeasurementGate(latest) {
+    const container = document.getElementById("assurance-measurement-gate");
+    if (!container) return;
+    const failures = latest.requiredFailures || [];
+    const status = latest.status || "unknown";
+    const tone = measurementTone(status);
+    const detail = failures.length
+      ? `실패한 필수 검사 ${formatCount(failures.length)}개: ${failures.join(", ")}`
+      : status === "pass"
+        ? "기록된 필수 검사가 모두 통과했습니다. 선택 측정값은 별도로 확인합니다."
+        : "필수 검사 게이트를 판정할 충분한 근거가 없습니다.";
+    container.innerHTML = `<header class="measurement-gate-heading"><div><span class="eyebrow">Required gate</span><h3 id="assurance-measurement-gate-title">필수 검사 게이트</h3></div><span class="chip ${tone}">${escapeHTML(measurementStatusLabel(status))}</span></header><p>${escapeHTML(detail)}</p>${failures.length ? `<ul class="measurement-failure-list">${failures.map(id => `<li><code translate="no">${escapeHTML(id)}</code></li>`).join("")}</ul>` : ""}`;
+  }
+
+  function renderMeasurementHighlights(latest) {
+    const container = document.getElementById("assurance-measurement-highlights");
+    if (!container) return;
+    const byName = new Map((latest.measurements || []).map(item => [item.name, item]));
+    const definitions = [
+      ["quality.go.coverage_percent", "Coverage", "p50"],
+      ["quality.go.test", "Go test", "p50"],
+      ["quality.go.test_race", "Go test · race", "p50"],
+      ["quality.go.build", "Go build", "p50"],
+      ["quality.go.vet", "Go vet", "p50"],
+    ];
+    container.innerHTML = definitions.map(([name, title, field]) => {
+      const item = byName.get(name);
+      const value = item ? measurementValue(item[field], item.unit) : "기록 없음";
+      const note = item ? `${measurementStatusLabel(item.status)} · ${measurementProvenanceLabel(item.provenance)}` : "manifest에 없음";
+      return `<article class="measurement-highlight"><span>${escapeHTML(title)}</span><strong>${escapeHTML(value)}</strong><small>${escapeHTML(note)}</small></article>`;
+    }).join("");
+  }
+
+  function renderMeasurementComparisonDashboard(dashboard) {
+    const container = document.getElementById("assurance-measurement-comparison");
+    if (!container) return;
+    const latest = dashboard.latest;
+    const previous = dashboard.previousComparable;
+    const state = dashboard.comparisonState || "unavailable";
+    const comparisonRows = (dashboard.comparisons || []).map(item => {
+      const p95 = item.currentP95 !== null || item.previousP95 !== null
+        ? `<span class="measurement-comparison-p95">p95 현재 ${escapeHTML(measurementValue(item.currentP95, item.unit))} · 이전 ${escapeHTML(measurementValue(item.previousP95, item.unit))} · Δ ${escapeHTML(measurementSignedValue(item.deltaP95, item.unit))}</span>`
+        : "";
+      return `<div class="measurement-comparison-row"><div><strong>${escapeHTML(measurementMetricLabel(item.name))}</strong><code translate="no">${escapeHTML(item.id)}</code></div><span>${escapeHTML(item.state === "comparable" ? `p50 현재 ${measurementValue(item.currentP50, item.unit)} · 이전 ${measurementValue(item.previousP50, item.unit)} · Δ ${measurementSignedValue(item.deltaP50, item.unit)}` : `p50 비교 ${measurementStateLabel(item.state)}`)}</span>${p95}</div>`;
+    }).join("");
+    const previousDetail = previous
+      ? `<p class="meta">이전 비교 run <code translate="no">${escapeHTML(previous.runId)}</code> · 종료 ${escapeHTML(formatDate(previous.endedAt))} · commit <code translate="no">${escapeHTML(previous.commit)}</code></p>`
+      : `<p class="meta">${escapeHTML(state === "missing" ? "같은 commit·HEAD·구성 digest·플랫폼·도구 버전의 이전 실행이 없습니다." : "commit·구성·도구 버전이 완전히 확인된 이전 실행을 비교할 수 없습니다.")}</p>`;
+    container.innerHTML = `<header class="section-heading"><div><h3 id="assurance-measurement-comparison-title">동일 조건 비교</h3><p class="meta">delta는 현재 p50 − 이전 p50이며, 비교 가능한 값만 계산합니다.</p></div><span class="chip ${state === "comparable" ? "ok" : "warn"}">${escapeHTML(measurementStateLabel(state))}</span></header>${latest ? `<p class="meta">현재 run <code translate="no">${escapeHTML(latest.runId)}</code> · 종료 ${escapeHTML(formatDate(latest.endedAt))}</p>` : ""}${previousDetail}${comparisonRows ? `<div class="measurement-comparison-list">${comparisonRows}</div>` : '<div class="empty-state"><span>비교할 측정값이 없습니다.</span></div>'}`;
+  }
+
+  function renderMeasurementActions(dashboard) {
+    const container = document.getElementById("assurance-measurement-actions");
+    if (!container) return;
+    const actions = dashboard.nextActions || [];
+    container.innerHTML = `<header class="section-heading"><div><h3 id="assurance-measurement-actions-title">근거에서 나온 다음 단계</h3><p class="meta">추정 점수나 원인 주장은 만들지 않습니다.</p></div></header>${actions.length ? `<ol class="measurement-action-list">${actions.map(item => `<li><span class="measurement-action-mark" aria-hidden="true">!</span><div><strong>${escapeHTML(item.label || "확인 필요")}</strong><p>${escapeHTML(item.reason || "추가 근거가 필요합니다.")}</p><code translate="no">${escapeHTML(item.code || "unknown")}</code></div></li>`).join("")}</ol>` : '<div class="empty-state"><strong>추가 조치가 기록되지 않았습니다.</strong><span>현재 manifest에서 결정 가능한 다음 단계가 없습니다.</span></div>'}`;
+  }
+
+  function renderMeasurementReproducibility(latest) {
+    const container = document.getElementById("assurance-measurement-reproducibility");
+    if (!container) return;
+    const tools = Object.entries(latest.toolVersions || {}).sort(([left], [right]) => left.localeCompare(right)).map(([name, version]) => `<code translate="no">${escapeHTML(name)}=${escapeHTML(version)}</code>`).join("<br>");
+    container.innerHTML = `<dl class="detail-grid"><div><dt>run ID</dt><dd><code translate="no">${escapeHTML(latest.runId)}</code></dd></div><div><dt>상태</dt><dd>${escapeHTML(measurementStatusLabel(latest.status))}</dd></div><div><dt>commit</dt><dd><code translate="no">${escapeHTML(latest.commit || "알 수 없음")}</code></dd></div><div><dt>HEAD</dt><dd><code translate="no">${escapeHTML(latest.head || "알 수 없음")}</code></dd></div><div><dt>변경 상태</dt><dd>${escapeHTML(latest.dirtyState || "알 수 없음")}</dd></div><div><dt>플랫폼</dt><dd>${escapeHTML([latest.os, latest.arch].filter(Boolean).join(" · ") || "알 수 없음")}</dd></div><div class="wide"><dt>구성 digest</dt><dd><code translate="no">${escapeHTML(latest.configurationDigest || "기록 없음")}</code></dd></div><div class="wide"><dt>도구 버전</dt><dd>${tools || "기록 없음"}</dd></div><div><dt>시작</dt><dd>${escapeHTML(formatDate(latest.startedAt))}</dd></div><div><dt>종료</dt><dd>${escapeHTML(formatDate(latest.endedAt))}</dd></div><div class="wide"><dt>보고서·근거 식별자</dt><dd>v1 manifest에 별도 기록 없음 · command ID는 각 측정값에 표시</dd></div></dl>`;
+  }
+
+  function renderAssuranceMeasurementDashboard() {
+    const panel = document.getElementById("assurance-measurement-dashboard");
+    const status = document.getElementById("assurance-measurement-status");
+    const empty = document.getElementById("assurance-measurement-empty");
+    const content = document.getElementById("assurance-measurement-content");
+    if (!panel || !status || !empty || !content) return;
+    panel.hidden = false;
+    const measurementState = state.assuranceMeasurement || { status: "loading", data: null, error: "" };
+    const dashboard = measurementState.data || {};
+    const latest = dashboard.latest;
+    status.hidden = false;
+    status.className = "measurement-status";
+    if (measurementState.status === "loading") {
+      status.textContent = "측정 manifest를 불러오는 중입니다…";
+    } else if (measurementState.status === "importing") {
+      status.textContent = "측정 manifest를 가져오는 중입니다…";
+    } else if (measurementState.status === "error") {
+      status.classList.add("measurement-status--error");
+      status.textContent = `측정 manifest를 불러오지 못했습니다. ${measurementState.error || "잠시 후 다시 시도하세요."}`;
+    } else if (latest) {
+      status.classList.add("measurement-status--ready");
+      status.textContent = `최근 측정 run ${latest.runId} · ${formatDate(latest.endedAt)}`;
+    } else {
+      status.classList.add("measurement-status--empty");
+      status.textContent = "아직 가져온 측정 manifest가 없습니다.";
+    }
+    empty.hidden = Boolean(latest) || measurementState.status === "loading" || measurementState.status === "importing" || measurementState.status === "error";
+    content.hidden = !latest;
+    if (!latest) return;
+    renderMeasurementGate(latest);
+    renderMeasurementHighlights(latest);
+    const comparisons = new Map((dashboard.comparisons || []).map(item => [item.id, item]));
+    document.getElementById("assurance-measurement-metrics").innerHTML = (latest.measurements || []).length
+      ? latest.measurements.map(item => renderMeasurementMetric(item, comparisons.get(item.id))).join("")
+      : '<div class="empty-state"><strong>측정값이 없습니다.</strong><span>manifest의 measurements 배열이 비어 있습니다.</span></div>';
+    renderMeasurementComparisonDashboard(dashboard);
+    renderMeasurementActions(dashboard);
+    renderMeasurementReproducibility(latest);
+  }
+
   function renderAssuranceDashboard() {
     if (isAssuranceDemoRoute()) {
       renderAssuranceDemo(true);
       return;
     }
     renderAssuranceDemo(false);
+    renderAssuranceMeasurementDashboard();
     const dashboard = state.assuranceDashboard || {};
     const runs = state.assuranceRuns || [];
     const invocations = dashboard.invocations || [];
@@ -1759,6 +1913,18 @@
     renderAssuranceDashboard();
   }
 
+  async function loadAssuranceMeasurementData() {
+    const previous = state.assuranceMeasurement?.data || null;
+    state.assuranceMeasurement = { status: "loading", data: previous, error: "" };
+    renderAssuranceMeasurementDashboard();
+    try {
+      state.assuranceMeasurement = { status: "ready", data: await request("/api/assurance/measurement-runs/dashboard"), error: "" };
+    } catch (error) {
+      state.assuranceMeasurement = { status: "error", data: previous, error: error.message || "잠시 후 다시 시도하세요." };
+    }
+    renderAssuranceMeasurementDashboard();
+  }
+
   let loadingQualityHome = false;
   const normalizeQualityHomeError = error => {
     const raw = String(error?.message || "").trim();
@@ -2011,7 +2177,7 @@
       initialized = true;
       await loadRouteData(currentRoute(), true);
       renderAll();
-      await Promise.all([loadQualityHome(), loadAssuranceProductData()]);
+      await Promise.all([loadQualityHome(), loadAssuranceProductData(), loadAssuranceMeasurementData()]);
     } catch (error) {
       showNotice(`로컬 서비스에서 상태를 불러오지 못했습니다. ${error.message}`, true);
     } finally {
@@ -2966,6 +3132,33 @@
       showNotice(error.message, true);
     } finally {
       event.target.value = "";
+    }
+  });
+  document.getElementById("assurance-measurement-import")?.addEventListener("click", () => document.getElementById("assurance-measurement-file")?.click());
+  document.getElementById("assurance-measurement-file")?.addEventListener("change", async event => {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    const maximumBytes = 512 * 1024;
+    if (file.size > maximumBytes) {
+      state.assuranceMeasurement = { status: "error", data: state.assuranceMeasurement?.data || null, error: "manifest가 512 KiB 제한을 초과했습니다." };
+      renderAssuranceMeasurementDashboard();
+      showNotice("측정 manifest가 너무 큽니다. 512 KiB 이하의 파일을 선택하세요.", true);
+      input.value = "";
+      return;
+    }
+    state.assuranceMeasurement = { status: "importing", data: state.assuranceMeasurement?.data || null, error: "" };
+    renderAssuranceMeasurementDashboard();
+    try {
+      await request("/api/assurance/measurement-runs/import", { method: "POST", headers: mutationHeaders(), body: await file.text() });
+      showNotice("측정 manifest를 가져왔습니다.");
+      await loadAssuranceMeasurementData();
+    } catch (error) {
+      state.assuranceMeasurement = { status: "error", data: state.assuranceMeasurement?.data || null, error: error.message || "측정 manifest를 가져오지 못했습니다." };
+      renderAssuranceMeasurementDashboard();
+      showNotice(error.message, true);
+    } finally {
+      input.value = "";
     }
   });
   document.getElementById("add-form").addEventListener("submit", async event => {
