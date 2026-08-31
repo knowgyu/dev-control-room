@@ -153,13 +153,13 @@ expired-auth or approval-prompt acceptance, company endpoints, full keyboard
 traversal, and second-device acceptance remain separate evidence items. The
 full release record is [VERIFICATION_v0.11.0.md](VERIFICATION_v0.11.0.md).
 
-## 2026-08-27 v0.10.3 explicit interrupted retry
+## 2026-08-27 v0.10.3 explicit failed/interrupted retry
 
-중단된 Agent 실행을 자동 재개하지 않는 경계를 유지하면서, 사용자가 새
-prompt를 입력해 명시적으로 새 시도를 시작할 수 있게 했습니다. Assurance
-화면은 `interrupted` 기록에만 retry form을 보여주고 실행 ID와 원본 실행 ID를
-함께 표시합니다. CLI의 `assurance invocation retry`와 보호된 API도 같은
-계약을 사용합니다.
+중단된 Agent 실행을 자동 재개하지 않는 경계를 유지하면서, 사용자가 실패하거나
+중단된 실행을 선택해 새 prompt로 명시적으로 새 시도를 시작할 수 있게 했습니다.
+Assurance 화면은 `failed`/`interrupted` 기록에 retry form을 보여주고 실행 ID와
+원본 실행 ID를 함께 표시합니다. CLI의 `assurance invocation retry`와 보호된
+API도 같은 계약을 사용합니다.
 
 재시도는 원본 prompt를 저장하지 않습니다. 새 child invocation은
 `parentId`와 deterministic idempotency key로 원본에 연결되며, 같은 요청을

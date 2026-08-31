@@ -119,9 +119,9 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 - 디자인 결정과 최근 연구 결과는 `DESIGN.md`와
   `docs/AI_GENERATED_UI_RESEARCH_2026-08-30.md`에 유지합니다.
 
-- 중단된 Agent 실행은 검증 대시보드에서 새 prompt를 입력해 명시적으로
-  재시도할 수 있습니다. 원본 prompt는 저장하지 않으며, 새 실행은 원본
-  실행 ID와 deterministic idempotency key로 연결합니다.
+- 실패하거나 중단된 Agent 실행은 검증 대시보드에서 해당 실행을 선택하고
+  새 prompt를 입력해 명시적으로 재시도할 수 있습니다. 원본 prompt는 저장하지
+  않으며, 새 실행은 대상 실행 ID와 deterministic idempotency key로 연결합니다.
 - CLI의 `assurance invocation retry`와 보호된 retry API도 같은 경계를
   사용합니다. 같은 retry 요청을 반복해도 Provider를 다시 실행하지 않습니다.
 - Provider·진단 프로세스에는 상속 console 대신 명시적 EOF stdin을 전달합니다.

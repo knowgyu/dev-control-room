@@ -841,14 +841,14 @@ type agentInvocationRunOptions struct {
 }
 
 // RetryAgentInvocation is an explicit, user-directed new attempt after the
-// service marked an invocation interrupted. The original prompt is
+// service marked an invocation failed or interrupted. The original prompt is
 // intentionally not persisted, so the caller must provide it again. A retry
 // has a deterministic idempotency key and parent link; repeating the request
 // returns the existing child instead of launching another provider process.
 func (a *App) RetryAgentInvocation(ctx context.Context, invocationID, prompt string) (domain.AgentInvocation, error) {
 	invocationID = strings.TrimSpace(invocationID)
 	if invocationID == "" {
-		return domain.AgentInvocation{}, contract.InvalidInput("interrupted invocation id is required")
+		return domain.AgentInvocation{}, contract.InvalidInput("failed or interrupted invocation id is required")
 	}
 	if strings.TrimSpace(prompt) == "" {
 		return domain.AgentInvocation{}, contract.InvalidInput("retry prompt is required because the original prompt is not stored")
@@ -870,8 +870,8 @@ func (a *App) RetryAgentInvocation(ctx context.Context, invocationID, prompt str
 		}
 		return domain.AgentInvocation{}, err
 	}
-	if original.Spec.State != domain.AssuranceStateInterrupted {
-		return domain.AgentInvocation{}, contract.Conflict("only an interrupted invocation can be retried")
+	if !retryableInvocationState(original.Spec.State) {
+		return domain.AgentInvocation{}, contract.Conflict("only a failed or interrupted invocation can be retried")
 	}
 	return a.runAgentInvocation(ctx, AgentInvocationInput{
 		SessionID: original.Spec.SessionID, Provider: original.Spec.Provider,
@@ -1169,19 +1169,6 @@ func (a *App) recoverInterruptedInvocations(ctx context.Context) error {
 		invocation.Spec.State = domain.AssuranceStateInterrupted
 		invocation.Spec.FailureCode = "provider.interrupted"
 		invocation.Spec.LeaseExpiresAt = nil
-		revision, err := a.store.AssuranceRevision(ctx, domain.AgentInvocationKind, invocation.Metadata.ID)
-		if err != nil {
-			return err
-		}
-		if err := a.store.UpdateAssuranceRevision(ctx, domain.AgentInvocationKind, invocation.Metadata.ID, revision+1, invocation.Spec.State, now, invocation); err != nil {
-			var current domain.AgentInvocation
-			if readErr := a.store.GetAssurance(ctx, domain.AgentInvocationKind, invocation.Metadata.ID, &current); readErr != nil {
-				return err
-			}
-			if current.Spec.State != domain.AssuranceStateInterrupted || current.Spec.FailureCode != "provider.interrupted" {
-				return err
-			}
-		}
 
 		var session domain.AssuranceSession
 		if err := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, invocation.Spec.SessionID, &session); err != nil {
@@ -1196,12 +1183,16 @@ func (a *App) recoverInterruptedInvocations(ctx context.Context) error {
 		session.Spec.ResumeBrief.Pending = appendUniqueStrings(session.Spec.ResumeBrief.Pending, invocation.Metadata.ID)
 		session.Spec.ResumeBrief.FailedEvidence = appendUniqueStrings(session.Spec.ResumeBrief.FailedEvidence, invocation.Spec.FailureCode)
 		session.Spec.ResumeBrief.NextSafeAction = "중단된 실행의 상태와 재시도 범위를 검토합니다."
-		if err := a.updateAssuranceSession(ctx, session); err != nil {
-			var current domain.AssuranceSession
-			if readErr := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, session.Metadata.ID, &current); readErr != nil {
+		if err := a.store.RecoverInterruptedInvocationAndUpdateSession(ctx, invocation, now, session); err != nil {
+			var currentInvocation domain.AgentInvocation
+			if readErr := a.store.GetAssurance(ctx, domain.AgentInvocationKind, invocation.Metadata.ID, &currentInvocation); readErr != nil {
 				return err
 			}
-			if current.Spec.State != domain.AssuranceStateInterrupted || !containsText(current.Spec.ResumeBrief.Pending, invocation.Metadata.ID) {
+			var currentSession domain.AssuranceSession
+			if readErr := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, session.Metadata.ID, &currentSession); readErr != nil {
+				return err
+			}
+			if currentInvocation.Spec.State != domain.AssuranceStateInterrupted || currentInvocation.Spec.FailureCode != invocation.Spec.FailureCode || currentInvocation.Spec.LeaseExpiresAt != nil || currentSession.Spec.State != domain.AssuranceStateInterrupted || !containsText(currentSession.Spec.ResumeBrief.Pending, invocation.Metadata.ID) {
 				return err
 			}
 		}
@@ -1211,6 +1202,10 @@ func (a *App) recoverInterruptedInvocations(ctx context.Context) error {
 
 func recoverableInvocationState(state string) bool {
 	return state == domain.AssuranceStateQueued || state == domain.AssuranceStateRunning || state == domain.AssuranceStateCancelling
+}
+
+func retryableInvocationState(state string) bool {
+	return state == domain.AssuranceStateFailed || state == domain.AssuranceStateInterrupted
 }
 
 // revalidateAssuranceWorktree replays the persisted Git association proof at

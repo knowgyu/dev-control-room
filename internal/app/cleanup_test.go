@@ -16,6 +16,10 @@ import (
 )
 
 func TestStartupAssuranceJanitorRemovesCrashOrphansAndPreservesReferences(t *testing.T) {
+	if !assuranceCleanupRootSupported() {
+		t.Skip("assurance cleanup requires directory-handle support")
+	}
+
 	home := t.TempDir()
 	service, err := New(home, "127.0.0.1:38471")
 	if err != nil {
@@ -149,6 +153,58 @@ func TestAssuranceJanitorRejectsSymlinkedManagedDirectory(t *testing.T) {
 	}
 	if data, err := os.ReadFile(outsideFile); err != nil || string(data) != "outside target" {
 		t.Fatalf("symlinked managed directory changed outside target: %q, %v", data, err)
+	}
+}
+
+func TestAssuranceJanitorFailsClosedWhenManagedDirectoryIsReplacedAfterValidation(t *testing.T) {
+	if !assuranceCleanupRootSupported() {
+		t.Skip("directory-handle cleanup requires Go 1.24 or newer")
+	}
+	home := t.TempDir()
+	directory := filepath.Join(home, "artifacts", "assurance")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(directory, "orphan.json")
+	if err := os.WriteFile(orphan, []byte("orphan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "must-survive.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := openVerifiedAssuranceCleanupRoot(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := root.Close(); err != nil {
+			t.Errorf("close cleanup root: %v", err)
+		}
+	})
+	if checked, found, err := managedAssuranceDirectory(home, "artifacts", "assurance"); err != nil || !found || checked != directory {
+		t.Fatalf("managed directory validation = %q, %v, found %v", checked, err, found)
+	}
+	if err := os.Rename(directory, filepath.Join(home, "artifacts", "assurance-original")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, directory); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+
+	err = removeManagedAssuranceEntry(root, home, orphan)
+	if err == nil {
+		t.Fatal("replacement race unexpectedly removed through an external symlink")
+	}
+	if data, err := os.ReadFile(outsideFile); err != nil || string(data) != "outside target" {
+		t.Fatalf("replacement race changed outside target: %q, %v", data, err)
+	}
+	if _, err := os.Lstat(directory); err != nil {
+		t.Fatalf("replacement symlink was unexpectedly removed: %v", err)
+	}
+	if _, err := os.Stat(orphan); err == nil {
+		t.Fatal("replacement race resolved the orphan through the outside directory")
 	}
 }
 

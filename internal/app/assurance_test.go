@@ -459,6 +459,99 @@ func TestStartupRecoveryMarksActiveInvocationInterruptedWithoutRelaunch(t *testi
 	}
 }
 
+func TestStartupRecoveryRollsBackInvocationWhenSessionUpdateFails(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Atomic startup recovery", Path: tempGitRepository(t, "atomic-startup-recovery")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "fake", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := service.Worktree(context.Background(), project.Metadata.ID, "repo-1", "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now().UTC().Add(-time.Minute)
+	lease := started.Add(time.Hour)
+	invocation := domain.AgentInvocation{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind},
+		Metadata: domain.ObjectMeta{ID: "atomic-startup-invocation", Name: "Atomic startup invocation"},
+		Spec: domain.AgentInvocationSpec{
+			SessionID: session.Metadata.ID, ProjectID: project.Metadata.ID, RepositoryID: "repo-1",
+			WorktreeID: "primary", Branch: worktree.Spec.Branch, Head: worktree.Spec.Head,
+			Provider: "fake", ProfileID: "fake", RequestedModel: "fixture-model",
+			SelectionSource: "user", State: domain.AssuranceStateRunning,
+			IdempotencyKey: "atomic-startup-invocation", StartedAt: started,
+			LeaseExpiresAt: &lease, TraceID: "trace-atomic-startup-invocation", RawTranscript: false,
+		},
+	}
+	if err := service.store.SaveAgentInvocation(context.Background(), invocation); err != nil {
+		t.Fatal(err)
+	}
+	beforeRevision, err := service.store.AssuranceRevision(context.Background(), domain.AgentInvocationKind, invocation.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB().ExecContext(context.Background(), `
+CREATE TRIGGER reject_startup_recovery_session_updates
+BEFORE UPDATE ON assurance_objects
+FOR EACH ROW
+WHEN OLD.kind = 'AssuranceSession'
+BEGIN
+    SELECT RAISE(ABORT, 'startup recovery session update blocked');
+END`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.recoverInterruptedInvocations(context.Background()); err == nil || !strings.Contains(err.Error(), "update recovered assurance session") {
+		t.Fatalf("blocked startup recovery error = %v", err)
+	}
+	var unchangedInvocation domain.AgentInvocation
+	if err := service.store.GetAssurance(context.Background(), domain.AgentInvocationKind, invocation.Metadata.ID, &unchangedInvocation); err != nil {
+		t.Fatal(err)
+	}
+	if unchangedInvocation.Spec.State != domain.AssuranceStateRunning || unchangedInvocation.Spec.FailureCode != "" || unchangedInvocation.Spec.LeaseExpiresAt == nil {
+		t.Fatalf("invocation changed after rolled-back recovery = %#v", unchangedInvocation)
+	}
+	if revision, err := service.store.AssuranceRevision(context.Background(), domain.AgentInvocationKind, invocation.Metadata.ID); err != nil || revision != beforeRevision {
+		t.Fatalf("invocation revision changed after rolled-back recovery = %d, want %d, err=%v", revision, beforeRevision, err)
+	}
+	unchangedSession, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchangedSession.Spec.State != domain.AssuranceStateDraft || hasAssuranceValue(unchangedSession.Spec.ResumeBrief.Pending, invocation.Metadata.ID) || hasAssuranceValue(unchangedSession.Spec.ResumeBrief.FailedEvidence, "provider.interrupted") {
+		t.Fatalf("session changed after rolled-back recovery = %#v", unchangedSession)
+	}
+	if _, err := service.store.DB().ExecContext(context.Background(), `DROP TRIGGER reject_startup_recovery_session_updates`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.recoverInterruptedInvocations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := service.store.GetAssuranceWithRevision(context.Background(), domain.AgentInvocationKind, invocation.Metadata.ID, &unchangedInvocation)
+	if err != nil || recovered != beforeRevision+1 || unchangedInvocation.Spec.State != domain.AssuranceStateInterrupted {
+		t.Fatalf("recovered invocation = revision %d, %#v, err=%v", recovered, unchangedInvocation, err)
+	}
+	recoveredSession, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recoveredSession.Spec.State != domain.AssuranceStateInterrupted || !hasAssuranceValue(recoveredSession.Spec.ResumeBrief.Pending, invocation.Metadata.ID) || !hasAssuranceValue(recoveredSession.Spec.ResumeBrief.FailedEvidence, "provider.interrupted") {
+		t.Fatalf("recovered session = %#v", recoveredSession)
+	}
+}
+
 func hasAssuranceValue(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -557,11 +650,91 @@ func TestRetryInterruptedInvocationCreatesIdempotentChildWithoutPromptPersistenc
 	if _, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "different prompt"); err == nil || !strings.Contains(err.Error(), "idempotency key") {
 		t.Fatalf("different retry prompt was not rejected: %v", err)
 	}
-	if _, err := service.RetryAgentInvocation(context.Background(), retry.Metadata.ID, "another retry"); err == nil || !strings.Contains(err.Error(), "only an interrupted invocation") {
+	if _, err := service.RetryAgentInvocation(context.Background(), retry.Metadata.ID, "another retry"); err == nil || !strings.Contains(err.Error(), "only a failed or interrupted invocation") {
 		t.Fatalf("succeeded child was retryable: %v", err)
 	}
 	if _, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry\nwith newline"); err == nil || !strings.Contains(err.Error(), "one line") {
 		t.Fatalf("newline retry prompt was accepted: %v", err)
+	}
+}
+
+func TestRetryFailedChildContinuesExplicitLineage(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Failed retry lineage", Path: tempGitRepository(t, "failed-retry-lineage")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "unsupported", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := service.Worktree(context.Background(), project.Metadata.ID, "repo-1", "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	original := domain.AgentInvocation{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind},
+		Metadata: domain.ObjectMeta{ID: "failed-retry-original", Name: "Interrupted invocation"},
+		Spec: domain.AgentInvocationSpec{
+			SessionID: session.Metadata.ID, ProjectID: project.Metadata.ID, RepositoryID: "repo-1",
+			WorktreeID: "primary", Branch: worktree.Spec.Branch, Head: worktree.Spec.Head,
+			Provider: "unsupported", ProfileID: "unsupported", RequestedModel: "fixture-model",
+			SelectionSource: "user", State: domain.AssuranceStateInterrupted,
+			IdempotencyKey: "failed-retry-original", InputDigest: digestText("original prompt"),
+			TraceID: "trace-failed-retry-original", StartedAt: now.Add(-time.Minute), RawTranscript: false,
+			FailureCode: "provider.interrupted",
+		},
+	}
+	if err := service.store.SaveAgentInvocation(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	session.Spec.State = domain.AssuranceStateInterrupted
+	session.Spec.UpdatedAt = now
+	session.Spec.ResumeBrief.Pending = []string{original.Metadata.ID}
+	session.Spec.ResumeBrief.NextSafeAction = "중단된 실행의 상태와 재시도 범위를 검토합니다."
+	if err := service.updateAssuranceSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "first retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Spec.State != domain.AssuranceStateFailed || first.Spec.FailureCode != "provider.unknown" || first.Spec.ParentID != original.Metadata.ID {
+		t.Fatalf("failed first retry = %#v", first)
+	}
+	second, err := service.RetryAgentInvocation(context.Background(), first.Metadata.ID, "second retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Spec.State != domain.AssuranceStateFailed || second.Spec.FailureCode != "provider.unknown" || second.Spec.ParentID != first.Metadata.ID || second.Metadata.ID == first.Metadata.ID {
+		t.Fatalf("failed second retry did not continue lineage = %#v", second)
+	}
+	repeated, err := service.RetryAgentInvocation(context.Background(), first.Metadata.ID, "second retry")
+	if err != nil || repeated.Metadata.ID != second.Metadata.ID {
+		t.Fatalf("repeated failed-child retry = %#v, err=%v", repeated, err)
+	}
+	if _, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "different retry"); err == nil || !strings.Contains(err.Error(), "idempotency key") {
+		t.Fatalf("retrying the original with a new prompt was not bound to its existing child: %v", err)
+	}
+	invocations, err := service.AgentInvocations(context.Background())
+	if err != nil || len(invocations) != 3 {
+		t.Fatalf("failed retry lineage invocation count = %d, err=%v", len(invocations), err)
+	}
+	updated, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Spec.State != domain.AssuranceStateInterrupted || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, original.Metadata.ID) || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, first.Metadata.ID) || !hasAssuranceValue(updated.Spec.ResumeBrief.Pending, second.Metadata.ID) {
+		t.Fatalf("failed retry lineage resume brief = %#v", updated.Spec.ResumeBrief)
 	}
 }
 

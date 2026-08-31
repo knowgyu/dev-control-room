@@ -183,9 +183,11 @@ transitions queued/running/cancelling invocations to `interrupted` on service
 startup, clears the lease, records `provider.interrupted`, updates the owning
 Resume Brief, and never relaunches a provider automatically. The UI, CLI, and
 protected API now provide an explicit user-directed retry as a new child
-invocation: the operator supplies a new bounded one-line prompt, the original
-prompt is not persisted, and a deterministic idempotency key prevents duplicate
-provider launches. Its focused evidence is recorded in
+invocation: the operator supplies a new bounded one-line prompt for a failed or
+interrupted invocation, the original prompt is not persisted, and a deterministic
+idempotency key prevents duplicate provider launches. Selecting the failed or
+interrupted child itself continues the lineage with a new deterministic key. Its
+focused evidence is recorded in
 [MILESTONE_B_VERIFICATION.md](MILESTONE_B_VERIFICATION.md). Native process-tree
 inspection after crash/reboot, non-TTY/closed-stdin acceptance, and resuming an
 old provider process remain bounded by issue #3 and its explicit fail-closed

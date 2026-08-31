@@ -355,6 +355,49 @@ func (s *Store) FinalizeAgentInvocationAndUpdateSession(
 	})
 }
 
+// RecoverInterruptedInvocationAndUpdateSession commits the restart transition
+// and its Resume Brief update as one database unit. Recovery only changes
+// durable state; provider execution remains outside this transaction.
+func (s *Store) RecoverInterruptedInvocationAndUpdateSession(
+	ctx context.Context,
+	invocation domain.AgentInvocation,
+	updatedAt time.Time,
+	session domain.AssuranceSession,
+) error {
+	if invocation.Spec.State != domain.AssuranceStateInterrupted {
+		return errors.New("recovery invocation must be interrupted")
+	}
+	if err := invocation.Validate(); err != nil {
+		return fmt.Errorf("validate interrupted agent invocation: %w", err)
+	}
+	if updatedAt.IsZero() {
+		return errors.New("recovery update time is required")
+	}
+
+	return s.withAssuranceTransaction(ctx, "interrupted agent invocation recovery", func(executor assuranceExecutor) error {
+		revision, err := s.assuranceRevision(ctx, executor, domain.AgentInvocationKind, invocation.Metadata.ID)
+		if err != nil {
+			return fmt.Errorf("read agent invocation revision: %w", err)
+		}
+		if err := s.updateAssuranceRevisionWithExecutor(
+			ctx,
+			executor,
+			domain.AgentInvocationKind,
+			invocation.Metadata.ID,
+			revision+1,
+			invocation.Spec.State,
+			updatedAt,
+			invocation,
+		); err != nil {
+			return fmt.Errorf("update interrupted agent invocation: %w", err)
+		}
+		if err := s.updateAssuranceSession(ctx, executor, session); err != nil {
+			return fmt.Errorf("update recovered assurance session: %w", err)
+		}
+		return nil
+	})
+}
+
 // DeleteAgentInvocation is idempotent because it is used to compensate the
 // durable queued/running record when finalization cannot commit.
 func (s *Store) DeleteAgentInvocation(ctx context.Context, id string) error {

@@ -22,6 +22,15 @@ type assurancePathReferences struct {
 	resolved []string
 }
 
+type assuranceCleanupRoot interface {
+	Lstat(string) (os.FileInfo, error)
+	Open(string) (*os.File, error)
+	Remove(string) error
+	RemoveAll(string) error
+	Stat(string) (os.FileInfo, error)
+	Close() error
+}
+
 // cleanupOrphanedAssuranceFiles repairs only the crash window between an
 // assurance file-system commit and its database commit. The database remains
 // authoritative: every referenced path is preserved, and every deletion is
@@ -160,12 +169,26 @@ func managedAssuranceDirectory(home string, parts ...string) (string, bool, erro
 	return directory, true, nil
 }
 
-func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathReferences) error {
+func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathReferences) (returnErr error) {
+	root, err := openVerifiedAssuranceCleanupRoot(home)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := root.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("close assurance cleanup root: %w", closeErr))
+		}
+	}()
+
 	directory, found, err := managedAssuranceDirectory(home, "artifacts", "assurance")
 	if err != nil || !found {
 		return err
 	}
-	entries, err := os.ReadDir(directory)
+	relativeDirectory, err := assuranceCleanupRelativePath(home, directory)
+	if err != nil {
+		return err
+	}
+	entries, err := readAssuranceCleanupDirectory(root, relativeDirectory)
 	if err != nil {
 		return err
 	}
@@ -174,7 +197,11 @@ func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathRefe
 		if references.overlaps(path) {
 			continue
 		}
-		info, err := os.Lstat(path)
+		relativePath, relativeErr := assuranceCleanupRelativePath(home, path)
+		if relativeErr != nil {
+			return relativeErr
+		}
+		info, err := root.Lstat(relativePath)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -184,19 +211,33 @@ func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathRefe
 		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
-		if err := removeManagedAssuranceEntry(home, path); err != nil {
+		if err := removeManagedAssuranceEntry(root, home, path); err != nil {
 			return fmt.Errorf("remove orphaned assurance artifact %q: %w", entry.Name(), err)
 		}
 	}
 	return nil
 }
 
-func cleanupOrphanedAssuranceProposals(home string, references assurancePathReferences) error {
+func cleanupOrphanedAssuranceProposals(home string, references assurancePathReferences) (returnErr error) {
+	root, err := openVerifiedAssuranceCleanupRoot(home)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := root.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("close assurance cleanup root: %w", closeErr))
+		}
+	}()
+
 	directory, found, err := managedAssuranceDirectory(home, "assurance", "proposals")
 	if err != nil || !found {
 		return err
 	}
-	entries, err := os.ReadDir(directory)
+	relativeDirectory, err := assuranceCleanupRelativePath(home, directory)
+	if err != nil {
+		return err
+	}
+	entries, err := readAssuranceCleanupDirectory(root, relativeDirectory)
 	if err != nil {
 		return err
 	}
@@ -205,7 +246,11 @@ func cleanupOrphanedAssuranceProposals(home string, references assurancePathRefe
 		if references.overlaps(path) {
 			continue
 		}
-		info, err := os.Lstat(path)
+		relativePath, relativeErr := assuranceCleanupRelativePath(home, path)
+		if relativeErr != nil {
+			return relativeErr
+		}
+		info, err := root.Lstat(relativePath)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -213,7 +258,7 @@ func cleanupOrphanedAssuranceProposals(home string, references assurancePathRefe
 			return fmt.Errorf("inspect orphaned assurance proposal %q: %w", entry.Name(), err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			if err := removeManagedAssuranceEntry(home, path); err != nil {
+			if err := removeManagedAssuranceEntry(root, home, path); err != nil {
 				return fmt.Errorf("remove orphaned assurance proposal link %q: %w", entry.Name(), err)
 			}
 			continue
@@ -228,20 +273,89 @@ func cleanupOrphanedAssuranceProposals(home string, references assurancePathRefe
 		if !pathWithin(directory, resolved) {
 			continue
 		}
-		// RemoveAll removes symlink entries as links; the resolved root was
-		// checked above, so an outside symlink target is never traversed.
-		if err := os.RemoveAll(path); err != nil {
+		// Root.RemoveAll resolves every path component from a directory handle
+		// and refuses links which would escape the application home. A rename or
+		// replacement after the checks above therefore fails closed.
+		if err := root.RemoveAll(relativePath); err != nil {
 			return fmt.Errorf("remove orphaned assurance proposal %q: %w", entry.Name(), err)
 		}
 	}
 	return nil
 }
 
-func removeManagedAssuranceEntry(home, path string) error {
+func openVerifiedAssuranceCleanupRoot(home string) (assuranceCleanupRoot, error) {
+	root, err := openAssuranceCleanupRoot(home)
+	if err != nil {
+		return nil, fmt.Errorf("open application home for assurance cleanup: %w", err)
+	}
+	canonical, err := canonicalApplicationHome(home)
+	if err != nil {
+		return nil, closeAssuranceCleanupRootOnError(root, fmt.Errorf("verify application home for assurance cleanup: %w", err))
+	}
+	if !assurancePathEqual(canonical, home) {
+		return nil, closeAssuranceCleanupRootOnError(root, errors.New("application home is not canonical for assurance cleanup"))
+	}
+	expected, err := os.Stat(canonical)
+	if err != nil {
+		return nil, closeAssuranceCleanupRootOnError(root, fmt.Errorf("inspect canonical application home for assurance cleanup: %w", err))
+	}
+	current, err := os.Stat(home)
+	if err != nil {
+		return nil, closeAssuranceCleanupRootOnError(root, fmt.Errorf("inspect application home replacement: %w", err))
+	}
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, closeAssuranceCleanupRootOnError(root, fmt.Errorf("inspect opened application home for assurance cleanup: %w", err))
+	}
+	if !os.SameFile(rootInfo, expected) || !os.SameFile(rootInfo, current) {
+		return nil, closeAssuranceCleanupRootOnError(root, errors.New("application home changed during assurance cleanup validation"))
+	}
+	return root, nil
+}
+
+func closeAssuranceCleanupRootOnError(root assuranceCleanupRoot, err error) error {
+	if closeErr := root.Close(); closeErr != nil {
+		return errors.Join(err, fmt.Errorf("close application home after assurance cleanup validation failure: %w", closeErr))
+	}
+	return err
+}
+
+func assuranceCleanupRelativePath(home, path string) (string, error) {
+	if !pathWithin(home, path) {
+		return "", errors.New("assurance cleanup path escapes application home")
+	}
+	relative, err := filepath.Rel(home, path)
+	if err != nil || relative == "." || filepath.IsAbs(relative) {
+		return "", errors.New("assurance cleanup path is not a child of application home")
+	}
+	return filepath.ToSlash(relative), nil
+}
+
+func readAssuranceCleanupDirectory(root assuranceCleanupRoot, relative string) ([]os.DirEntry, error) {
+	directory, err := root.Open(relative)
+	if err != nil {
+		return nil, fmt.Errorf("open assurance cleanup directory: %w", err)
+	}
+	entries, readErr := directory.ReadDir(-1)
+	closeErr := directory.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("read assurance cleanup directory: %w", readErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close assurance cleanup directory: %w", closeErr)
+	}
+	return entries, nil
+}
+
+func removeManagedAssuranceEntry(root assuranceCleanupRoot, home, path string) error {
 	if !pathWithin(home, path) {
 		return errors.New("assurance cleanup entry escapes application home")
 	}
-	info, err := os.Lstat(path)
+	relative, err := assuranceCleanupRelativePath(home, path)
+	if err != nil {
+		return err
+	}
+	info, err := root.Lstat(relative)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -251,7 +365,7 @@ func removeManagedAssuranceEntry(home, path string) error {
 	if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 		return errors.New("assurance cleanup entry is not a file or symlink")
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := root.Remove(relative); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
