@@ -251,15 +251,12 @@ func (a *App) CreateAssuranceQuestion(ctx context.Context, input AssuranceQuesti
 	}
 	now := time.Now().UTC()
 	item := domain.AssuranceQuestion{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AssuranceQuestionKind}, Metadata: domain.ObjectMeta{ID: assuranceID("question", session.Metadata.ID, input.Prompt), Name: "Assurance question"}, Spec: domain.AssuranceQuestionSpec{SessionID: session.Metadata.ID, Prompt: strings.TrimSpace(input.Prompt), Required: input.Required, AskedAt: now}}
-	if err := a.store.SaveAssuranceQuestion(ctx, item); err != nil {
-		return domain.AssuranceQuestion{}, err
-	}
 	session.Spec.State = domain.AssuranceStateAwaitingAnswer
 	session.Spec.UpdatedAt = now
 	session.Spec.QuestionIDs = append(session.Spec.QuestionIDs, item.Metadata.ID)
 	session.Spec.ResumeBrief.WaitingQuestion = item.Metadata.ID
 	session.Spec.ResumeBrief.NextSafeAction = "질문에 답한 뒤 Assurance Spec을 검토합니다."
-	if err := a.updateAssuranceSession(ctx, session); err != nil {
+	if err := a.store.SaveAssuranceQuestionAndUpdateSession(ctx, item, session); err != nil {
 		return domain.AssuranceQuestion{}, fmt.Errorf("update assurance session after creating question: %w", err)
 	}
 	return item, nil
@@ -287,14 +284,11 @@ func (a *App) CreateAssuranceSpec(ctx context.Context, input AssuranceSpecInput)
 	canonical.Spec.Digest = ""
 	digest, _ := canonical.Digest()
 	item.Spec.Digest = digest
-	if err := a.store.SaveAssuranceSpec(ctx, item); err != nil {
-		return domain.AssuranceSpec{}, err
-	}
 	session.Spec.CurrentSpecID = item.Metadata.ID
 	session.Spec.UpdatedAt = now
 	session.Spec.State = domain.AssuranceStateReady
 	session.Spec.ResumeBrief.NextSafeAction = "Spec와 Quality Run 목적을 검토합니다."
-	if err := a.updateAssuranceSession(ctx, session); err != nil {
+	if err := a.store.SaveAssuranceSpecAndUpdateSession(ctx, item, session); err != nil {
 		return domain.AssuranceSpec{}, fmt.Errorf("update assurance session after creating spec: %w", err)
 	}
 	return item, nil
@@ -320,8 +314,23 @@ func (a *App) CreateAssuranceProposal(ctx context.Context, input AssurancePropos
 	}
 	patchData := []byte(a.masker.Mask(input.Patch))
 	patchSum := sha256.Sum256(patchData)
-	artifact, err := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "assurance_proposal", SourceID: id, Name: id + ".patch", MIME: "text/x-diff", Content: patchData})
+	artifact, cleanupArtifact, err := a.prepareAssuranceArtifact(
+		ctx,
+		ArtifactInput{
+			SourceType: "assurance_proposal",
+			SourceID:   id,
+			Name:       id + ".patch",
+			MIME:       "text/x-diff",
+			Content:    patchData,
+		},
+	)
 	if err != nil {
+		if cleanupErr := removeEmptyDirectory(isolation); cleanupErr != nil {
+			return domain.AssuranceProposal{}, errors.Join(
+				err,
+				fmt.Errorf("remove assurance proposal isolation: %w", cleanupErr),
+			)
+		}
 		return domain.AssuranceProposal{}, err
 	}
 	criticSummary, confidence, state := "검토가 필요합니다.", "unknown", "critic_advisory"
@@ -329,14 +338,15 @@ func (a *App) CreateAssuranceProposal(ctx context.Context, input AssurancePropos
 		criticSummary, confidence = "commit/push 동작이 포함되어 있어 자동 채택할 수 없습니다.", "high"
 	}
 	item := domain.AssuranceProposal{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AssuranceProposalKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Assurance proposal"}, Spec: domain.AssuranceProposalSpec{SessionID: session.Metadata.ID, ProjectID: session.Spec.ProjectID, RepositoryID: session.Spec.RepositoryID, WorktreeID: session.Spec.WorktreeID, BaseHead: worktree.Spec.Head, IsolationPath: isolation, PatchArtifactID: artifact.Metadata.ID, PatchDigest: hex.EncodeToString(patchSum[:]), Purpose: strings.TrimSpace(input.Purpose), State: state, CriticSummary: criticSummary, CriticConfidence: confidence, CreatedAt: now}}
-	if err := a.store.SaveAssuranceProposal(ctx, item); err != nil {
-		return domain.AssuranceProposal{}, err
-	}
 	session.Spec.ResumeBrief.ProposedPatch = id
 	session.Spec.UpdatedAt = now
 	session.Spec.ResumeBrief.NextSafeAction = "patch를 검토하고 명시적으로 채택하거나 거절합니다."
-	if err := a.updateAssuranceSession(ctx, session); err != nil {
-		return domain.AssuranceProposal{}, fmt.Errorf("update assurance session after creating proposal: %w", err)
+	if err := a.store.SaveAssuranceProposalAndUpdateSession(ctx, item, artifact, session); err != nil {
+		cleanupErr := errors.Join(cleanupArtifact(), removeEmptyDirectory(isolation))
+		return domain.AssuranceProposal{}, fmt.Errorf(
+			"update assurance session after creating proposal: %w",
+			errors.Join(err, cleanupErr),
+		)
 	}
 	return item, nil
 }
@@ -1063,16 +1073,27 @@ func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput
 			invocation.Spec.OutputDigest = digestText(data)
 		}
 	}
-	artifactPersisted := false
+	var preparedArtifact *domain.Artifact
+	var cleanupArtifact func() error
 	report, marshalErr := json.Marshal(map[string]any{"provider": provider, "state": result.State, "failureCode": result.FailureCode, "structured": invocation.Spec.Structured, "rawTranscript": false})
 	if marshalErr == nil {
-		artifact, artifactErr := a.SaveAssuranceArtifact(ctx, ArtifactInput{SourceType: "agent_invocation", SourceID: id, Name: id + ".json", MIME: "application/json", Content: report, TraceID: invocation.Spec.TraceID})
+		artifact, cleanup, artifactErr := a.prepareAssuranceArtifact(
+			ctx,
+			ArtifactInput{
+				SourceType: "agent_invocation",
+				SourceID:   id,
+				Name:       id + ".json",
+				MIME:       "application/json",
+				Content:    report,
+				TraceID:    invocation.Spec.TraceID,
+			},
+		)
 		if artifactErr == nil {
-			invocation.Spec.ArtifactIDs = []string{artifact.Metadata.ID}
-			artifactPersisted = true
+			preparedArtifact = &artifact
+			cleanupArtifact = cleanup
 		}
 	}
-	if !artifactPersisted {
+	if preparedArtifact == nil {
 		// A completed provider result without its durable evidence must never be
 		// presented as a completed invocation. Keep the failure code generic so
 		// filesystem/store details cannot cross the presentation boundary.
@@ -1082,9 +1103,8 @@ func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput
 		invocation.Spec.ArtifactIDs = nil
 		result.State = domain.AssuranceStateFailed
 		result.FailureCode = invocation.Spec.FailureCode
-	}
-	if err := a.store.UpdateAssuranceRevision(ctx, domain.AgentInvocationKind, id, 3, invocation.Spec.State, completed, invocation); err != nil {
-		return domain.AgentInvocation{}, err
+	} else {
+		invocation.Spec.ArtifactIDs = []string{preparedArtifact.Metadata.ID}
 	}
 	session.Spec.UpdatedAt = completed
 	session.Spec.State = domain.AssuranceStateReady
@@ -1094,10 +1114,18 @@ func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput
 		session.Spec.ResumeBrief.FailedEvidence = append(session.Spec.ResumeBrief.FailedEvidence, result.FailureCode)
 		session.Spec.ResumeBrief.NextSafeAction = "실패 원인과 재시도 범위를 검토합니다."
 	}
-	if err := a.updateAssuranceSession(ctx, session); err != nil {
-		return domain.AgentInvocation{}, fmt.Errorf("update assurance session after completing agent invocation: %w", err)
+	if err := a.store.FinalizeAgentInvocationAndUpdateSession(ctx, invocation, preparedArtifact, session); err != nil {
+		var cleanupErr error
+		if cleanupArtifact != nil {
+			cleanupErr = cleanupArtifact()
+		}
+		deleteErr := a.store.DeleteAgentInvocation(context.WithoutCancel(ctx), id)
+		return domain.AgentInvocation{}, fmt.Errorf(
+			"update assurance session after completing agent invocation: %w",
+			errors.Join(err, cleanupErr, deleteErr),
+		)
 	}
-	if !artifactPersisted {
+	if preparedArtifact == nil {
 		return invocation, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "agent invocation evidence could not be persisted"}
 	}
 	return invocation, nil
@@ -1279,18 +1307,37 @@ func trustedCodexProfile(profile domain.AgentProfile) error {
 }
 
 func (a *App) SaveAssuranceArtifact(ctx context.Context, input ArtifactInput) (domain.Artifact, error) {
+	item, cleanup, err := a.prepareAssuranceArtifact(ctx, input)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	if err := a.store.SaveArtifact(ctx, item); err != nil {
+		if cleanupErr := cleanup(); cleanupErr != nil {
+			return domain.Artifact{}, errors.Join(err, fmt.Errorf("remove assurance artifact file: %w", cleanupErr))
+		}
+		return domain.Artifact{}, err
+	}
+	return item, nil
+}
+
+func (a *App) prepareAssuranceArtifact(
+	ctx context.Context,
+	input ArtifactInput,
+) (domain.Artifact, func() error, error) {
 	if strings.TrimSpace(input.SourceType) == "" || strings.TrimSpace(input.SourceID) == "" || len(input.Content) == 0 {
-		return domain.Artifact{}, contract.InvalidInput("artifact source and content are required")
+		return domain.Artifact{}, nil, contract.InvalidInput("artifact source and content are required")
 	}
 	masked := []byte(a.masker.Mask(string(input.Content)))
 	if storage, err := a.AssuranceArtifactStorage(ctx); err == nil && storage.UsedBytes+int64(len(masked)) > storage.QuotaBytes {
-		return domain.Artifact{}, contract.Conflict("artifact storage quota exceeded; pin or export evidence before retrying")
+		return domain.Artifact{}, nil, contract.Conflict(
+			"artifact storage quota exceeded; pin or export evidence before retrying",
+		)
 	}
 	sum := sha256.Sum256(masked)
 	id := assuranceID("artifact", input.SourceType, input.SourceID, input.Name, time.Now().UTC())
 	directory := filepath.Join(a.home, "artifacts", "assurance")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return domain.Artifact{}, err
+		return domain.Artifact{}, nil, err
 	}
 	name := filepath.Base(strings.TrimSpace(input.Name))
 	if name == "." || name == "" {
@@ -1299,7 +1346,7 @@ func (a *App) SaveAssuranceArtifact(ctx context.Context, input ArtifactInput) (d
 	path := filepath.Join(directory, id+"-"+name)
 	temporary, err := os.CreateTemp(directory, ".artifact-write-*")
 	if err != nil {
-		return domain.Artifact{}, err
+		return domain.Artifact{}, nil, err
 	}
 	temporaryPath := temporary.Name()
 	committed := false
@@ -1310,30 +1357,40 @@ func (a *App) SaveAssuranceArtifact(ctx context.Context, input ArtifactInput) (d
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		_ = temporary.Close()
-		return domain.Artifact{}, err
+		return domain.Artifact{}, nil, err
 	}
 	if _, err := temporary.Write(masked); err != nil {
 		_ = temporary.Close()
-		return domain.Artifact{}, err
+		return domain.Artifact{}, nil, err
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return domain.Artifact{}, err
+		return domain.Artifact{}, nil, err
 	}
 	if err := temporary.Close(); err != nil {
-		return domain.Artifact{}, err
+		return domain.Artifact{}, nil, err
 	}
 	if err := os.Rename(temporaryPath, path); err != nil {
-		return domain.Artifact{}, err
+		return domain.Artifact{}, nil, err
 	}
 	committed = true
 	now := time.Now().UTC()
 	item := domain.Artifact{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ArtifactKind}, Metadata: domain.ObjectMeta{ID: id, Name: name}, Spec: domain.ArtifactSpec{ManifestVersion: "devroom/artifact/v1", StorageKey: id + "/" + name, SourceType: input.SourceType, SourceID: input.SourceID, Path: path, MIME: input.MIME, Size: int64(len(masked)), SHA256: hex.EncodeToString(sum[:]), Retention: domain.ArtifactRetentionActive, CreatedAt: now, SourceRef: input.SourceID, TraceID: strings.TrimSpace(input.TraceID), MaskingPolicyDigest: digestText("masking-v1"), RedactionState: "masked"}}
-	if err := a.store.SaveArtifact(ctx, item); err != nil {
-		_ = os.Remove(path)
-		return domain.Artifact{}, err
+	return item, func() error {
+		err := os.Remove(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}, nil
+}
+
+func removeEmptyDirectory(path string) error {
+	err := os.Remove(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	return item, nil
+	return err
 }
 
 func (a *App) CreateEffect(ctx context.Context, input EffectInput) (domain.Effect, error) {

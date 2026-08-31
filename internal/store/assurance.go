@@ -21,6 +21,11 @@ var (
 	ErrQualityObjectiveRequiresCAS   = errors.New("quality objective updates require UpdateQualityObjectiveRevisionCAS")
 )
 
+type assuranceExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 // SaveAssurance* methods keep the additive assurance records revisioned and
 // immutable by id. Updating a session/run is explicit and must increase the
 // revision, which prevents a restart from silently replacing evidence.
@@ -29,10 +34,88 @@ func (s *Store) SaveAssuranceSession(ctx context.Context, item domain.AssuranceS
 }
 
 func (s *Store) SaveAssuranceQuestion(ctx context.Context, item domain.AssuranceQuestion) error {
-	return s.saveAssurance(ctx, domain.AssuranceQuestionKind, item.Metadata.ID, "", "", "", "answered", 1, item.Spec.AskedAt, timeOr(item.Spec.AnsweredAt, item.Spec.AskedAt), item, item.Validate())
+	return s.saveAssuranceQuestion(ctx, s.db, item)
 }
 
 func (s *Store) SaveAssuranceSpec(ctx context.Context, item domain.AssuranceSpec) error {
+	return s.saveAssuranceSpec(ctx, s.db, item)
+}
+
+func (s *Store) SaveAssuranceQuestionAndUpdateSession(
+	ctx context.Context,
+	item domain.AssuranceQuestion,
+	session domain.AssuranceSession,
+) error {
+	return s.withAssuranceTransaction(ctx, "assurance question", func(executor assuranceExecutor) error {
+		if err := s.saveAssuranceQuestion(ctx, executor, item); err != nil {
+			return fmt.Errorf("save assurance question: %w", err)
+		}
+		if err := s.updateAssuranceSession(ctx, executor, session); err != nil {
+			return fmt.Errorf("update assurance session: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *Store) SaveAssuranceSpecAndUpdateSession(
+	ctx context.Context,
+	item domain.AssuranceSpec,
+	session domain.AssuranceSession,
+) error {
+	return s.withAssuranceTransaction(ctx, "assurance spec", func(executor assuranceExecutor) error {
+		if err := s.saveAssuranceSpec(ctx, executor, item); err != nil {
+			return fmt.Errorf("save assurance spec: %w", err)
+		}
+		if err := s.updateAssuranceSession(ctx, executor, session); err != nil {
+			return fmt.Errorf("update assurance session: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *Store) SaveAssuranceProposalAndUpdateSession(
+	ctx context.Context,
+	item domain.AssuranceProposal,
+	artifact domain.Artifact,
+	session domain.AssuranceSession,
+) error {
+	return s.withAssuranceTransaction(ctx, "assurance proposal", func(executor assuranceExecutor) error {
+		if err := s.saveAssuranceArtifact(ctx, executor, artifact); err != nil {
+			return fmt.Errorf("save assurance proposal artifact: %w", err)
+		}
+		if err := s.saveAssuranceProposal(ctx, executor, item); err != nil {
+			return fmt.Errorf("save assurance proposal: %w", err)
+		}
+		if err := s.updateAssuranceSession(ctx, executor, session); err != nil {
+			return fmt.Errorf("update assurance session: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *Store) saveAssuranceQuestion(
+	ctx context.Context,
+	executor assuranceExecutor,
+	item domain.AssuranceQuestion,
+) error {
+	return s.saveAssuranceWithExecutor(
+		ctx,
+		executor,
+		domain.AssuranceQuestionKind,
+		item.Metadata.ID,
+		"",
+		"",
+		"",
+		"answered",
+		1,
+		item.Spec.AskedAt,
+		timeOr(item.Spec.AnsweredAt, item.Spec.AskedAt),
+		item,
+		item.Validate(),
+	)
+}
+
+func (s *Store) saveAssuranceSpec(ctx context.Context, executor assuranceExecutor, item domain.AssuranceSpec) error {
 	canonical := item
 	canonical.Spec.Digest = ""
 	digest, err := canonical.Digest()
@@ -45,7 +128,21 @@ func (s *Store) SaveAssuranceSpec(ctx context.Context, item domain.AssuranceSpec
 	if item.Spec.Digest != digest {
 		return errors.New("assurance spec digest mismatch")
 	}
-	return s.saveAssurance(ctx, domain.AssuranceSpecKind, item.Metadata.ID, "", "", "", item.Spec.State, item.Spec.Revision, item.Spec.CreatedAt, item.Spec.CreatedAt, item, item.Validate())
+	return s.saveAssuranceWithExecutor(
+		ctx,
+		executor,
+		domain.AssuranceSpecKind,
+		item.Metadata.ID,
+		"",
+		"",
+		"",
+		item.Spec.State,
+		item.Spec.Revision,
+		item.Spec.CreatedAt,
+		item.Spec.CreatedAt,
+		item,
+		item.Validate(),
+	)
 }
 
 func (s *Store) ListAssuranceSpecs(ctx context.Context, sessionID string) ([]domain.AssuranceSpec, error) {
@@ -64,7 +161,29 @@ func (s *Store) ListAssuranceSpecs(ctx context.Context, sessionID string) ([]dom
 }
 
 func (s *Store) SaveAssuranceProposal(ctx context.Context, item domain.AssuranceProposal) error {
-	return s.saveAssurance(ctx, domain.AssuranceProposalKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, 1, item.Spec.CreatedAt, timeOr(item.Spec.ReviewedAt, item.Spec.CreatedAt), item, item.Validate())
+	return s.saveAssuranceProposal(ctx, s.db, item)
+}
+
+func (s *Store) saveAssuranceProposal(
+	ctx context.Context,
+	executor assuranceExecutor,
+	item domain.AssuranceProposal,
+) error {
+	return s.saveAssuranceWithExecutor(
+		ctx,
+		executor,
+		domain.AssuranceProposalKind,
+		item.Metadata.ID,
+		item.Spec.ProjectID,
+		item.Spec.RepositoryID,
+		item.Spec.WorktreeID,
+		item.Spec.State,
+		1,
+		item.Spec.CreatedAt,
+		timeOr(item.Spec.ReviewedAt, item.Spec.CreatedAt),
+		item,
+		item.Validate(),
+	)
 }
 
 func (s *Store) ListAssuranceProposals(ctx context.Context, sessionID string) ([]domain.AssuranceProposal, error) {
@@ -119,6 +238,59 @@ func (s *Store) SaveAgentInvocation(ctx context.Context, item domain.AgentInvoca
 	return s.saveAssurance(ctx, domain.AgentInvocationKind, item.Metadata.ID, "", "", item.Spec.WorktreeID, item.Spec.State, 1, item.Spec.StartedAt, timeOr(item.Spec.CompletedAt, item.Spec.StartedAt), item, item.Validate())
 }
 
+// FinalizeAgentInvocationAndUpdateSession commits the final invocation state,
+// optional evidence manifest, and Resume Brief update as one database unit.
+// Provider execution happens before this boundary, so a transaction never
+// holds a SQLite connection while an external process is running.
+func (s *Store) FinalizeAgentInvocationAndUpdateSession(
+	ctx context.Context,
+	item domain.AgentInvocation,
+	artifact *domain.Artifact,
+	session domain.AssuranceSession,
+) error {
+	return s.withAssuranceTransaction(ctx, "agent invocation", func(executor assuranceExecutor) error {
+		if artifact != nil {
+			if err := s.saveAssuranceArtifact(ctx, executor, *artifact); err != nil {
+				return fmt.Errorf("save agent invocation artifact: %w", err)
+			}
+		}
+		completedAt := timeOr(item.Spec.CompletedAt, item.Spec.StartedAt)
+		if err := s.updateAssuranceRevisionWithExecutor(
+			ctx,
+			executor,
+			domain.AgentInvocationKind,
+			item.Metadata.ID,
+			3,
+			item.Spec.State,
+			completedAt,
+			item,
+		); err != nil {
+			return fmt.Errorf("update agent invocation: %w", err)
+		}
+		if err := s.updateAssuranceSession(ctx, executor, session); err != nil {
+			return fmt.Errorf("update assurance session: %w", err)
+		}
+		return nil
+	})
+}
+
+// DeleteAgentInvocation is idempotent because it is used to compensate the
+// durable queued/running record when finalization cannot commit.
+func (s *Store) DeleteAgentInvocation(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("agent invocation id is required")
+	}
+	if _, err := s.db.ExecContext(
+		ctx,
+		`DELETE FROM assurance_objects WHERE kind = ? AND id = ?`,
+		domain.AgentInvocationKind,
+		id,
+	); err != nil {
+		return fmt.Errorf("delete agent invocation: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) SaveQualityCampaign(ctx context.Context, item domain.QualityCampaign) error {
 	return s.saveAssurance(ctx, domain.QualityCampaignKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, 1, item.Spec.CreatedAt, item.Spec.UpdatedAt, item, item.Validate())
 }
@@ -136,7 +308,25 @@ func (s *Store) SaveBaseline(ctx context.Context, item domain.PRCIBaseline) erro
 }
 
 func (s *Store) SaveArtifact(ctx context.Context, item domain.Artifact) error {
-	return s.saveAssurance(ctx, domain.ArtifactKind, item.Metadata.ID, "", "", "", item.Spec.Retention, 1, item.Spec.CreatedAt, timeOr(item.Spec.ArchivedAt, item.Spec.CreatedAt), item, item.Validate())
+	return s.saveAssuranceArtifact(ctx, s.db, item)
+}
+
+func (s *Store) saveAssuranceArtifact(ctx context.Context, executor assuranceExecutor, item domain.Artifact) error {
+	return s.saveAssuranceWithExecutor(
+		ctx,
+		executor,
+		domain.ArtifactKind,
+		item.Metadata.ID,
+		"",
+		"",
+		"",
+		item.Spec.Retention,
+		1,
+		item.Spec.CreatedAt,
+		timeOr(item.Spec.ArchivedAt, item.Spec.CreatedAt),
+		item,
+		item.Validate(),
+	)
 }
 
 func (s *Store) UpdateAssuranceArtifact(ctx context.Context, item domain.Artifact) error {
@@ -224,7 +414,87 @@ func (s *Store) ListUnattendedApprovalScopes(ctx context.Context) ([]domain.Unat
 	return items, err
 }
 
-func (s *Store) saveAssurance(ctx context.Context, kind, id, projectID, repositoryID, worktreeID, state string, revision int, createdAt, updatedAt time.Time, value any, validation error) error {
+func (s *Store) withAssuranceTransaction(
+	ctx context.Context,
+	operation string,
+	fn func(assuranceExecutor) error,
+) (returnErr error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin %s transaction: %w", operation, err)
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			returnErr = errors.Join(returnErr, fmt.Errorf("rollback %s transaction: %w", operation, rollbackErr))
+		}
+	}()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit %s transaction: %w", operation, err)
+	}
+	return nil
+}
+
+func (s *Store) updateAssuranceSession(
+	ctx context.Context,
+	executor assuranceExecutor,
+	session domain.AssuranceSession,
+) error {
+	if err := session.Validate(); err != nil {
+		return fmt.Errorf("validate assurance session: %w", err)
+	}
+	revision, err := s.assuranceRevision(ctx, executor, domain.AssuranceSessionKind, session.Metadata.ID)
+	if err != nil {
+		return fmt.Errorf("read assurance session revision: %w", err)
+	}
+	return s.updateAssuranceRevisionWithExecutor(
+		ctx,
+		executor,
+		domain.AssuranceSessionKind,
+		session.Metadata.ID,
+		revision+1,
+		session.Spec.State,
+		session.Spec.UpdatedAt,
+		session,
+	)
+}
+
+func (s *Store) saveAssurance(
+	ctx context.Context,
+	kind, id, projectID, repositoryID, worktreeID, state string,
+	revision int,
+	createdAt, updatedAt time.Time,
+	value any,
+	validation error,
+) error {
+	return s.saveAssuranceWithExecutor(
+		ctx,
+		s.db,
+		kind,
+		id,
+		projectID,
+		repositoryID,
+		worktreeID,
+		state,
+		revision,
+		createdAt,
+		updatedAt,
+		value,
+		validation,
+	)
+}
+
+func (s *Store) saveAssuranceWithExecutor(
+	ctx context.Context,
+	executor assuranceExecutor,
+	kind, id, projectID, repositoryID, worktreeID, state string,
+	revision int,
+	createdAt, updatedAt time.Time,
+	value any,
+	validation error,
+) error {
 	if validation != nil {
 		return validation
 	}
@@ -239,7 +509,24 @@ func (s *Store) saveAssurance(ctx context.Context, kind, id, projectID, reposito
 	if err != nil {
 		return err
 	}
-	result, err := s.db.ExecContext(ctx, `INSERT INTO assurance_objects(id, kind, project_id, repository_id, worktree_id, state, revision, digest, created_at, updated_at, object_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, id, kind, nullableString(projectID), nullableString(repositoryID), nullableString(worktreeID), state, revision, digest, createdAt.UTC().Format(timeFormat), updatedAt.UTC().Format(timeFormat), object)
+	result, err := executor.ExecContext(
+		ctx,
+		`INSERT INTO assurance_objects(
+ id, kind, project_id, repository_id, worktree_id, state, revision, digest, created_at, updated_at, object_json
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+		id,
+		kind,
+		nullableString(projectID),
+		nullableString(repositoryID),
+		nullableString(worktreeID),
+		state,
+		revision,
+		digest,
+		createdAt.UTC().Format(timeFormat),
+		updatedAt.UTC().Format(timeFormat),
+		object,
+	)
 	if err != nil {
 		return fmt.Errorf("save assurance object: %w", err)
 	}
@@ -247,7 +534,11 @@ func (s *Store) saveAssurance(ctx context.Context, kind, id, projectID, reposito
 		return nil
 	}
 	var existingDigest string
-	if err := s.db.QueryRowContext(ctx, `SELECT digest FROM assurance_objects WHERE id = ?`, id).Scan(&existingDigest); err != nil {
+	if err := executor.QueryRowContext(
+		ctx,
+		`SELECT digest FROM assurance_objects WHERE id = ?`,
+		id,
+	).Scan(&existingDigest); err != nil {
 		return err
 	}
 	if existingDigest != digest {
@@ -265,6 +556,18 @@ func (s *Store) UpdateAssuranceRevision(ctx context.Context, kind, id string, re
 	if kind == domain.QualityObjectiveKind {
 		return ErrQualityObjectiveRequiresCAS
 	}
+	return s.updateAssuranceRevisionWithExecutor(ctx, s.db, kind, id, revision, state, updatedAt, value)
+}
+
+func (s *Store) updateAssuranceRevisionWithExecutor(
+	ctx context.Context,
+	executor assuranceExecutor,
+	kind, id string,
+	revision int,
+	state string,
+	updatedAt time.Time,
+	value any,
+) error {
 	if revision < 1 || strings.TrimSpace(kind) == "" || strings.TrimSpace(id) == "" || strings.TrimSpace(state) == "" || updatedAt.IsZero() {
 		return errors.New("assurance revision is invalid")
 	}
@@ -276,7 +579,19 @@ func (s *Store) UpdateAssuranceRevision(ctx context.Context, kind, id string, re
 	if err != nil {
 		return err
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE assurance_objects SET state = ?, revision = ?, digest = ?, updated_at = ?, object_json = ? WHERE kind = ? AND id = ? AND revision < ?`, state, revision, digest, updatedAt.UTC().Format(timeFormat), object, kind, id, revision)
+	result, err := executor.ExecContext(
+		ctx,
+		`UPDATE assurance_objects SET state = ?, revision = ?, digest = ?, updated_at = ?, object_json = ?
+WHERE kind = ? AND id = ? AND revision < ?`,
+		state,
+		revision,
+		digest,
+		updatedAt.UTC().Format(timeFormat),
+		object,
+		kind,
+		id,
+		revision,
+	)
 	if err != nil {
 		return err
 	}
@@ -337,8 +652,17 @@ func (s *Store) UpdateQualityObjectiveRevisionCAS(ctx context.Context, kind, id 
 }
 
 func (s *Store) AssuranceRevision(ctx context.Context, kind, id string) (int, error) {
+	return s.assuranceRevision(ctx, s.db, kind, id)
+}
+
+func (s *Store) assuranceRevision(ctx context.Context, executor assuranceExecutor, kind, id string) (int, error) {
 	var revision int
-	if err := s.db.QueryRowContext(ctx, `SELECT revision FROM assurance_objects WHERE kind = ? AND id = ?`, kind, id).Scan(&revision); err != nil {
+	if err := executor.QueryRowContext(
+		ctx,
+		`SELECT revision FROM assurance_objects WHERE kind = ? AND id = ?`,
+		kind,
+		id,
+	).Scan(&revision); err != nil {
 		return 0, err
 	}
 	return revision, nil

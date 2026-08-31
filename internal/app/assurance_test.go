@@ -1273,11 +1273,13 @@ func TestAssuranceAuthoringPersistsQuestionsSpecAndAdvisoryPatchWithoutAdoptionS
 func TestAssuranceAuthoringPropagatesSessionUpdateFailures(t *testing.T) {
 	tests := []struct {
 		name        string
+		kind        string
 		wantContext string
 		run         func(*App, string) (string, error)
 	}{
 		{
 			name:        "question",
+			kind:        "question",
 			wantContext: "update assurance session after creating question",
 			run: func(service *App, sessionID string) (string, error) {
 				item, err := service.CreateAssuranceQuestion(context.Background(), AssuranceQuestionInput{SessionID: sessionID, Prompt: "질문"})
@@ -1286,6 +1288,7 @@ func TestAssuranceAuthoringPropagatesSessionUpdateFailures(t *testing.T) {
 		},
 		{
 			name:        "spec",
+			kind:        "spec",
 			wantContext: "update assurance session after creating spec",
 			run: func(service *App, sessionID string) (string, error) {
 				item, err := service.CreateAssuranceSpec(context.Background(), AssuranceSpecInput{SessionID: sessionID, Intent: "의도"})
@@ -1294,6 +1297,7 @@ func TestAssuranceAuthoringPropagatesSessionUpdateFailures(t *testing.T) {
 		},
 		{
 			name:        "proposal",
+			kind:        "proposal",
 			wantContext: "update assurance session after creating proposal",
 			run: func(service *App, sessionID string) (string, error) {
 				item, err := service.CreateAssuranceProposal(context.Background(), AssuranceProposalInput{SessionID: sessionID, Purpose: "목적", Patch: "diff --git a/test.go b/test.go\n+change\n"})
@@ -1302,6 +1306,7 @@ func TestAssuranceAuthoringPropagatesSessionUpdateFailures(t *testing.T) {
 		},
 		{
 			name:        "agent invocation",
+			kind:        "invocation",
 			wantContext: "update assurance session after completing agent invocation",
 			run: func(service *App, sessionID string) (string, error) {
 				item, err := service.RunAgentInvocation(context.Background(), AgentInvocationInput{SessionID: sessionID, Provider: "fake", ProfileID: "fake", Scenario: "success"})
@@ -1328,14 +1333,17 @@ func TestAssuranceAuthoringPropagatesSessionUpdateFailures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := service.store.DB().ExecContext(context.Background(), `
+			if _, err := service.store.DB().ExecContext(
+				context.Background(),
+				`
 CREATE TRIGGER reject_assurance_session_updates
 BEFORE UPDATE ON assurance_objects
 FOR EACH ROW
 WHEN OLD.kind = 'AssuranceSession'
 BEGIN
     SELECT RAISE(ABORT, 'session update blocked');
-END`); err != nil {
+END`,
+			); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1349,7 +1357,131 @@ END`); err != nil {
 			if !strings.Contains(err.Error(), test.wantContext) {
 				t.Fatalf("operation error = %v, want context %q", err, test.wantContext)
 			}
+
+			assertAuthoringCounts(t, service, session.Metadata.ID, test.kind, 0)
+			if _, err := service.store.DB().ExecContext(
+				context.Background(),
+				`DROP TRIGGER reject_assurance_session_updates`,
+			); err != nil {
+				t.Fatal(err)
+			}
+			returnedID, err = test.run(service, session.Metadata.ID)
+			if err != nil {
+				t.Fatalf("retry failed: %v", err)
+			}
+			if returnedID == "" {
+				t.Fatal("retry returned an empty result")
+			}
+			assertAuthoringCounts(t, service, session.Metadata.ID, test.kind, 1)
 		})
+	}
+}
+
+func assertAuthoringCounts(t *testing.T, service *App, sessionID, successfulKind string, want int) {
+	t.Helper()
+	questions, err := service.AssuranceQuestions(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	specs, err := service.AssuranceSpecs(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposals, err := service.AssuranceProposals(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocations, err := service.AgentInvocations(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := service.AssuranceArtifacts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.AssuranceSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantQuestions, wantSpecs, wantProposals, wantInvocations := 0, 0, 0, 0
+	switch successfulKind {
+	case "question":
+		wantQuestions = want
+	case "spec":
+		wantSpecs = want
+	case "proposal":
+		wantProposals = want
+	case "invocation":
+		wantInvocations = want
+	default:
+		t.Fatalf("unknown assurance authoring kind %q", successfulKind)
+	}
+	wantArtifacts := 0
+	if successfulKind == "proposal" || successfulKind == "invocation" {
+		wantArtifacts = want
+	}
+	questionsMatch := len(questions) == wantQuestions
+	specsMatch := len(specs) == wantSpecs
+	proposalsMatch := len(proposals) == wantProposals
+	invocationsMatch := len(invocations) == wantInvocations
+	artifactsMatch := len(artifacts) == wantArtifacts
+	if !questionsMatch || !specsMatch || !proposalsMatch || !invocationsMatch || !artifactsMatch {
+		t.Fatalf(
+			"authoring object counts = questions %d, specs %d, proposals %d, "+
+				"invocations %d, artifacts %d; want %d, %d, %d, %d, %d",
+			len(questions),
+			len(specs),
+			len(proposals),
+			len(invocations),
+			len(artifacts),
+			wantQuestions,
+			wantSpecs,
+			wantProposals,
+			wantInvocations,
+			wantArtifacts,
+		)
+	}
+	if want == 0 {
+		sessionUnchanged := session.Spec.State == domain.AssuranceStateDraft &&
+			len(session.Spec.QuestionIDs) == 0 && session.Spec.CurrentSpecID == "" &&
+			session.Spec.ResumeBrief.ProposedPatch == "" && len(session.Spec.ResumeBrief.Completed) == 0
+		if !sessionUnchanged {
+			t.Fatalf("assurance session changed after failed authoring operation: %#v", session)
+		}
+	}
+	assertAssuranceArtifactFileCount(t, service.home, wantArtifacts)
+	wantProposalDirectories := 0
+	if successfulKind == "proposal" {
+		wantProposalDirectories = want
+	}
+	assertAssuranceProposalDirectoryCount(t, service.home, wantProposalDirectories)
+}
+
+func assertAssuranceArtifactFileCount(t *testing.T, home string, want int) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(home, "artifacts", "assurance"))
+	if errors.Is(err, os.ErrNotExist) && want == 0 {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != want {
+		t.Fatalf("assurance artifact files = %v, want %d", entries, want)
+	}
+}
+
+func assertAssuranceProposalDirectoryCount(t *testing.T, home string, want int) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(home, "assurance", "proposals"))
+	if errors.Is(err, os.ErrNotExist) && want == 0 {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != want {
+		t.Fatalf("assurance proposal isolation directories = %v, want %d", entries, want)
 	}
 }
 
