@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,246 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 )
+
+type assurancePathReferences struct {
+	lexical  []string
+	resolved []string
+}
+
+// cleanupOrphanedAssuranceFiles repairs only the crash window between an
+// assurance file-system commit and its database commit. The database remains
+// authoritative: every referenced path is preserved, and every deletion is
+// confined to the canonical application home.
+func (a *App) cleanupOrphanedAssuranceFiles(ctx context.Context) error {
+	home, err := canonicalApplicationHome(a.home)
+	if err != nil {
+		return fmt.Errorf("resolve application home for assurance cleanup: %w", err)
+	}
+	artifacts, err := a.AssuranceArtifacts(ctx)
+	if err != nil {
+		return fmt.Errorf("list assurance artifacts for startup cleanup: %w", err)
+	}
+	proposals, err := a.AssuranceProposals(ctx, "")
+	if err != nil {
+		return fmt.Errorf("list assurance proposals for startup cleanup: %w", err)
+	}
+	references := newAssurancePathReferences(len(artifacts) + len(proposals))
+	for _, artifact := range artifacts {
+		references.add(artifact.Spec.Path)
+	}
+	for _, proposal := range proposals {
+		references.add(proposal.Spec.IsolationPath)
+	}
+	if err := cleanupOrphanedAssuranceArtifacts(home, references); err != nil {
+		return fmt.Errorf("clean assurance artifact directory: %w", err)
+	}
+	if err := cleanupOrphanedAssuranceProposals(home, references); err != nil {
+		return fmt.Errorf("clean assurance proposal directories: %w", err)
+	}
+	return nil
+}
+
+func canonicalApplicationHome(home string) (string, error) {
+	if strings.TrimSpace(home) == "" {
+		return "", errors.New("application home is empty")
+	}
+	absolute, err := filepath.Abs(filepath.Clean(home))
+	if err != nil {
+		return "", fmt.Errorf("resolve application home: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", fmt.Errorf("resolve application home symlinks: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("inspect application home: %w", err)
+	}
+	if !info.IsDir() {
+		return "", errors.New("application home is not a directory")
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func newAssurancePathReferences(capacity int) assurancePathReferences {
+	return assurancePathReferences{
+		lexical:  make([]string, 0, capacity),
+		resolved: make([]string, 0, capacity),
+	}
+}
+
+func (r *assurancePathReferences) add(path string) {
+	lexical, resolved, ok := comparableAssurancePath(path)
+	if !ok {
+		return
+	}
+	for _, existing := range r.lexical {
+		if assurancePathEqual(existing, lexical) {
+			return
+		}
+	}
+	r.lexical = append(r.lexical, lexical)
+	r.resolved = append(r.resolved, resolved)
+}
+
+func (r assurancePathReferences) overlaps(path string) bool {
+	lexical, resolved, ok := comparableAssurancePath(path)
+	if !ok {
+		return false
+	}
+	for index, reference := range r.lexical {
+		if assurancePathsOverlap(lexical, reference) || assurancePathsOverlap(resolved, r.resolved[index]) {
+			return true
+		}
+	}
+	return false
+}
+
+func comparableAssurancePath(path string) (string, string, bool) {
+	if path == "" || strings.ContainsRune(path, '\x00') {
+		return "", "", false
+	}
+	absolute, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", "", false
+	}
+	lexical := filepath.Clean(absolute)
+	resolved := lexical
+	if value, err := filepath.EvalSymlinks(lexical); err == nil {
+		resolved = filepath.Clean(value)
+	}
+	return lexical, resolved, true
+}
+
+func assurancePathEqual(left, right string) bool {
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func assurancePathsOverlap(left, right string) bool {
+	return assurancePathEqual(left, right) || pathWithin(left, right) || pathWithin(right, left)
+}
+
+func managedAssuranceDirectory(home string, parts ...string) (string, bool, error) {
+	directory := filepath.Join(append([]string{home}, parts...)...)
+	if !pathWithin(home, directory) {
+		return "", false, errors.New("assurance cleanup directory escapes application home")
+	}
+	info, err := os.Lstat(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", false, errors.New("assurance cleanup directory is not a local directory")
+	}
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return "", false, err
+	}
+	if !pathWithin(home, resolved) {
+		return "", false, errors.New("assurance cleanup directory resolves outside application home")
+	}
+	return directory, true, nil
+}
+
+func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathReferences) error {
+	directory, found, err := managedAssuranceDirectory(home, "artifacts", "assurance")
+	if err != nil || !found {
+		return err
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(directory, entry.Name())
+		if references.overlaps(path) {
+			continue
+		}
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect orphaned assurance artifact %q: %w", entry.Name(), err)
+		}
+		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		if err := removeManagedAssuranceEntry(home, path); err != nil {
+			return fmt.Errorf("remove orphaned assurance artifact %q: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func cleanupOrphanedAssuranceProposals(home string, references assurancePathReferences) error {
+	directory, found, err := managedAssuranceDirectory(home, "assurance", "proposals")
+	if err != nil || !found {
+		return err
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(directory, entry.Name())
+		if references.overlaps(path) {
+			continue
+		}
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect orphaned assurance proposal %q: %w", entry.Name(), err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := removeManagedAssuranceEntry(home, path); err != nil {
+				return fmt.Errorf("remove orphaned assurance proposal link %q: %w", entry.Name(), err)
+			}
+			continue
+		}
+		if !info.IsDir() {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("resolve orphaned assurance proposal %q: %w", entry.Name(), err)
+		}
+		if !pathWithin(directory, resolved) {
+			continue
+		}
+		// RemoveAll removes symlink entries as links; the resolved root was
+		// checked above, so an outside symlink target is never traversed.
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("remove orphaned assurance proposal %q: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func removeManagedAssuranceEntry(home, path string) error {
+	if !pathWithin(home, path) {
+		return errors.New("assurance cleanup entry escapes application home")
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		return errors.New("assurance cleanup entry is not a file or symlink")
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
 
 func cleanupCandidateDigest(candidate domain.CleanupCandidate) (string, error) {
 	// Observation time proves freshness at the boundary, but is not target

@@ -217,6 +217,33 @@ func (s *Store) ListAssuranceQuestions(ctx context.Context, sessionID string) ([
 }
 
 func (s *Store) UpdateAssuranceQuestion(ctx context.Context, item domain.AssuranceQuestion) error {
+	return s.updateAssuranceQuestion(ctx, s.db, item)
+}
+
+// UpdateAssuranceQuestionAndSession commits an answer and the corresponding
+// Resume Brief transition as one database unit. A failed session update must
+// not leave the question answered on its own.
+func (s *Store) UpdateAssuranceQuestionAndSession(
+	ctx context.Context,
+	item domain.AssuranceQuestion,
+	session domain.AssuranceSession,
+) error {
+	return s.withAssuranceTransaction(ctx, "assurance question answer", func(executor assuranceExecutor) error {
+		if err := s.updateAssuranceQuestion(ctx, executor, item); err != nil {
+			return fmt.Errorf("update assurance question: %w", err)
+		}
+		if err := s.updateAssuranceSession(ctx, executor, session); err != nil {
+			return fmt.Errorf("update assurance session: %w", err)
+		}
+		return nil
+	})
+}
+
+func (s *Store) updateAssuranceQuestion(
+	ctx context.Context,
+	executor assuranceExecutor,
+	item domain.AssuranceQuestion,
+) error {
 	if err := item.Validate(); err != nil {
 		return err
 	}
@@ -224,9 +251,9 @@ func (s *Store) UpdateAssuranceQuestion(ctx context.Context, item domain.Assuran
 	if err != nil {
 		return err
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE assurance_objects SET state = ?, updated_at = ?, object_json = ? WHERE kind = ? AND id = ?`, "answered", timeOr(item.Spec.AnsweredAt, item.Spec.AskedAt).UTC().Format(timeFormat), object, domain.AssuranceQuestionKind, item.Metadata.ID)
+	result, err := executor.ExecContext(ctx, `UPDATE assurance_objects SET state = ?, updated_at = ?, object_json = ? WHERE kind = ? AND id = ?`, "answered", timeOr(item.Spec.AnsweredAt, item.Spec.AskedAt).UTC().Format(timeFormat), object, domain.AssuranceQuestionKind, item.Metadata.ID)
 	if err != nil {
-		return err
+		return fmt.Errorf("update assurance question: %w", err)
 	}
 	if count, _ := result.RowsAffected(); count == 0 {
 		return errors.New("assurance question is missing")
@@ -236,6 +263,60 @@ func (s *Store) UpdateAssuranceQuestion(ctx context.Context, item domain.Assuran
 
 func (s *Store) SaveAgentInvocation(ctx context.Context, item domain.AgentInvocation) error {
 	return s.saveAssurance(ctx, domain.AgentInvocationKind, item.Metadata.ID, "", "", item.Spec.WorktreeID, item.Spec.State, 1, item.Spec.StartedAt, timeOr(item.Spec.CompletedAt, item.Spec.StartedAt), item, item.Validate())
+}
+
+// StartAgentInvocation atomically claims an invocation in its running state.
+// The returned boolean is false when another caller already owns the same
+// deterministic invocation id. It intentionally commits before provider
+// execution so no SQLite transaction is held across an external process.
+func (s *Store) StartAgentInvocation(ctx context.Context, item domain.AgentInvocation) (bool, error) {
+	if item.Spec.State != domain.AssuranceStateRunning {
+		return false, errors.New("agent invocation must start in running state")
+	}
+	created := false
+	err := s.withAssuranceTransaction(ctx, "agent invocation start", func(executor assuranceExecutor) error {
+		queued := item
+		queued.Spec.State = domain.AssuranceStateQueued
+		inserted, err := s.insertAssuranceWithExecutor(
+			ctx,
+			executor,
+			domain.AgentInvocationKind,
+			queued.Metadata.ID,
+			"",
+			"",
+			queued.Spec.WorktreeID,
+			queued.Spec.State,
+			1,
+			queued.Spec.StartedAt,
+			timeOr(queued.Spec.CompletedAt, queued.Spec.StartedAt),
+			queued,
+			queued.Validate(),
+		)
+		if err != nil {
+			return fmt.Errorf("save queued agent invocation: %w", err)
+		}
+		if !inserted {
+			return nil
+		}
+		if err := s.updateAssuranceRevisionWithExecutor(
+			ctx,
+			executor,
+			domain.AgentInvocationKind,
+			item.Metadata.ID,
+			2,
+			item.Spec.State,
+			item.Spec.StartedAt,
+			item,
+		); err != nil {
+			return fmt.Errorf("transition agent invocation to running: %w", err)
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return created, err
 }
 
 // FinalizeAgentInvocationAndUpdateSession commits the final invocation state,
@@ -495,11 +576,26 @@ func (s *Store) saveAssuranceWithExecutor(
 	value any,
 	validation error,
 ) error {
-	if validation != nil {
-		return validation
+	inserted, err := s.insertAssuranceWithExecutor(
+		ctx,
+		executor,
+		kind,
+		id,
+		projectID,
+		repositoryID,
+		worktreeID,
+		state,
+		revision,
+		createdAt,
+		updatedAt,
+		value,
+		validation,
+	)
+	if err != nil {
+		return err
 	}
-	if strings.TrimSpace(id) == "" || strings.TrimSpace(kind) == "" || revision < 1 {
-		return errors.New("assurance object identity is invalid")
+	if inserted {
+		return nil
 	}
 	object, err := s.maskedJSON(value)
 	if err != nil {
@@ -508,6 +604,43 @@ func (s *Store) saveAssuranceWithExecutor(
 	digest, err := assuranceJSONDigest(object)
 	if err != nil {
 		return err
+	}
+	var existingDigest string
+	if err := executor.QueryRowContext(
+		ctx,
+		`SELECT digest FROM assurance_objects WHERE id = ?`,
+		id,
+	).Scan(&existingDigest); err != nil {
+		return err
+	}
+	if existingDigest != digest {
+		return errors.New("assurance object is immutable")
+	}
+	return nil
+}
+
+func (s *Store) insertAssuranceWithExecutor(
+	ctx context.Context,
+	executor assuranceExecutor,
+	kind, id, projectID, repositoryID, worktreeID, state string,
+	revision int,
+	createdAt, updatedAt time.Time,
+	value any,
+	validation error,
+) (bool, error) {
+	if validation != nil {
+		return false, validation
+	}
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(kind) == "" || revision < 1 {
+		return false, errors.New("assurance object identity is invalid")
+	}
+	object, err := s.maskedJSON(value)
+	if err != nil {
+		return false, err
+	}
+	digest, err := assuranceJSONDigest(object)
+	if err != nil {
+		return false, err
 	}
 	result, err := executor.ExecContext(
 		ctx,
@@ -528,23 +661,13 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
 		object,
 	)
 	if err != nil {
-		return fmt.Errorf("save assurance object: %w", err)
+		return false, fmt.Errorf("save assurance object: %w", err)
 	}
-	if count, _ := result.RowsAffected(); count > 0 {
-		return nil
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("inspect saved assurance object: %w", err)
 	}
-	var existingDigest string
-	if err := executor.QueryRowContext(
-		ctx,
-		`SELECT digest FROM assurance_objects WHERE id = ?`,
-		id,
-	).Scan(&existingDigest); err != nil {
-		return err
-	}
-	if existingDigest != digest {
-		return errors.New("assurance object is immutable")
-	}
-	return nil
+	return count > 0, nil
 }
 
 // UpdateAssuranceRevision is the mutable path for non-QualityObjective

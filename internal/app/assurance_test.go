@@ -305,6 +305,78 @@ func TestFakeProviderFailureMatrixKeepsSessionRecoverable(t *testing.T) {
 	}
 }
 
+func TestAnswerAssuranceQuestionRollsBackWithSessionFailureAndCanRetry(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Question transaction", Path: tempGitRepository(t, "question-transaction")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	question, err := service.CreateAssuranceQuestion(context.Background(), AssuranceQuestionInput{SessionID: session.Metadata.ID, Prompt: "어떤 입력을 보호해야 합니까?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB().ExecContext(context.Background(), `
+CREATE TRIGGER reject_answer_session_updates
+BEFORE UPDATE ON assurance_objects
+FOR EACH ROW
+WHEN OLD.kind = 'AssuranceSession'
+BEGIN
+    SELECT RAISE(ABORT, 'session update blocked');
+END`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = service.store.DB().ExecContext(context.Background(), `DROP TRIGGER reject_answer_session_updates`)
+	}()
+
+	if _, err := service.AnswerAssuranceQuestion(context.Background(), session.Metadata.ID, question.Metadata.ID, "빈 입력을 거부합니다."); err == nil || !strings.Contains(err.Error(), "update assurance question answer") {
+		t.Fatalf("blocked answer error = %v", err)
+	}
+	questions, err := service.AssuranceQuestions(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(questions) != 1 || questions[0].Spec.Answer != "" || questions[0].Spec.AnsweredAt != nil {
+		t.Fatalf("question changed after rolled-back answer = %#v", questions)
+	}
+	unchanged, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Spec.State != domain.AssuranceStateAwaitingAnswer || unchanged.Spec.ResumeBrief.WaitingQuestion != question.Metadata.ID {
+		t.Fatalf("session changed after rolled-back answer = %#v", unchanged)
+	}
+	if _, err := service.store.DB().ExecContext(context.Background(), `DROP TRIGGER reject_answer_session_updates`); err != nil {
+		t.Fatal(err)
+	}
+
+	answered, err := service.AnswerAssuranceQuestion(context.Background(), session.Metadata.ID, question.Metadata.ID, "빈 입력을 거부합니다.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answered.Spec.State != domain.AssuranceStateReady || answered.Spec.ResumeBrief.WaitingQuestion != "" {
+		t.Fatalf("retried answer session = %#v", answered)
+	}
+	questions, err = service.AssuranceQuestions(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(questions) != 1 || questions[0].Spec.Answer != "빈 입력을 거부합니다." || questions[0].Spec.AnsweredAt == nil {
+		t.Fatalf("retried answer was not persisted = %#v", questions)
+	}
+}
+
 func TestStartupRecoveryMarksActiveInvocationInterruptedWithoutRelaunch(t *testing.T) {
 	home := t.TempDir()
 	repository := tempGitRepository(t, "startup-recovery")
@@ -490,6 +562,127 @@ func TestRetryInterruptedInvocationCreatesIdempotentChildWithoutPromptPersistenc
 	}
 	if _, err := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry\nwith newline"); err == nil || !strings.Contains(err.Error(), "one line") {
 		t.Fatalf("newline retry prompt was accepted: %v", err)
+	}
+}
+
+func TestRetryInvocationRollsBackChildArtifactAndSessionTogether(t *testing.T) {
+	home := t.TempDir()
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Retry transaction", Path: tempGitRepository(t, "retry-transaction")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "fake", RequestedModel: "fixture-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree, err := service.Worktree(context.Background(), project.Metadata.ID, "repo-1", "primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	original := domain.AgentInvocation{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind},
+		Metadata: domain.ObjectMeta{ID: "retry-transaction-original", Name: "Interrupted invocation"},
+		Spec: domain.AgentInvocationSpec{
+			SessionID: session.Metadata.ID, ProjectID: project.Metadata.ID, RepositoryID: "repo-1",
+			WorktreeID: "primary", Branch: worktree.Spec.Branch, Head: worktree.Spec.Head,
+			Provider: "fake", ProfileID: "fake", RequestedModel: "fixture-model",
+			SelectionSource: "user", State: domain.AssuranceStateInterrupted,
+			IdempotencyKey: "retry-transaction-original", InputDigest: digestText("original prompt"),
+			TraceID: "trace-retry-transaction-original", StartedAt: now.Add(-time.Minute), RawTranscript: false,
+			FailureCode: "provider.interrupted",
+		},
+	}
+	if err := service.store.SaveAgentInvocation(context.Background(), original); err != nil {
+		t.Fatal(err)
+	}
+	session.Spec.State = domain.AssuranceStateInterrupted
+	session.Spec.UpdatedAt = now
+	session.Spec.ResumeBrief.Pending = []string{original.Metadata.ID}
+	session.Spec.ResumeBrief.NextSafeAction = "중단된 실행의 상태와 재시도 범위를 검토합니다."
+	if err := service.updateAssuranceSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB().ExecContext(context.Background(), `
+CREATE TRIGGER reject_retry_session_updates
+BEFORE UPDATE ON assurance_objects
+FOR EACH ROW
+WHEN OLD.kind = 'AssuranceSession'
+BEGIN
+    SELECT RAISE(ABORT, 'retry session update blocked');
+END`); err != nil {
+		t.Fatal(err)
+	}
+
+	retry, retryErr := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry prompt")
+	if retryErr == nil || !strings.Contains(retryErr.Error(), "update assurance session after completing agent invocation") {
+		t.Fatalf("blocked retry = %#v, err=%v", retry, retryErr)
+	}
+	invocations, err := service.AgentInvocations(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invocations) != 1 || invocations[0].Metadata.ID != original.Metadata.ID {
+		t.Fatalf("child invocation survived rolled-back retry = %#v", invocations)
+	}
+	artifacts, err := service.AssuranceArtifacts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("retry artifact survived rolled-back retry = %#v", artifacts)
+	}
+	if entries, err := os.ReadDir(filepath.Join(home, "artifacts", "assurance")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	} else if err == nil && len(entries) != 0 {
+		t.Fatalf("retry artifact files survived rolled-back retry = %#v", entries)
+	}
+	unchanged, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Spec.State != domain.AssuranceStateInterrupted || !hasAssuranceValue(unchanged.Spec.ResumeBrief.Pending, original.Metadata.ID) || len(unchanged.Spec.ResumeBrief.Completed) != 0 {
+		t.Fatalf("session changed after rolled-back retry = %#v", unchanged)
+	}
+	if _, err := service.store.DB().ExecContext(context.Background(), `DROP TRIGGER reject_retry_session_updates`); err != nil {
+		t.Fatal(err)
+	}
+
+	retry, retryErr = service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry prompt")
+	if retryErr != nil || retry.Spec.State != domain.AssuranceStateSucceeded {
+		t.Fatalf("retry after rollback = %#v, err=%v", retry, retryErr)
+	}
+	invocations, err = service.AgentInvocations(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invocations) != 2 {
+		t.Fatalf("retry after rollback created wrong invocation count = %#v", invocations)
+	}
+	artifacts, err = service.AssuranceArtifacts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("retry after rollback created wrong artifact count = %#v", artifacts)
+	}
+	if _, err := os.Stat(artifacts[0].Spec.Path); err != nil {
+		t.Fatalf("retry artifact file is missing: %v", err)
+	}
+	updated, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Spec.State != domain.AssuranceStateReady || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, original.Metadata.ID) || len(updated.Spec.ResumeBrief.Completed) != 1 || updated.Spec.ResumeBrief.Completed[0] != retry.Metadata.ID {
+		t.Fatalf("retry after rollback did not reconcile session = %#v", updated.Spec.ResumeBrief)
 	}
 }
 

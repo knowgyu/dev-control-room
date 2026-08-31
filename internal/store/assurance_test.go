@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +43,63 @@ func TestAssuranceLifecyclePersistsAdditiveObjectsAndRejectsDuplicateActiveSessi
 	}
 	if err := persistence.UpdateAssuranceRevision(ctx, domain.AssuranceSessionKind, session.Metadata.ID, 2, domain.AssuranceStateDraft, now.Add(2*time.Second), session); err == nil {
 		t.Fatal("stale assurance revision accepted")
+	}
+}
+
+func TestStartAgentInvocationRollsBackQueuedClaimOnRunningTransitionFailure(t *testing.T) {
+	db := openTestDatabase(t, "assurance-invocation-start")
+	persistence, err := New(db, masking.New(nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	item := domain.AgentInvocation{
+		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind},
+		Metadata: domain.ObjectMeta{ID: "invocation-start", Name: "Invocation start"},
+		Spec: domain.AgentInvocationSpec{
+			SessionID: "session-start", WorktreeID: "primary", Provider: "fake", ProfileID: "fake",
+			State: domain.AssuranceStateRunning, IdempotencyKey: "invocation-start", StartedAt: now,
+		},
+	}
+	if _, err := db.ExecContext(context.Background(), `
+CREATE TRIGGER reject_agent_invocation_start
+BEFORE UPDATE ON assurance_objects
+FOR EACH ROW
+WHEN OLD.kind = 'AgentInvocation'
+BEGIN
+    SELECT RAISE(ABORT, 'invocation transition blocked');
+END`); err != nil {
+		t.Fatal(err)
+	}
+	created, err := persistence.StartAgentInvocation(context.Background(), item)
+	if err == nil || created || !strings.Contains(err.Error(), "transition agent invocation to running") {
+		t.Fatalf("blocked invocation start = created %v, err %v", created, err)
+	}
+	items, err := persistence.ListAgentInvocations(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("queued invocation survived rolled-back transition = %#v", items)
+	}
+	if _, err := db.ExecContext(context.Background(), `DROP TRIGGER reject_agent_invocation_start`); err != nil {
+		t.Fatal(err)
+	}
+	created, err = persistence.StartAgentInvocation(context.Background(), item)
+	if err != nil || !created {
+		t.Fatalf("retried invocation start = created %v, err %v", created, err)
+	}
+	created, err = persistence.StartAgentInvocation(context.Background(), item)
+	if err != nil || created {
+		t.Fatalf("idempotent invocation claim = created %v, err %v", created, err)
+	}
+	var state string
+	var revision int
+	if err := db.QueryRowContext(context.Background(), `SELECT state, revision FROM assurance_objects WHERE kind = ? AND id = ?`, domain.AgentInvocationKind, item.Metadata.ID).Scan(&state, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if state != domain.AssuranceStateRunning || revision != 2 {
+		t.Fatalf("stored invocation start = state %q revision %d", state, revision)
 	}
 }
 

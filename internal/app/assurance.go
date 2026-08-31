@@ -228,15 +228,12 @@ func (a *App) AnswerAssuranceQuestion(ctx context.Context, sessionID, questionID
 	now := time.Now().UTC()
 	answered.Spec.Answer = strings.TrimSpace(answer)
 	answered.Spec.AnsweredAt = &now
-	if err := a.store.UpdateAssuranceQuestion(ctx, *answered); err != nil {
-		return domain.AssuranceSession{}, err
-	}
 	session.Spec.State = domain.AssuranceStateReady
 	session.Spec.UpdatedAt = now
 	session.Spec.ResumeBrief.WaitingQuestion = ""
 	session.Spec.ResumeBrief.NextSafeAction = "답변을 반영해 Assurance Spec을 검토합니다."
-	if err := a.updateAssuranceSession(ctx, session); err != nil {
-		return domain.AssuranceSession{}, err
+	if err := a.store.UpdateAssuranceQuestionAndSession(ctx, *answered, session); err != nil {
+		return domain.AssuranceSession{}, fmt.Errorf("update assurance question answer: %w", err)
 	}
 	return session, nil
 }
@@ -834,7 +831,13 @@ func qualityRunArtifact(run domain.QualityRun, executed bool) map[string]any {
 }
 
 func (a *App) RunAgentInvocation(ctx context.Context, input AgentInvocationInput) (domain.AgentInvocation, error) {
-	return a.runAgentInvocation(ctx, input, "", "")
+	return a.runAgentInvocation(ctx, input, agentInvocationRunOptions{})
+}
+
+type agentInvocationRunOptions struct {
+	parentID       string
+	idempotencyKey string
+	prepareSession func(*domain.AssuranceSession, domain.AgentInvocation)
 }
 
 // RetryAgentInvocation is an explicit, user-directed new attempt after the
@@ -870,33 +873,17 @@ func (a *App) RetryAgentInvocation(ctx context.Context, invocationID, prompt str
 	if original.Spec.State != domain.AssuranceStateInterrupted {
 		return domain.AgentInvocation{}, contract.Conflict("only an interrupted invocation can be retried")
 	}
-	retry, providerErr := a.runAgentInvocation(ctx, AgentInvocationInput{
+	return a.runAgentInvocation(ctx, AgentInvocationInput{
 		SessionID: original.Spec.SessionID, Provider: original.Spec.Provider,
 		ProfileID: original.Spec.ProfileID, RequestedModel: original.Spec.RequestedModel,
 		Prompt: normalizedPrompt,
-	}, original.Metadata.ID, "retry:"+original.Metadata.ID)
-	if providerErr != nil {
-		return retry, providerErr
-	}
-
-	if sessionErr := a.reconcileRetrySession(ctx, original, retry); sessionErr != nil {
-		// The child invocation is durable even though its Resume Brief could
-		// not be reconciled. Return both values so the caller can surface this
-		// as a partial retry rather than confusing it with provider execution.
-		return retry, sessionErr
-	}
-	return retry, nil
-}
-
-func (a *App) reconcileRetrySession(ctx context.Context, original, retry domain.AgentInvocation) error {
-	return reconcileRetrySession(ctx, original, retry,
-		func(ctx context.Context, sessionID string) (domain.AssuranceSession, error) {
-			var session domain.AssuranceSession
-			err := a.store.GetAssurance(ctx, domain.AssuranceSessionKind, sessionID, &session)
-			return session, err
+	}, agentInvocationRunOptions{
+		parentID:       original.Metadata.ID,
+		idempotencyKey: "retry:" + original.Metadata.ID,
+		prepareSession: func(session *domain.AssuranceSession, retry domain.AgentInvocation) {
+			reconcileRetrySessionState(session, original, retry)
 		},
-		a.updateAssuranceSession,
-	)
+	})
 }
 
 func reconcileRetrySession(
@@ -907,10 +894,23 @@ func reconcileRetrySession(
 ) error {
 	session, sessionErr := readSession(ctx, original.Spec.SessionID)
 	if sessionErr != nil {
-		// Keep the actual read failure. RetryAgentInvocation returns the already
-		// persisted child alongside this error to make partial success explicit.
+		// Keep the actual read failure so callers can distinguish it from a
+		// provider result.
 		return sessionErr
 	}
+	reconcileRetrySessionState(&session, original, retry)
+	if updateErr := updateSession(ctx, session); updateErr != nil {
+		// The actual revision/update failure is also part of the partial retry
+		// result; do not replace it with the provider execution error.
+		return updateErr
+	}
+	return nil
+}
+
+func reconcileRetrySessionState(
+	session *domain.AssuranceSession,
+	original, retry domain.AgentInvocation,
+) {
 	session.Spec.ResumeBrief.Pending = removeAssuranceValue(session.Spec.ResumeBrief.Pending, original.Metadata.ID)
 	if retry.Spec.State == domain.AssuranceStateSucceeded {
 		session.Spec.State = domain.AssuranceStateReady
@@ -921,12 +921,6 @@ func reconcileRetrySession(
 		session.Spec.ResumeBrief.NextSafeAction = "실패한 재시도의 원인과 다음 범위를 검토합니다."
 	}
 	session.Spec.UpdatedAt = time.Now().UTC()
-	if updateErr := updateSession(ctx, session); updateErr != nil {
-		// The actual revision/update failure is also part of the partial retry
-		// result; do not replace it with the provider execution error.
-		return updateErr
-	}
-	return nil
 }
 
 func (a *App) acquireRetryInvocation(ctx context.Context, invocationID string) (func(), error) {
@@ -967,7 +961,11 @@ func (a *App) releaseRetryInvocation(invocationID string, lock *retryInvocationL
 	a.retryLocksMu.Unlock()
 }
 
-func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput, parentID, idempotencyKey string) (domain.AgentInvocation, error) {
+func (a *App) runAgentInvocation(
+	ctx context.Context,
+	input AgentInvocationInput,
+	options agentInvocationRunOptions,
+) (domain.AgentInvocation, error) {
 	session, err := a.AssuranceSession(ctx, input.SessionID)
 	if err != nil {
 		return domain.AgentInvocation{}, err
@@ -982,7 +980,9 @@ func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput
 	}
 	now := time.Now().UTC()
 	inputDigest := digestText(strings.TrimSpace(input.Prompt))
-	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	parentID := strings.TrimSpace(options.parentID)
+	idempotencyKey := strings.TrimSpace(options.idempotencyKey)
+	hasCallerIdempotencyKey := idempotencyKey != ""
 	id := assuranceID("invocation", session.Metadata.ID, provider, now)
 	if idempotencyKey != "" {
 		id = assuranceID("invocation", session.Metadata.ID, provider, idempotencyKey)
@@ -1000,26 +1000,27 @@ func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput
 		idempotencyKey = id
 	}
 	leaseExpiresAt := now.Add(agentInvocationLease)
-	invocation := domain.AgentInvocation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Agent invocation"}, Spec: domain.AgentInvocationSpec{SessionID: session.Metadata.ID, ParentID: strings.TrimSpace(parentID), ProjectID: session.Spec.ProjectID, RepositoryID: session.Spec.RepositoryID, WorktreeID: worktree.Metadata.ID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Provider: provider, ProfileID: strings.TrimSpace(input.ProfileID), RequestedModel: strings.TrimSpace(input.RequestedModel), SelectionSource: "user", State: domain.AssuranceStateQueued, IdempotencyKey: idempotencyKey, InputDigest: inputDigest, TraceID: assuranceID("trace", id), StartedAt: now, RawTranscript: false}}
+	invocation := domain.AgentInvocation{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.AgentInvocationKind}, Metadata: domain.ObjectMeta{ID: id, Name: "Agent invocation"}, Spec: domain.AgentInvocationSpec{SessionID: session.Metadata.ID, ParentID: parentID, ProjectID: session.Spec.ProjectID, RepositoryID: session.Spec.RepositoryID, WorktreeID: worktree.Metadata.ID, Branch: worktree.Spec.Branch, Head: worktree.Spec.Head, Provider: provider, ProfileID: strings.TrimSpace(input.ProfileID), RequestedModel: strings.TrimSpace(input.RequestedModel), SelectionSource: "user", State: domain.AssuranceStateRunning, IdempotencyKey: idempotencyKey, InputDigest: inputDigest, TraceID: assuranceID("trace", id), StartedAt: now, RawTranscript: false}}
 	invocation.Spec.LeaseExpiresAt = &leaseExpiresAt
 	if invocation.Spec.ProfileID == "" {
 		invocation.Spec.ProfileID = provider
 	}
-	if err := a.store.SaveAgentInvocation(ctx, invocation); err != nil {
-		if idempotencyKey != id {
-			var existing domain.AgentInvocation
-			if readErr := a.store.GetAssurance(ctx, domain.AgentInvocationKind, id, &existing); readErr == nil {
-				if !sameInvocationRequest(existing, session.Metadata.ID, provider, worktree.Metadata.ID, input.RequestedModel, inputDigest, idempotencyKey) {
-					return domain.AgentInvocation{}, contract.Conflict("idempotency key is already bound to a different invocation")
-				}
-				return existing, nil
-			}
-		}
+	created, err := a.store.StartAgentInvocation(ctx, invocation)
+	if err != nil {
 		return domain.AgentInvocation{}, err
 	}
-	invocation.Spec.State = domain.AssuranceStateRunning
-	if err := a.store.UpdateAssuranceRevision(ctx, domain.AgentInvocationKind, id, 2, invocation.Spec.State, now, invocation); err != nil {
-		return domain.AgentInvocation{}, err
+	if !created {
+		var existing domain.AgentInvocation
+		if readErr := a.store.GetAssurance(ctx, domain.AgentInvocationKind, id, &existing); readErr != nil {
+			return domain.AgentInvocation{}, fmt.Errorf("read existing agent invocation after claim: %w", readErr)
+		}
+		if hasCallerIdempotencyKey && sameInvocationRequest(existing, session.Metadata.ID, provider, worktree.Metadata.ID, input.RequestedModel, inputDigest, idempotencyKey) {
+			return existing, nil
+		}
+		if !hasCallerIdempotencyKey {
+			return domain.AgentInvocation{}, errors.New("agent invocation id already exists")
+		}
+		return domain.AgentInvocation{}, contract.Conflict("idempotency key is already bound to a different invocation")
 	}
 	scenario := assurance.FakeScenario(strings.TrimSpace(input.Scenario))
 	if scenario == "" {
@@ -1113,6 +1114,9 @@ func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput
 	if result.State != domain.AssuranceStateSucceeded {
 		session.Spec.ResumeBrief.FailedEvidence = append(session.Spec.ResumeBrief.FailedEvidence, result.FailureCode)
 		session.Spec.ResumeBrief.NextSafeAction = "실패 원인과 재시도 범위를 검토합니다."
+	}
+	if options.prepareSession != nil {
+		options.prepareSession(&session, invocation)
 	}
 	if err := a.store.FinalizeAgentInvocationAndUpdateSession(ctx, invocation, preparedArtifact, session); err != nil {
 		var cleanupErr error

@@ -15,6 +15,143 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/domain"
 )
 
+func TestStartupAssuranceJanitorRemovesCrashOrphansAndPreservesReferences(t *testing.T) {
+	home := t.TempDir()
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if service != nil {
+			_ = service.Close()
+		}
+	}()
+	repository := tempGitRepository(t, "assurance-janitor")
+	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Assurance janitor", Path: repository})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	referencedArtifact, err := service.SaveAssuranceArtifact(context.Background(), ArtifactInput{SourceType: "janitor_test", SourceID: "referenced", Name: "referenced.txt", MIME: "text/plain", Content: []byte("keep this artifact")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	referencedProposal, err := service.CreateAssuranceProposal(context.Background(), AssuranceProposalInput{SessionID: session.Metadata.ID, Purpose: "keep this proposal", Patch: "diff --git a/keep.go b/keep.go\n+keep\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactDirectory := filepath.Join(home, "artifacts", "assurance")
+	for name, content := range map[string]string{
+		"orphan-after-rename.json": "orphan",
+		".artifact-write-crash":    "temporary write",
+		".artifact-restore-crash":  "temporary restore",
+	} {
+		if err := os.WriteFile(filepath.Join(artifactDirectory, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	orphanProposalDirectory := filepath.Join(home, "assurance", "proposals", "orphan-after-mkdir")
+	if err := os.MkdirAll(orphanProposalDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphanProposalDirectory, "crash-marker"), []byte("orphan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideDirectory := t.TempDir()
+	outsideFile := filepath.Join(outsideDirectory, "must-survive.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orphanArtifactLink := filepath.Join(artifactDirectory, "orphan-link")
+	orphanProposalLink := filepath.Join(home, "assurance", "proposals", "orphan-link")
+	artifactLinkCreated := os.Symlink(outsideFile, orphanArtifactLink) == nil
+	proposalLinkCreated := os.Symlink(outsideDirectory, orphanProposalLink) == nil
+
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	service = nil
+	restarted, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+
+	for _, name := range []string{"orphan-after-rename.json", ".artifact-write-crash", ".artifact-restore-crash"} {
+		if _, err := os.Lstat(filepath.Join(artifactDirectory, name)); !os.IsNotExist(err) {
+			t.Fatalf("orphan artifact %q still exists: %v", name, err)
+		}
+	}
+	if artifactLinkCreated {
+		if _, err := os.Lstat(orphanArtifactLink); !os.IsNotExist(err) {
+			t.Fatalf("orphan artifact symlink still exists: %v", err)
+		}
+	}
+	if proposalLinkCreated {
+		if _, err := os.Lstat(orphanProposalLink); !os.IsNotExist(err) {
+			t.Fatalf("orphan proposal symlink still exists: %v", err)
+		}
+	}
+	if _, err := os.Stat(orphanProposalDirectory); !os.IsNotExist(err) {
+		t.Fatalf("orphan proposal directory still exists: %v", err)
+	}
+	if data, err := os.ReadFile(outsideFile); err != nil || string(data) != "outside target" {
+		t.Fatalf("symlink target was changed: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(referencedArtifact.Spec.Path); err != nil || string(data) != "keep this artifact" {
+		t.Fatalf("referenced artifact was removed: %q, %v", data, err)
+	}
+	artifacts, err := restarted.AssuranceArtifacts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 2 {
+		t.Fatalf("artifact records after janitor = %#v", artifacts)
+	}
+	if _, err := restarted.AssuranceSession(context.Background(), session.Metadata.ID); err != nil {
+		t.Fatal(err)
+	}
+	proposals, err := restarted.AssuranceProposals(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proposals) != 1 || proposals[0].Metadata.ID != referencedProposal.Metadata.ID {
+		t.Fatalf("proposal records after janitor = %#v", proposals)
+	}
+	if _, err := os.Stat(referencedProposal.Spec.IsolationPath); err != nil {
+		t.Fatalf("referenced proposal directory was removed: %v", err)
+	}
+}
+
+func TestAssuranceJanitorRejectsSymlinkedManagedDirectory(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "must-survive.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "artifacts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	managedLink := filepath.Join(home, "artifacts", "assurance")
+	if err := os.Symlink(outside, managedLink); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	err := cleanupOrphanedAssuranceArtifacts(home, newAssurancePathReferences(0))
+	if err == nil || !strings.Contains(err.Error(), "not a local directory") {
+		t.Fatalf("symlinked managed directory error = %v", err)
+	}
+	if data, err := os.ReadFile(outsideFile); err != nil || string(data) != "outside target" {
+		t.Fatalf("symlinked managed directory changed outside target: %q, %v", data, err)
+	}
+}
+
 func TestGitHubMergedCommitLookupReturnsEvidenceWithoutBodyLeak(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/repos/sample-owner/sample-repository/commits/abc123/pulls" {
