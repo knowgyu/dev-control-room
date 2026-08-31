@@ -117,7 +117,6 @@ func (a *App) ImportMeasurementRun(ctx context.Context, item measurement.Run) (M
 	if err := item.Validate(); err != nil {
 		return MeasurementRunSummary{}, contract.InvalidInput("invalid measurement manifest")
 	}
-	a.store.SetMasker(a.masker)
 	if err := a.store.SaveMeasurementRun(ctx, item); err != nil {
 		if errors.Is(err, store.ErrMeasurementRunDuplicate) {
 			return MeasurementRunSummary{}, contract.Conflict("measurement run has already been imported")

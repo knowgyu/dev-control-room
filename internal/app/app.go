@@ -59,6 +59,10 @@ type App struct {
 }
 
 func New(home, listen string) (*App, error) {
+	return newWithMasker(home, listen, nil)
+}
+
+func newWithMasker(home, listen string, masker *masking.Masker) (*App, error) {
 	if err := requireLoopback(listen); err != nil {
 		return nil, err
 	}
@@ -69,7 +73,9 @@ func New(home, listen string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	masker := masking.New(nil, []string{"TOKEN", "PASSWORD", "SECRET", "API_KEY", "AUTHORIZATION"})
+	if masker == nil {
+		masker = masking.New(nil, []string{"TOKEN", "PASSWORD", "SECRET", "API_KEY", "AUTHORIZATION"})
+	}
 	database, err := store.Open(context.Background(), filepath.Join(home, "state.db"))
 	if err != nil {
 		return nil, err
@@ -1241,7 +1247,6 @@ func (a *App) recordEvent(event domain.Event) error {
 	if err != nil {
 		return err
 	}
-	a.store.SetMasker(a.masker)
 	return a.store.SaveEvent(context.Background(), masked)
 }
 

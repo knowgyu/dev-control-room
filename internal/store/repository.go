@@ -23,7 +23,9 @@ import (
 )
 
 type Store struct {
-	db     *sql.DB
+	db *sql.DB
+	// masker is fixed at construction so concurrent persistence calls cannot
+	// race with runtime masking configuration changes.
 	masker *masking.Masker
 }
 
@@ -44,12 +46,6 @@ func New(db *sql.DB, masker *masking.Masker) (*Store, error) {
 		masker = masking.New(nil, []string{"TOKEN", "PASSWORD", "SECRET", "API_KEY", "AUTHORIZATION"})
 	}
 	return &Store{db: db, masker: masker}, nil
-}
-
-func (s *Store) SetMasker(masker *masking.Masker) {
-	if masker != nil {
-		s.masker = masker
-	}
 }
 
 func (s *Store) Close() error {

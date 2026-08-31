@@ -44,8 +44,7 @@ func TestChecksetRequiresAppliedProposalAndExplicitAppliedState(t *testing.T) {
 
 func TestChecksetMasksPersistedAndHTTPOutput(t *testing.T) {
 	const secret = "checkset-secret-canary"
-	service, proposal := checksetFixture(t)
-	service.masker = masking.New([]string{secret}, nil)
+	service, proposal := checksetFixtureWithMasker(t, masking.New([]string{secret}, nil))
 	if _, err := service.ApplyProposal(context.Background(), proposal.Metadata.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -120,8 +119,12 @@ func TestChecksetRejectsMismatchedAndMutatingCommands(t *testing.T) {
 }
 
 func checksetFixture(t *testing.T) (*App, domain.Proposal) {
+	return checksetFixtureWithMasker(t, nil)
+}
+
+func checksetFixtureWithMasker(t *testing.T, masker *masking.Masker) (*App, domain.Proposal) {
 	t.Helper()
-	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	service, err := newWithMasker(t.TempDir(), "127.0.0.1:38471", masker)
 	if err != nil {
 		t.Fatal(err)
 	}

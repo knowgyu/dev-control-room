@@ -222,13 +222,12 @@ func TestMeasurementImportPreservesUnknownAndUnavailableSeparately(t *testing.T)
 }
 
 func TestMeasurementImportMasksStoredMetadataBeforeResponse(t *testing.T) {
-	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	secret := "measurement-secret-canary"
+	service, err := newWithMasker(t.TempDir(), "127.0.0.1:38471", masking.New([]string{secret}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	secret := "measurement-secret-canary"
-	service.masker = masking.New([]string{secret}, nil)
 	run := newAppMeasurementRun(t, "dogfood-masked", time.Date(2026, 8, 31, 4, 2, 3, 0, time.UTC), 120)
 	run.Spec.Reproducibility.ToolVersions["runner"] = secret
 	response := postMeasurementManifest(t, service, measurementManifestJSON(t, run))

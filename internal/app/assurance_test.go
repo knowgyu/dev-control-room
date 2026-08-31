@@ -1270,6 +1270,89 @@ func TestAssuranceAuthoringPersistsQuestionsSpecAndAdvisoryPatchWithoutAdoptionS
 	}
 }
 
+func TestAssuranceAuthoringPropagatesSessionUpdateFailures(t *testing.T) {
+	tests := []struct {
+		name        string
+		wantContext string
+		run         func(*App, string) (string, error)
+	}{
+		{
+			name:        "question",
+			wantContext: "update assurance session after creating question",
+			run: func(service *App, sessionID string) (string, error) {
+				item, err := service.CreateAssuranceQuestion(context.Background(), AssuranceQuestionInput{SessionID: sessionID, Prompt: "질문"})
+				return item.Metadata.ID, err
+			},
+		},
+		{
+			name:        "spec",
+			wantContext: "update assurance session after creating spec",
+			run: func(service *App, sessionID string) (string, error) {
+				item, err := service.CreateAssuranceSpec(context.Background(), AssuranceSpecInput{SessionID: sessionID, Intent: "의도"})
+				return item.Metadata.ID, err
+			},
+		},
+		{
+			name:        "proposal",
+			wantContext: "update assurance session after creating proposal",
+			run: func(service *App, sessionID string) (string, error) {
+				item, err := service.CreateAssuranceProposal(context.Background(), AssuranceProposalInput{SessionID: sessionID, Purpose: "목적", Patch: "diff --git a/test.go b/test.go\n+change\n"})
+				return item.Metadata.ID, err
+			},
+		},
+		{
+			name:        "agent invocation",
+			wantContext: "update assurance session after completing agent invocation",
+			run: func(service *App, sessionID string) (string, error) {
+				item, err := service.RunAgentInvocation(context.Background(), AgentInvocationInput{SessionID: sessionID, Provider: "fake", ProfileID: "fake", Scenario: "success"})
+				return item.Metadata.ID, err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service, err := New(t.TempDir(), "127.0.0.1:38471")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer service.Close()
+			project, err := service.AddProject(context.Background(), AddProjectInput{Name: "Session update failure", Path: tempGitRepository(t, "session-update-"+test.name)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := service.RunScan(context.Background(), "manual"); err != nil {
+				t.Fatal(err)
+			}
+			session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.store.DB().ExecContext(context.Background(), `
+CREATE TRIGGER reject_assurance_session_updates
+BEFORE UPDATE ON assurance_objects
+FOR EACH ROW
+WHEN OLD.kind = 'AssuranceSession'
+BEGIN
+    SELECT RAISE(ABORT, 'session update blocked');
+END`); err != nil {
+				t.Fatal(err)
+			}
+
+			returnedID, err := test.run(service, session.Metadata.ID)
+			if err == nil {
+				t.Fatal("operation succeeded after session update was blocked")
+			}
+			if returnedID != "" {
+				t.Fatalf("operation returned a result after session update failed: %q", returnedID)
+			}
+			if !strings.Contains(err.Error(), test.wantContext) {
+				t.Fatalf("operation error = %v, want context %q", err, test.wantContext)
+			}
+		})
+	}
+}
+
 func TestAllV1TechniqueAdaptersCreateArtifactsAndArchiveDeleteWithWarning(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {

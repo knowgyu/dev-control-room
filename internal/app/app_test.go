@@ -201,12 +201,11 @@ func TestHTTPDoesNotExposeInternalErrorDetails(t *testing.T) {
 }
 
 func TestEventPersistenceMasksBeforeWriting(t *testing.T) {
-	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	service, err := newWithMasker(t.TempDir(), "127.0.0.1:38471", masking.New([]string{"persist-secret-canary"}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = service.Close() })
-	service.masker = masking.New([]string{"persist-secret-canary"}, nil)
 	event := domain.Event{
 		TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.EventKind},
 		Metadata: domain.ObjectMeta{ID: "event-1", Name: "command result"},

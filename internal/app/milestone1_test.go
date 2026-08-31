@@ -152,12 +152,11 @@ func TestUnregisteredPathIsNeverPassedToCollector(t *testing.T) {
 }
 
 func TestSecretCanaryIsMaskedInSQLiteAndOutput(t *testing.T) {
-	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	service, err := newWithMasker(t.TempDir(), "127.0.0.1:38471", masking.New([]string{"secret-canary"}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	service.masker = masking.New([]string{"secret-canary"}, nil)
 	event := domain.Event{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.EventKind}, Metadata: domain.ObjectMeta{ID: "secret-event", Name: "fixture"}, Spec: domain.EventSpec{EventType: "fixture.output", Summary: "fixture", Data: map[string]any{"output": "secret-canary"}, OccurredAt: nowUTC()}}
 	if err := service.recordEvent(event); err != nil {
 		t.Fatal(err)
@@ -380,12 +379,11 @@ func TestWorktreePathCanaryIsMaskedAcrossPersistenceAndReadSurfaces(t *testing.T
 	repository := tempGitRepository(t, "primary")
 	linked := filepath.Join(t.TempDir(), canary)
 	gitFixture(t, repository, "worktree", "add", "-b", "linked", linked)
-	service, err := New(home, "127.0.0.1:38471")
+	service, err := newWithMasker(home, "127.0.0.1:38471", masking.New([]string{canary}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	service.masker = masking.New([]string{canary}, nil)
 	project, err := service.AddProject(context.Background(), AddProjectInput{Name: "masked", Path: repository})
 	if err != nil {
 		t.Fatal(err)

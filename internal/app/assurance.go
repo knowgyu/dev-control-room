@@ -259,7 +259,9 @@ func (a *App) CreateAssuranceQuestion(ctx context.Context, input AssuranceQuesti
 	session.Spec.QuestionIDs = append(session.Spec.QuestionIDs, item.Metadata.ID)
 	session.Spec.ResumeBrief.WaitingQuestion = item.Metadata.ID
 	session.Spec.ResumeBrief.NextSafeAction = "질문에 답한 뒤 Assurance Spec을 검토합니다."
-	_ = a.updateAssuranceSession(ctx, session)
+	if err := a.updateAssuranceSession(ctx, session); err != nil {
+		return domain.AssuranceQuestion{}, fmt.Errorf("update assurance session after creating question: %w", err)
+	}
 	return item, nil
 }
 
@@ -292,7 +294,9 @@ func (a *App) CreateAssuranceSpec(ctx context.Context, input AssuranceSpecInput)
 	session.Spec.UpdatedAt = now
 	session.Spec.State = domain.AssuranceStateReady
 	session.Spec.ResumeBrief.NextSafeAction = "Spec와 Quality Run 목적을 검토합니다."
-	_ = a.updateAssuranceSession(ctx, session)
+	if err := a.updateAssuranceSession(ctx, session); err != nil {
+		return domain.AssuranceSpec{}, fmt.Errorf("update assurance session after creating spec: %w", err)
+	}
 	return item, nil
 }
 
@@ -331,7 +335,9 @@ func (a *App) CreateAssuranceProposal(ctx context.Context, input AssurancePropos
 	session.Spec.ResumeBrief.ProposedPatch = id
 	session.Spec.UpdatedAt = now
 	session.Spec.ResumeBrief.NextSafeAction = "patch를 검토하고 명시적으로 채택하거나 거절합니다."
-	_ = a.updateAssuranceSession(ctx, session)
+	if err := a.updateAssuranceSession(ctx, session); err != nil {
+		return domain.AssuranceProposal{}, fmt.Errorf("update assurance session after creating proposal: %w", err)
+	}
 	return item, nil
 }
 
@@ -1088,7 +1094,9 @@ func (a *App) runAgentInvocation(ctx context.Context, input AgentInvocationInput
 		session.Spec.ResumeBrief.FailedEvidence = append(session.Spec.ResumeBrief.FailedEvidence, result.FailureCode)
 		session.Spec.ResumeBrief.NextSafeAction = "실패 원인과 재시도 범위를 검토합니다."
 	}
-	_ = a.updateAssuranceSession(ctx, session)
+	if err := a.updateAssuranceSession(ctx, session); err != nil {
+		return domain.AgentInvocation{}, fmt.Errorf("update assurance session after completing agent invocation: %w", err)
+	}
 	if !artifactPersisted {
 		return invocation, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "agent invocation evidence could not be persisted"}
 	}

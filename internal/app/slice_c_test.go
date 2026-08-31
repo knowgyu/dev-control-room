@@ -129,12 +129,11 @@ func TestDiscoveryHTTPRequiresTokenAndUsesSharedService(t *testing.T) {
 
 func TestDiscoveryMasksProposalCommandBeforePersistence(t *testing.T) {
 	const secret = "proposal-secret-canary"
-	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	service, err := newWithMasker(t.TempDir(), "127.0.0.1:38471", masking.New([]string{secret}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer service.Close()
-	service.masker = masking.New([]string{secret}, nil)
 	repository := tempGitRepository(t, "discovery-mask")
 	if err := os.WriteFile(filepath.Join(repository, "package.json"), []byte(`{"scripts":{"test":"echo `+secret+`"}}`), 0o600); err != nil {
 		t.Fatal(err)
