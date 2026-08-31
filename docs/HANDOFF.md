@@ -2,6 +2,27 @@
 
 Updated: 2026-08-31
 
+## 2026-08-31 v0.15.2 measurement boundary hardening patch release prep
+
+The v0.15.2 release-preparation tree starts from commit
+`3dec04eeffb74bb82b5896a4317b131bff7e124b` and carries the v0.15.2 version
+bump. It builds on the v0.15.1 measurement foundation by exercising the actual
+manifest import/list/get/dashboard workflow and hardening storage masking,
+embedded absolute-path rejection, and the legacy Assurance empty-state UI
+transition. The clean baseline dogfood run recorded 12 measurements, required
+status `pass`, 58.4% total statement coverage, and
+`unknown`/`unavailable` optional server probes with zero samples. Its run ID is
+`dogfood-e878541d582343d091bffea3872f382d`; commit/head are the same
+`3dec04eeffb74bb82b5896a4317b131bff7e124b` SHA and `dirtyState` is `clean`.
+The exact release records are in
+[RELEASE_NOTES_v0.15.2.md](RELEASE_NOTES_v0.15.2.md) and
+[VERIFICATION_v0.15.2.md](VERIFICATION_v0.15.2.md). The package policy remains
+one Windows amd64 ZIP plus `SHA256SUMS`; arm64 is verification-only and Linux
+is not a release target. The generated Windows amd64 ZIP passed archive,
+executable-version, and checksum smoke with SHA-256
+`474f2f3bce3f17f8f5f27092afe2534fa36cb88173de38dfa61d56ca34be3994`;
+publication was not performed.
+
 ## 2026-08-31 v0.15.1 reproducible measurement foundation patch release
 
 The v0.15.1 candidate is based on commit `f193287a5749757b0e0e0cc7d37c14bdf153c3d5`.

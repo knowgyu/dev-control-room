@@ -34,7 +34,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"assurance-demo-board", "예시 화면 보기",
 		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`, `id="home-assurance" class="ledger" aria-live="polite"`,
 		`class="decision-strip home-setup"`, `class="evidence-flow work-flow"`,
-		`href="/ui/app.css?v=0.15.1"`, `src="/ui/app.js?v=0.15.1"`, `meta name="control-room-token"`,
+		`href="/ui/app.css?v=0.15.2"`, `src="/ui/app.js?v=0.15.2"`, `meta name="control-room-token"`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI HTML missing %q", value)
