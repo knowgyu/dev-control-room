@@ -1129,7 +1129,7 @@ func (a *App) runAgentInvocation(
 	if err := a.store.FinalizeAgentInvocationAndUpdateSession(ctx, invocation, preparedArtifact, session); err != nil {
 		persisted, terminalErr := a.persistAgentInvocationFinalizationFailure(ctx, invocation)
 		var cleanupErr error
-		if cleanupArtifact != nil && len(persisted.Spec.ArtifactIDs) == 0 {
+		if terminalErr == nil && cleanupArtifact != nil && len(persisted.Spec.ArtifactIDs) == 0 {
 			cleanupErr = cleanupArtifact()
 		}
 		return domain.AgentInvocation{}, fmt.Errorf(

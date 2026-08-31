@@ -897,6 +897,83 @@ END`); err != nil {
 	}
 }
 
+func TestAgentInvocationPreservesPreparedArtifactWhenFinalizationAndCompensationFail(t *testing.T) {
+	home := t.TempDir()
+	service, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	project, err := service.AddProject(
+		context.Background(),
+		AddProjectInput{Name: "Uncertain finalization", Path: tempGitRepository(t, "uncertain-finalization")},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.RunScan(context.Background(), "manual"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateAssuranceSession(
+		context.Background(),
+		AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB().ExecContext(context.Background(), `
+CREATE TRIGGER reject_uncertain_finalization_session_updates
+BEFORE UPDATE ON assurance_objects
+FOR EACH ROW
+WHEN OLD.kind = 'AssuranceSession'
+BEGIN
+    SELECT RAISE(ABORT, 'finalization session update blocked');
+END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB().ExecContext(context.Background(), `
+CREATE TRIGGER reject_uncertain_terminal_invocation_updates
+BEFORE UPDATE ON assurance_objects
+FOR EACH ROW
+WHEN OLD.kind = 'AgentInvocation' AND NEW.state = 'failed'
+BEGIN
+    SELECT RAISE(ABORT, 'terminal invocation persistence blocked');
+END`); err != nil {
+		t.Fatal(err)
+	}
+
+	_, invokeErr := service.RunAgentInvocation(context.Background(), AgentInvocationInput{
+		SessionID: session.Metadata.ID,
+		Provider:  "fake",
+		ProfileID: "fake",
+	})
+	if invokeErr == nil {
+		t.Fatal("agent invocation succeeded after finalization was blocked")
+	}
+	wantMessages := []string{"finalization session update blocked", "terminal invocation persistence blocked", "attempt 3"}
+	for _, message := range wantMessages {
+		if !strings.Contains(invokeErr.Error(), message) {
+			t.Fatalf("agent invocation error = %v, want %q", invokeErr, message)
+		}
+	}
+
+	invocations, err := service.AgentInvocations(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invocations) != 1 || invocations[0].Spec.State != domain.AssuranceStateRunning {
+		t.Fatalf("uncertain invocation state = %#v", invocations)
+	}
+	artifacts, err := service.AssuranceArtifacts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("rolled-back finalization left artifact rows = %#v", artifacts)
+	}
+	assertAssuranceArtifactFileCount(t, home, 1)
+}
+
 func TestReconcileRetrySessionPreservesActualSessionFailure(t *testing.T) {
 	original := domain.AgentInvocation{Metadata: domain.ObjectMeta{ID: "interrupted"}, Spec: domain.AgentInvocationSpec{SessionID: "session-1"}}
 	retry := domain.AgentInvocation{Metadata: domain.ObjectMeta{ID: "retry-child"}, Spec: domain.AgentInvocationSpec{State: domain.AssuranceStateSucceeded}}

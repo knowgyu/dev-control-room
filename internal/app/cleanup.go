@@ -69,14 +69,6 @@ func (a *App) cleanupOrphanedAssuranceFiles(ctx context.Context) error {
 	return nil
 }
 
-func canonicalApplicationHome(home string) (string, error) {
-	snapshot, err := snapshotCanonicalApplicationHome(home)
-	if err != nil {
-		return "", err
-	}
-	return snapshot.path, nil
-}
-
 func snapshotCanonicalApplicationHome(home string) (assuranceHomeSnapshot, error) {
 	if strings.TrimSpace(home) == "" {
 		return assuranceHomeSnapshot{}, errors.New("application home is empty")
