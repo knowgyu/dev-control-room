@@ -27,7 +27,7 @@ func TestEmbeddedUIMeasurementDashboardContract(t *testing.T) {
 	for _, value := range []string{
 		"assuranceMeasurement", "loadAssuranceMeasurementData", "renderAssuranceMeasurementDashboard",
 		"/api/assurance/measurement-runs/dashboard", "/api/assurance/measurement-runs/import",
-		"file.size > maximumBytes", "dashboard.nextActions", "measurement-action-list", "item.baseline", "item.delta", "item.unit",
+		"file.size > maximumBytes", "dashboard.nextActions", "measurement-action-list", "item.baseline", "item.delta", "item.unit", "unknown: \"비교 상태 알 수 없음\"", "incomparable: \"비교 불가\"",
 	} {
 		if !strings.Contains(javascript, value) {
 			t.Errorf("embedded measurement dashboard JavaScript missing %q", value)

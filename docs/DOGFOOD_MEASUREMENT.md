@@ -4,6 +4,9 @@ This slice defines a reproducible, local evidence record for running the fixed
 quality gate against Dev Control Room itself. It is a measurement manifest, not
 a quality score, ranking, release claim, or causal productivity claim.
 
+The concise pilot scorecard, status vocabulary, and comparison rule are in
+[`PILOT_QUALITY_LOOP.md`](PILOT_QUALITY_LOOP.md).
+
 ## First run
 
 From a native Windows checkout, run:
@@ -106,7 +109,9 @@ when a caller has a known baseline in the same unit and a comparable
 configuration; `delta` means current value minus baseline. This runner does
 not invent a baseline and does not populate either field. A baseline from a
 different commit, tool version, request count, endpoint, or configuration
-digest is not a comparable baseline and should remain unknown.
+digest is not a comparable baseline and should remain unknown. Comparison also
+requires both runs to report `dirtyState: clean`; dirty or unknown worktree
+state is never comparable, including two dirty runs.
 
 Latency p95 is meaningful only when it is calculated from repeated,
 comparable samples under a stated configuration. A one-sample command duration

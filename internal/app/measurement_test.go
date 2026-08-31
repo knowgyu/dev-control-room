@@ -221,6 +221,146 @@ func TestMeasurementImportPreservesUnknownAndUnavailableSeparately(t *testing.T)
 	}
 }
 
+func TestComparableMeasurementRunsRequiresCleanWorktrees(t *testing.T) {
+	latest := measurementRunSummary(newAppMeasurementRun(
+		t,
+		"dogfood-comparison-latest",
+		time.Date(2026, 8, 31, 5, 2, 3, 0, time.UTC),
+		120,
+	))
+	previous := latest
+	previous.RunID = "dogfood-comparison-previous"
+	previous.EndedAt = latest.EndedAt.Add(-time.Minute)
+	tests := []struct {
+		name          string
+		latestDirty   measurement.DirtyState
+		previousDirty measurement.DirtyState
+		want          bool
+	}{
+		{
+			name:          "two clean runs are comparable",
+			latestDirty:   measurement.DirtyClean,
+			previousDirty: measurement.DirtyClean,
+			want:          true,
+		},
+		{
+			name:          "current dirty run is incomparable",
+			latestDirty:   measurement.DirtyDirty,
+			previousDirty: measurement.DirtyClean,
+		},
+		{
+			name:          "previous dirty run is incomparable",
+			latestDirty:   measurement.DirtyClean,
+			previousDirty: measurement.DirtyDirty,
+		},
+		{
+			name:          "two dirty runs are incomparable",
+			latestDirty:   measurement.DirtyDirty,
+			previousDirty: measurement.DirtyDirty,
+		},
+		{
+			name:          "unknown current state is incomparable",
+			latestDirty:   measurement.DirtyUnknown,
+			previousDirty: measurement.DirtyClean,
+		},
+		{
+			name:          "unknown previous state is incomparable",
+			latestDirty:   measurement.DirtyClean,
+			previousDirty: measurement.DirtyUnknown,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			current := latest
+			prior := previous
+			current.DirtyState = test.latestDirty
+			prior.DirtyState = test.previousDirty
+			if got := comparableMeasurementRuns(current, prior); got != test.want {
+				t.Fatalf("comparableMeasurementRuns() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestMeasurementDashboardReportsUnknownAndIncomparableStates(t *testing.T) {
+	latest := measurementRunSummary(newAppMeasurementRun(
+		t,
+		"dogfood-dashboard-latest",
+		time.Date(2026, 8, 31, 6, 2, 3, 0, time.UTC),
+		120,
+	))
+	previous := latest
+	previous.RunID = "dogfood-dashboard-previous"
+	previous.EndedAt = latest.EndedAt.Add(-time.Minute)
+	tests := []struct {
+		name            string
+		includePrevious bool
+		latestDirty     measurement.DirtyState
+		previousDirty   measurement.DirtyState
+		previousCommit  string
+		wantState       string
+		wantPriorRun    bool
+	}{
+		{
+			name:        "clean run without history is missing",
+			latestDirty: measurement.DirtyClean,
+			wantState:   MeasurementComparisonMissing,
+		},
+		{
+			name:            "clean runs with changed commit are incomparable",
+			includePrevious: true,
+			latestDirty:     measurement.DirtyClean,
+			previousDirty:   measurement.DirtyClean,
+			previousCommit:  strings.Repeat("c", 40),
+			wantState:       MeasurementComparisonIncomparable,
+		},
+		{
+			name:            "two dirty runs are incomparable",
+			includePrevious: true,
+			latestDirty:     measurement.DirtyDirty,
+			previousDirty:   measurement.DirtyDirty,
+			wantState:       MeasurementComparisonIncomparable,
+		},
+		{
+			name:            "unknown current identity is explicit",
+			includePrevious: true,
+			latestDirty:     measurement.DirtyUnknown,
+			previousDirty:   measurement.DirtyClean,
+			wantState:       MeasurementComparisonUnknown,
+		},
+		{
+			name:            "clean runs remain comparable",
+			includePrevious: true,
+			latestDirty:     measurement.DirtyClean,
+			previousDirty:   measurement.DirtyClean,
+			wantState:       MeasurementComparisonComparable,
+			wantPriorRun:    true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			current := latest
+			current.DirtyState = test.latestDirty
+			items := []MeasurementRunSummary{current}
+			if test.includePrevious {
+				prior := previous
+				prior.DirtyState = test.previousDirty
+				if test.previousCommit != "" {
+					prior.Commit = test.previousCommit
+				}
+				items = append(items, prior)
+			}
+			dashboard := measurementDashboard(items)
+			if dashboard.ComparisonState != test.wantState {
+				t.Fatalf("comparison state = %q, want %q", dashboard.ComparisonState, test.wantState)
+			}
+			if (dashboard.PreviousComparable != nil) != test.wantPriorRun {
+				t.Fatalf("previous comparable = %#v, want present = %v", dashboard.PreviousComparable, test.wantPriorRun)
+			}
+		})
+	}
+}
+
 func TestMeasurementImportMasksStoredMetadataBeforeResponse(t *testing.T) {
 	secret := "measurement-secret-canary"
 	service, err := newWithMasker(t.TempDir(), "127.0.0.1:38471", masking.New([]string{secret}, nil))

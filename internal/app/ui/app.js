@@ -343,7 +343,7 @@
   };
   const measurementStatusLabels = { pass: "통과", fail: "실패", unknown: "알 수 없음" };
   const measurementProvenanceLabels = { measured: "측정됨", estimated: "추정", inferred: "추론", unavailable: "사용할 수 없음" };
-  const measurementComparisonStateLabels = { empty: "기록 없음", comparable: "비교 가능", missing: "이전 실행 없음", unavailable: "비교 불가" };
+  const measurementComparisonStateLabels = { empty: "기록 없음", comparable: "비교 가능", missing: "이전 실행 없음", unknown: "비교 상태 알 수 없음", incomparable: "비교 불가", unavailable: "비교 불가" };
   const measurementMetricLabels = {
     "quality.gofmt": "gofmt",
     "quality.go.test": "Go test",
@@ -1391,7 +1391,7 @@
     }).join("");
     const previousDetail = previous
       ? `<p class="meta">이전 비교 run <code translate="no">${escapeHTML(previous.runId)}</code> · 종료 ${escapeHTML(formatDate(previous.endedAt))} · commit <code translate="no">${escapeHTML(previous.commit)}</code></p>`
-      : `<p class="meta">${escapeHTML(state === "missing" ? "같은 commit·HEAD·구성 digest·플랫폼·도구 버전의 이전 실행이 없습니다." : "commit·구성·도구 버전이 완전히 확인된 이전 실행을 비교할 수 없습니다.")}</p>`;
+      : `<p class="meta">${escapeHTML(state === "missing" ? "같은 commit·HEAD·구성 digest·플랫폼·도구 버전의 이전 실행이 없습니다." : state === "incomparable" ? "이전 근거가 있지만 변경 상태 또는 재현성 조건이 달라 비교할 수 없습니다." : "commit·구성·도구 버전이 완전히 확인된 이전 실행을 비교할 수 없습니다.")}</p>`;
     container.innerHTML = `<header class="section-heading"><div><h3 id="assurance-measurement-comparison-title">동일 조건 비교</h3><p class="meta">delta는 현재 p50 − 이전 p50이며, 비교 가능한 값만 계산합니다.</p></div><span class="chip ${state === "comparable" ? "ok" : "warn"}">${escapeHTML(measurementStateLabel(state))}</span></header>${latest ? `<p class="meta">현재 run <code translate="no">${escapeHTML(latest.runId)}</code> · 종료 ${escapeHTML(formatDate(latest.endedAt))}</p>` : ""}${previousDetail}${comparisonRows ? `<div class="measurement-comparison-list">${comparisonRows}</div>` : '<div class="empty-state"><span>비교할 측정값이 없습니다.</span></div>'}`;
   }
 

@@ -636,7 +636,7 @@ $script:toolVersions.powershell = "PowerShell " + $PSVersionTable.PSVersion.ToSt
 $fixedChecks = @(
     [ordered]@{ id = "gofmt"; command = "gofmt -l [repository Go files]"; required = $true },
     [ordered]@{ id = "go-test"; command = "go test -count=1 ./..."; required = $true },
-    [ordered]@{ id = "go-test-race"; command = "go test -race ./..."; required = $true },
+    [ordered]@{ id = "go-test-race"; command = "go test -count=1 -race ./..."; required = $true },
     [ordered]@{ id = "go-vet"; command = "go vet ./..."; required = $true },
     [ordered]@{ id = "go-mod-verify"; command = "go mod verify"; required = $true },
     [ordered]@{ id = "go-build"; command = "go build ./..."; required = $true },
@@ -657,7 +657,7 @@ try {
     Invoke-QualityCheck -ID "quality-gofmt" -Name "quality.gofmt" -CommandID "gofmt.check" -DisplayCommand "gofmt -l [repository Go files]" -FilePath $gofmtPath -Arguments (@("-l") + @($goFiles)) -Required $true -FailOnOutput ($goFiles.Count -gt 0) | Out-Null
     Invoke-QualityCheck -ID "quality-go-test" -Name "quality.go.test" -CommandID "go.test" -DisplayCommand "go test -count=1 ./..." -FilePath $goPath -Arguments @("test", "-count=1", "./...") -Required $true | Out-Null
     Invoke-WithEnvironment @{ CGO_ENABLED = "1" } {
-        Invoke-QualityCheck -ID "quality-go-test-race" -Name "quality.go.test_race" -CommandID "go.test.race" -DisplayCommand "go test -race ./..." -FilePath $goPath -Arguments @("test", "-race", "./...") -Required $true | Out-Null
+        Invoke-QualityCheck -ID "quality-go-test-race" -Name "quality.go.test_race" -CommandID "go.test.race" -DisplayCommand "go test -count=1 -race ./..." -FilePath $goPath -Arguments @("test", "-count=1", "-race", "./...") -Required $true | Out-Null
     }
     Invoke-QualityCheck -ID "quality-go-vet" -Name "quality.go.vet" -CommandID "go.vet" -DisplayCommand "go vet ./..." -FilePath $goPath -Arguments @("vet", "./...") -Required $true | Out-Null
     Invoke-QualityCheck -ID "quality-go-mod-verify" -Name "quality.go.mod_verify" -CommandID "go.mod.verify" -DisplayCommand "go mod verify" -FilePath $goPath -Arguments @("mod", "verify") -Required $true | Out-Null

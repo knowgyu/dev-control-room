@@ -49,10 +49,17 @@ unknown.
 5. Repeat the runner after a source/tool/configuration change. The dashboard
    compares the latest run with the prior run only when commit, HEAD, dirty
    state, configuration digest, platform, and tool-version identity are all
-   known and compatible. A comparison delta is current p50 minus previous p50;
-   p95 is shown when both runs provide it. A different commit, tool version,
-   request configuration, endpoint, or unknown identity is not a comparable
-   baseline.
+   known and compatible. Both runs must report `dirtyState: clean`; two dirty
+   runs are explicitly incomparable. A comparison delta is current p50 minus
+   previous p50; p95 is shown when both runs provide it. A different commit,
+   tool version, request configuration, endpoint, or unknown identity is not a
+   comparable baseline.
+
+   The dashboard state is `comparable` when a prior run meets those rules,
+   `missing` when no prior run exists, `incomparable` when prior evidence exists
+   but does not meet the rules (including dirty worktrees), and `unknown` when
+   the latest run lacks required identity metadata. `unavailable` remains the
+   per-measurement state for a value that cannot be compared or measured.
 
 ## Read-only API surface
 

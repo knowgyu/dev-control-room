@@ -59,6 +59,8 @@ pwsh -NoProfile -File .\scripts\measure-dogfood.ps1 -OutputDirectory .\artifacts
 http://127.0.0.1:38471 -RequestCount 5`를 추가합니다. manifest와 사람이 읽는
 보고서의 계약, provenance 규칙, 한계는
 [`docs/DOGFOOD_MEASUREMENT.md`](docs/DOGFOOD_MEASUREMENT.md)에 있습니다.
+파일럿 scorecard와 비교 불가·미확인 상태 규칙은
+[`docs/PILOT_QUALITY_LOOP.md`](docs/PILOT_QUALITY_LOOP.md)에 있습니다.
 
 ## 패키지 만들기
 

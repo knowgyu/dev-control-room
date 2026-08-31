@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	MeasurementComparisonEmpty       = "empty"
-	MeasurementComparisonComparable  = "comparable"
-	MeasurementComparisonMissing     = "missing"
-	MeasurementComparisonUnavailable = "unavailable"
+	MeasurementComparisonEmpty        = "empty"
+	MeasurementComparisonComparable   = "comparable"
+	MeasurementComparisonMissing      = "missing"
+	MeasurementComparisonUnknown      = "unknown"
+	MeasurementComparisonIncomparable = "incomparable"
+	MeasurementComparisonUnavailable  = "unavailable"
 )
 
 type MeasurementRunSummary struct {
@@ -200,8 +202,15 @@ func measurementDashboard(items []MeasurementRunSummary) MeasurementDashboard {
 		dashboard.ComparisonState = MeasurementComparisonComparable
 		break
 	}
-	if dashboard.PreviousComparable == nil && knownMeasurementRunIdentity(latest) {
-		dashboard.ComparisonState = MeasurementComparisonMissing
+	if dashboard.PreviousComparable == nil {
+		switch {
+		case !knownMeasurementRunIdentity(latest):
+			dashboard.ComparisonState = MeasurementComparisonUnknown
+		case len(items) == 1:
+			dashboard.ComparisonState = MeasurementComparisonMissing
+		default:
+			dashboard.ComparisonState = MeasurementComparisonIncomparable
+		}
 	}
 	dashboard.Comparisons, dashboard.NextActions = measurementComparisons(latest, dashboard.PreviousComparable)
 	return dashboard
@@ -221,7 +230,13 @@ func comparableMeasurementRuns(left, right MeasurementRunSummary) bool {
 	if !knownMeasurementRunIdentity(left) || !knownMeasurementRunIdentity(right) {
 		return false
 	}
-	if left.Commit != right.Commit || left.Head != right.Head || left.DirtyState != right.DirtyState || left.OS != right.OS || left.Arch != right.Arch || left.ConfigurationDigest != right.ConfigurationDigest {
+	// Dirty evidence remains visible, but it cannot establish a reproducible baseline.
+	if left.DirtyState != measurement.DirtyClean || right.DirtyState != measurement.DirtyClean {
+		return false
+	}
+	if left.Commit != right.Commit || left.Head != right.Head ||
+		left.DirtyState != right.DirtyState || left.OS != right.OS ||
+		left.Arch != right.Arch || left.ConfigurationDigest != right.ConfigurationDigest {
 		return false
 	}
 	if len(left.ToolVersions) != len(right.ToolVersions) {
@@ -241,7 +256,8 @@ func knownMeasurementRunIdentity(item MeasurementRunSummary) bool {
 			return false
 		}
 	}
-	if item.DirtyState == measurement.DirtyUnknown || len(item.ToolVersions) == 0 {
+	if (item.DirtyState != measurement.DirtyClean && item.DirtyState != measurement.DirtyDirty) ||
+		len(item.ToolVersions) == 0 {
 		return false
 	}
 	for _, version := range item.ToolVersions {
@@ -298,7 +314,7 @@ func measurementComparisons(latest MeasurementRunSummary, previous *MeasurementR
 	if !knownMeasurementRunIdentity(latest) {
 		actions = append(actions, MeasurementNextAction{Code: "incomplete_reproducibility", Label: "재현성 metadata 보완", Reason: "commit, HEAD, 변경 상태, 플랫폼, 구성 digest, 도구 버전이 모두 알려진 manifest를 가져오세요."})
 	}
-	if previous == nil && knownMeasurementRunIdentity(latest) {
+	if previous == nil && knownMeasurementRunIdentity(latest) && latest.DirtyState == measurement.DirtyClean {
 		actions = append(actions, MeasurementNextAction{Code: "missing_comparable_baseline", Label: "비교 가능한 이전 실행 없음", Reason: "같은 commit, HEAD, 구성 digest, 플랫폼, 도구 버전의 이전 실행을 가져오세요."})
 	}
 	if len(regressionNames) > 0 {

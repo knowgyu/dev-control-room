@@ -3,7 +3,9 @@ package measurement
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
+	"math/rand"
 	"reflect"
 	"strings"
 	"testing"
@@ -230,6 +232,88 @@ func TestSafeTextAllowsVersionAndHTTPPathTokens(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if !validSafeText(test.value, 256) {
 				t.Fatalf("validSafeText(%q) = false", test.value)
+			}
+		})
+	}
+}
+
+func TestMeasurementManifestRoundTripProperty(t *testing.T) {
+	random := rand.New(rand.NewSource(20260831))
+	categories := []Category{CategoryQuality, CategoryPerformance, CategoryProcess, CategoryRuntime}
+	statuses := []Status{StatusPass, StatusFail, StatusUnknown}
+	provenances := []Provenance{ProvenanceMeasured, ProvenanceEstimated, ProvenanceInferred}
+	for iteration := 0; iteration < 64; iteration++ {
+		t.Run(fmt.Sprintf("case-%02d", iteration), func(t *testing.T) {
+			measurementCount := 1 + random.Intn(5)
+			items := make([]Measurement, 0, measurementCount)
+			for index := 0; index < measurementCount; index++ {
+				samples := make([]float64, random.Intn(9))
+				for sampleIndex := range samples {
+					samples[sampleIndex] = float64(random.Intn(10000))/100 + float64(sampleIndex)/10
+				}
+				status := statuses[random.Intn(len(statuses))]
+				provenance := provenances[random.Intn(len(provenances))]
+				if len(samples) == 0 {
+					status = StatusUnknown
+					provenance = ProvenanceUnavailable
+				}
+				item, err := NewMeasurement(MeasurementInput{
+					ID:         fmt.Sprintf("property-measurement-%d-%d", iteration, index),
+					Name:       fmt.Sprintf("property.%s.%d.%d", categories[index%len(categories)], iteration, index),
+					Category:   categories[index%len(categories)],
+					Status:     status,
+					Provenance: provenance,
+					Unit:       "milliseconds",
+					Samples:    samples,
+					CommandID:  "property.check",
+					Required:   random.Intn(2) == 0,
+				})
+				if err != nil {
+					t.Fatalf("NewMeasurement() error = %v", err)
+				}
+				items = append(items, item)
+			}
+
+			now := time.Date(2026, 8, 31, 7, 0, 0, 0, time.UTC).Add(time.Duration(iteration) * time.Minute)
+			run, err := NewRun(Reproducibility{
+				RunID:               fmt.Sprintf("dogfood-property-%02d", iteration),
+				Commit:              strings.Repeat("a", 40),
+				Head:                strings.Repeat("b", 40),
+				DirtyState:          DirtyClean,
+				OS:                  "windows",
+				Arch:                "amd64",
+				ToolVersions:        map[string]string{"go": "go1.26.7", "powershell": "PowerShell 7.6.4"},
+				ConfigurationDigest: SHA256Digest([]byte("property-config-v1")),
+				StartedAt:           now,
+				EndedAt:             now.Add(time.Second),
+			}, items)
+			if err != nil {
+				t.Fatalf("NewRun() error = %v", err)
+			}
+			encoded, err := json.Marshal(run)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			var decoded Run
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			if err := decoded.Validate(); err != nil {
+				t.Fatalf("round-tripped manifest is invalid: %v", err)
+			}
+			if !reflect.DeepEqual(decoded, run) {
+				t.Fatalf("round trip changed the manifest:\n got %#v\nwant %#v", decoded, run)
+			}
+			status, failures := requiredStatus(decoded.Spec.Measurements)
+			if decoded.Spec.Status != status || !sameStrings(decoded.Spec.RequiredFailures, failures) {
+				t.Fatalf("required gate is not derived deterministically: status=%q failures=%v", decoded.Spec.Status, decoded.Spec.RequiredFailures)
+			}
+
+			invalid := decoded
+			invalid.Spec.Measurements = append([]Measurement{}, decoded.Spec.Measurements...)
+			invalid.Spec.Measurements[0].Spec.SampleCount++
+			if err := invalid.Validate(); err == nil {
+				t.Fatal("manifest with an inconsistent sample count was accepted")
 			}
 		})
 	}
