@@ -1474,7 +1474,8 @@
     const metricsContainer = document.getElementById("assurance-metrics");
     if (!metricsContainer) return;
     const impactRecords = Number(state.assuranceImpact?.dataQuality?.recordsTotal) || 0;
-    const hasEvidence = Boolean(runs.length || invocations.length || allEffects.length || artifacts.length || impactRecords);
+    const hasMeasurementEvidence = Boolean(state.assuranceMeasurement?.data?.latest);
+    const hasEvidence = Boolean(runs.length || invocations.length || allEffects.length || artifacts.length || impactRecords || hasMeasurementEvidence);
     document.querySelectorAll("[data-assurance-populated]").forEach(element => { element.hidden = !hasEvidence; });
     const empty = document.getElementById("assurance-empty");
     if (empty) empty.hidden = hasEvidence;
@@ -1922,7 +1923,7 @@
     } catch (error) {
       state.assuranceMeasurement = { status: "error", data: previous, error: error.message || "잠시 후 다시 시도하세요." };
     }
-    renderAssuranceMeasurementDashboard();
+    renderAssuranceDashboard();
   }
 
   let loadingQualityHome = false;

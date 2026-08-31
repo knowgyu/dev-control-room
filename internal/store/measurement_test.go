@@ -45,6 +45,40 @@ func TestMeasurementRunRepositoryPersistsTypedManifestAndRejectsDuplicateID(t *t
 	}
 }
 
+func TestMeasurementRunRepositoryPreservesIdentityThroughMasking(t *testing.T) {
+	database := openTestDatabase(t, "measurement-run-masking")
+	persistence, err := New(database, masking.New(nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenRunID := "AKIA1234567890ABCDEF"
+	tokenMeasurementID := "AKIA2345678901ABCDEF"
+	tokenCommandID := "AKIA3456789012ABCDEF"
+	run := newStoreMeasurementRun(t, tokenRunID, time.Date(2026, 8, 31, 2, 2, 3, 0, time.UTC), 120)
+	run.Metadata.ID = tokenRunID
+	run.Spec.Reproducibility.RunID = tokenRunID
+	run.Spec.Measurements[0].Metadata.ID = tokenMeasurementID
+	run.Spec.Measurements[0].Spec.CommandID = tokenCommandID
+	run.Spec.Measurements[0].Spec.Command = "go test --token=" + tokenCommandID
+
+	if err := persistence.SaveMeasurementRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := persistence.GetMeasurementRun(context.Background(), tokenRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Metadata.ID != tokenRunID || loaded.Spec.Reproducibility.RunID != tokenRunID || loaded.Spec.Measurements[0].Metadata.ID != tokenMeasurementID || loaded.Spec.Measurements[0].Spec.CommandID != tokenCommandID {
+		t.Fatalf("measurement identity changed through masking: %#v", loaded)
+	}
+	if strings.Contains(loaded.Spec.Measurements[0].Spec.Command, tokenCommandID) {
+		t.Fatalf("command token survived masking: %q", loaded.Spec.Measurements[0].Spec.Command)
+	}
+	if listed, err := persistence.ListMeasurementRuns(context.Background()); err != nil || len(listed) != 1 || listed[0].Metadata.ID != tokenRunID {
+		t.Fatalf("masked measurement run list = %#v, err = %v", listed, err)
+	}
+}
+
 func TestMeasurementRunRepositoryRejectsInvalidTypedManifest(t *testing.T) {
 	database := openTestDatabase(t, "measurement-run-invalid")
 	persistence, err := New(database, masking.New(nil, nil))

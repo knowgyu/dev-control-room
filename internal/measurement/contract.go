@@ -376,7 +376,7 @@ func validCommit(value string) bool {
 }
 
 func validSafeText(value string, maxBytes int) bool {
-	if value == "" || len(value) > maxBytes || strings.TrimSpace(value) != value || !utf8.ValidString(value) || hasAbsolutePathPrefix(value) {
+	if value == "" || len(value) > maxBytes || strings.TrimSpace(value) != value || !utf8.ValidString(value) || containsAbsolutePathToken(value) {
 		return false
 	}
 	for _, character := range value {
@@ -387,11 +387,92 @@ func validSafeText(value string, maxBytes int) bool {
 	return true
 }
 
-func hasAbsolutePathPrefix(value string) bool {
-	if strings.HasPrefix(value, "/") || strings.HasPrefix(value, `\`) {
+func containsAbsolutePathToken(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if hasWindowsDrivePathToken(value, index) || hasWindowsRootedPathToken(value, index) {
+			return true
+		}
+		if value[index] == '/' && hasUnixAbsolutePathToken(value, index) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWindowsDrivePathToken(value string, index int) bool {
+	if index+2 >= len(value) || !isASCIIAlpha(value[index]) || value[index+1] != ':' || (value[index+2] != '/' && value[index+2] != '\\') {
+		return false
+	}
+	return isPathTokenBoundaryBefore(value, index)
+}
+
+func hasWindowsRootedPathToken(value string, index int) bool {
+	if value[index] != '\\' || !isPathTokenBoundaryBefore(value, index) {
+		return false
+	}
+	return index+1 == len(value) || (value[index+1] != ' ' && value[index+1] != '\t')
+}
+
+func hasUnixAbsolutePathToken(value string, index int) bool {
+	if !isPathTokenBoundaryBefore(value, index) {
+		return false
+	}
+	if isNonFileURIPath(value, index) || isHTTPMethodPath(value, index) {
+		return false
+	}
+	return true
+}
+
+func isPathTokenBoundaryBefore(value string, index int) bool {
+	if index == 0 {
 		return true
 	}
-	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && (value[2] == '/' || value[2] == '\\')
+	previous := rune(value[index-1])
+	return unicode.IsSpace(previous) || strings.ContainsRune("=,:;()[]{}<>|&'\"`", previous)
+}
+
+func isNonFileURIPath(value string, index int) bool {
+	if index+1 >= len(value) || value[index+1] != '/' || index == 0 || value[index-1] != ':' {
+		return false
+	}
+	start := index - 2
+	for start >= 0 && isURISchemeCharacter(value[start]) {
+		start--
+	}
+	start++
+	if start >= index-1 || !isASCIIAlpha(value[start]) {
+		return false
+	}
+	return !strings.EqualFold(value[start:index-1], "file")
+}
+
+func isHTTPMethodPath(value string, index int) bool {
+	end := index
+	for end > 0 && unicode.IsSpace(rune(value[end-1])) {
+		end--
+	}
+	start := end
+	for start > 0 && isASCIIAlpha(value[start-1]) {
+		start--
+	}
+	if start == end || (start > 0 && !isPathTokenBoundaryBefore(value, start)) {
+		return false
+	}
+	method := strings.ToUpper(value[start:end])
+	switch method {
+	case "CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE":
+		return true
+	default:
+		return false
+	}
+}
+
+func isURISchemeCharacter(value byte) bool {
+	return isASCIIAlpha(value) || (value >= '0' && value <= '9') || strings.ContainsRune("+.-", rune(value))
+}
+
+func isASCIIAlpha(value byte) bool {
+	return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z')
 }
 
 func validFloat(value float64) bool {

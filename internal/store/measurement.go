@@ -18,7 +18,7 @@ func (s *Store) SaveMeasurementRun(ctx context.Context, item measurement.Run) er
 	if err := item.Validate(); err != nil {
 		return fmt.Errorf("validate measurement run: %w", err)
 	}
-	object, err := s.maskedJSON(item)
+	object, err := s.maskedMeasurementRunJSON(item)
 	if err != nil {
 		return err
 	}
@@ -47,6 +47,60 @@ ON CONFLICT(id) DO NOTHING`,
 		return nil
 	}
 	return fmt.Errorf("%w: %q", ErrMeasurementRunDuplicate, item.Metadata.ID)
+}
+
+func (s *Store) maskedMeasurementRunJSON(item measurement.Run) (string, error) {
+	object, err := s.maskedJSON(item)
+	if err != nil {
+		return "", err
+	}
+	var masked measurement.Run
+	if err := json.Unmarshal([]byte(object), &masked); err != nil {
+		return "", fmt.Errorf("decode masked measurement run: %w", err)
+	}
+	if err := restoreMeasurementRunIdentity(&masked, item); err != nil {
+		return "", err
+	}
+	if err := masked.Validate(); err != nil {
+		return "", fmt.Errorf("validate masked measurement run: %w", err)
+	}
+	encoded, err := json.Marshal(masked)
+	if err != nil {
+		return "", fmt.Errorf("marshal masked measurement run: %w", err)
+	}
+	return string(encoded), nil
+}
+
+func restoreMeasurementRunIdentity(masked *measurement.Run, original measurement.Run) error {
+	if len(masked.Spec.Measurements) != len(original.Spec.Measurements) {
+		return errors.New("masked measurement run changed its measurement count")
+	}
+	masked.APIVersion = original.APIVersion
+	masked.Kind = original.Kind
+	masked.Metadata.ID = original.Metadata.ID
+	masked.Spec.Status = original.Spec.Status
+	masked.Spec.RequiredFailures = append([]string{}, original.Spec.RequiredFailures...)
+	masked.Spec.Reproducibility.RunID = original.Spec.Reproducibility.RunID
+	masked.Spec.Reproducibility.Commit = original.Spec.Reproducibility.Commit
+	masked.Spec.Reproducibility.Head = original.Spec.Reproducibility.Head
+	masked.Spec.Reproducibility.DirtyState = original.Spec.Reproducibility.DirtyState
+	masked.Spec.Reproducibility.OS = original.Spec.Reproducibility.OS
+	masked.Spec.Reproducibility.Arch = original.Spec.Reproducibility.Arch
+	masked.Spec.Reproducibility.ConfigurationDigest = original.Spec.Reproducibility.ConfigurationDigest
+	for index := range original.Spec.Measurements {
+		maskedItem := &masked.Spec.Measurements[index]
+		originalItem := original.Spec.Measurements[index]
+		maskedItem.APIVersion = originalItem.APIVersion
+		maskedItem.Kind = originalItem.Kind
+		maskedItem.Metadata.ID = originalItem.Metadata.ID
+		maskedItem.Spec.Name = originalItem.Spec.Name
+		maskedItem.Spec.Category = originalItem.Spec.Category
+		maskedItem.Spec.Status = originalItem.Spec.Status
+		maskedItem.Spec.Provenance = originalItem.Spec.Provenance
+		maskedItem.Spec.Unit = originalItem.Spec.Unit
+		maskedItem.Spec.CommandID = originalItem.Spec.CommandID
+	}
+	return nil
 }
 
 func (s *Store) GetMeasurementRun(ctx context.Context, id string) (measurement.Run, error) {

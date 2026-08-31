@@ -53,3 +53,34 @@ func TestEmbeddedUIMeasurementDashboardContract(t *testing.T) {
 		}
 	}
 }
+
+func TestEmbeddedUIHidesLegacyAssuranceEmptyStateForMeasurementEvidence(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	html := embeddedUIAsset(t, service, "/", "text/html")
+	if !strings.Contains(html, `id="assurance-empty"`) {
+		t.Fatal("legacy assurance empty-state DOM node is missing")
+	}
+	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
+	for _, value := range []string{
+		"const hasMeasurementEvidence = Boolean(state.assuranceMeasurement?.data?.latest);",
+		"|| hasMeasurementEvidence",
+		"if (empty) empty.hidden = hasEvidence;",
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("measurement evidence is not connected to the legacy empty-state DOM: missing %q", value)
+		}
+	}
+	loadStart := strings.Index(javascript, "async function loadAssuranceMeasurementData()")
+	if loadStart < 0 {
+		t.Fatal("measurement load function is missing")
+	}
+	loadEndOffset := strings.Index(javascript[loadStart:], "let loadingQualityHome")
+	if loadEndOffset < 0 || !strings.Contains(javascript[loadStart:loadStart+loadEndOffset], "renderAssuranceDashboard();") {
+		t.Fatal("measurement load does not re-render the Assurance DOM after the latest run arrives")
+	}
+}

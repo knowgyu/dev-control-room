@@ -196,6 +196,12 @@ func TestRunRejectsUnsafeOrInconsistentRecords(t *testing.T) {
 		mutate func(*Run)
 	}{
 		{name: "absolute measurement name", mutate: func(run *Run) { run.Spec.Measurements[0].Spec.Name = `C:\\secret\metric` }},
+		{name: "embedded Windows command path", mutate: func(run *Run) { run.Spec.Measurements[0].Spec.Command = `go test C:\\Users\\Alice\\repo` }},
+		{name: "embedded UNC command path", mutate: func(run *Run) { run.Spec.Measurements[0].Spec.Command = `go test \\server\share` }},
+		{name: "embedded Unix command path", mutate: func(run *Run) { run.Spec.Measurements[0].Spec.Command = `go test /Users/Alice/repo` }},
+		{name: "embedded Windows tool version path", mutate: func(run *Run) { run.Spec.Reproducibility.ToolVersions["go"] = `go1.26.7 C:\\Go\\bin` }},
+		{name: "embedded UNC tool version path", mutate: func(run *Run) { run.Spec.Reproducibility.ToolVersions["go"] = `go1.26.7 \\server\go` }},
+		{name: "embedded Unix tool version path", mutate: func(run *Run) { run.Spec.Reproducibility.ToolVersions["go"] = `go1.26.7 /usr/local/go` }},
 		{name: "sample count mismatch", mutate: func(run *Run) { run.Spec.Measurements[0].Spec.SampleCount = 2 }},
 		{name: "required status mismatch", mutate: func(run *Run) { run.Spec.Status = StatusFail; run.Spec.RequiredFailures = []string{"other"} }},
 		{name: "absolute tool version", mutate: func(run *Run) { run.Spec.Reproducibility.ToolVersions["go"] = `C:\\Go\\bin` }},
@@ -206,6 +212,24 @@ func TestRunRejectsUnsafeOrInconsistentRecords(t *testing.T) {
 			test.mutate(&run)
 			if err := run.Validate(); err == nil {
 				t.Fatal("unsafe or inconsistent record was accepted")
+			}
+		})
+	}
+}
+
+func TestSafeTextAllowsVersionAndHTTPPathTokens(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "normal Go version", value: "go version go1.26.7 windows/amd64"},
+		{name: "fixed HTTP endpoint command", value: "GET /api/health (probe disabled)"},
+		{name: "relative Go package path", value: "go test ./..."},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if !validSafeText(test.value, 256) {
+				t.Fatalf("validSafeText(%q) = false", test.value)
 			}
 		})
 	}
