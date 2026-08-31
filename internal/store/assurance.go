@@ -355,6 +355,57 @@ func (s *Store) FinalizeAgentInvocationAndUpdateSession(
 	})
 }
 
+// PersistAgentInvocationFinalizationFailure preserves the invocation claim
+// when finalization cannot commit. It only changes an active invocation; an
+// already terminal record is returned unchanged so an ambiguous commit cannot
+// be downgraded after the provider result was durably stored.
+func (s *Store) PersistAgentInvocationFinalizationFailure(
+	ctx context.Context,
+	item domain.AgentInvocation,
+) (domain.AgentInvocation, error) {
+	if item.Spec.State != domain.AssuranceStateFailed && item.Spec.State != domain.AssuranceStateInterrupted {
+		return domain.AgentInvocation{}, errors.New("terminal agent invocation failure must be failed or interrupted")
+	}
+	if err := item.Validate(); err != nil {
+		return domain.AgentInvocation{}, fmt.Errorf("validate terminal agent invocation failure: %w", err)
+	}
+
+	var current domain.AgentInvocation
+	err := s.withAssuranceTransaction(ctx, "agent invocation finalization failure", func(executor assuranceExecutor) error {
+		var revision int
+		var object string
+		if err := executor.QueryRowContext(
+			ctx,
+			`SELECT revision, object_json FROM assurance_objects WHERE kind = ? AND id = ?`,
+			domain.AgentInvocationKind,
+			item.Metadata.ID,
+		).Scan(&revision, &object); err != nil {
+			return fmt.Errorf("read agent invocation: %w", err)
+		}
+		if err := json.Unmarshal([]byte(object), &current); err != nil {
+			return fmt.Errorf("decode agent invocation: %w", err)
+		}
+		if current.Spec.State != domain.AssuranceStateQueued && current.Spec.State != domain.AssuranceStateRunning && current.Spec.State != domain.AssuranceStateCancelling {
+			return nil
+		}
+		if err := s.updateAssuranceRevisionWithExecutor(
+			ctx,
+			executor,
+			domain.AgentInvocationKind,
+			item.Metadata.ID,
+			revision+1,
+			item.Spec.State,
+			timeOr(item.Spec.CompletedAt, item.Spec.StartedAt),
+			item,
+		); err != nil {
+			return fmt.Errorf("persist terminal agent invocation state: %w", err)
+		}
+		current = item
+		return nil
+	})
+	return current, err
+}
+
 // RecoverInterruptedInvocationAndUpdateSession commits the restart transition
 // and its Resume Brief update as one database unit. Recovery only changes
 // durable state; provider execution remains outside this transaction.
@@ -398,8 +449,8 @@ func (s *Store) RecoverInterruptedInvocationAndUpdateSession(
 	})
 }
 
-// DeleteAgentInvocation is idempotent because it is used to compensate the
-// durable queued/running record when finalization cannot commit.
+// DeleteAgentInvocation is idempotent for callers that explicitly remove an
+// invocation record.
 func (s *Store) DeleteAgentInvocation(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("agent invocation id is required")

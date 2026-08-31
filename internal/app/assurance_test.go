@@ -738,7 +738,7 @@ func TestRetryFailedChildContinuesExplicitLineage(t *testing.T) {
 	}
 }
 
-func TestRetryInvocationRollsBackChildArtifactAndSessionTogether(t *testing.T) {
+func TestRetryInvocationPreservesIdempotencyAfterFinalizationFailure(t *testing.T) {
 	home := t.TempDir()
 	service, err := New(home, "127.0.0.1:38471")
 	if err != nil {
@@ -752,7 +752,7 @@ func TestRetryInvocationRollsBackChildArtifactAndSessionTogether(t *testing.T) {
 	if err := service.RunScan(context.Background(), "manual"); err != nil {
 		t.Fatal(err)
 	}
-	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "fake", RequestedModel: "fixture-model"})
+	session, err := service.CreateAssuranceSession(context.Background(), AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "codex", RequestedModel: "fixture-model"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,7 +767,7 @@ func TestRetryInvocationRollsBackChildArtifactAndSessionTogether(t *testing.T) {
 		Spec: domain.AgentInvocationSpec{
 			SessionID: session.Metadata.ID, ProjectID: project.Metadata.ID, RepositoryID: "repo-1",
 			WorktreeID: "primary", Branch: worktree.Spec.Branch, Head: worktree.Spec.Head,
-			Provider: "fake", ProfileID: "fake", RequestedModel: "fixture-model",
+			Provider: "codex", ProfileID: "codex", RequestedModel: "fixture-model",
 			SelectionSource: "user", State: domain.AssuranceStateInterrupted,
 			IdempotencyKey: "retry-transaction-original", InputDigest: digestText("original prompt"),
 			TraceID: "trace-retry-transaction-original", StartedAt: now.Add(-time.Minute), RawTranscript: false,
@@ -784,6 +784,16 @@ func TestRetryInvocationRollsBackChildArtifactAndSessionTogether(t *testing.T) {
 	if err := service.updateAssuranceSession(context.Background(), session); err != nil {
 		t.Fatal(err)
 	}
+	runnerCalls := 0
+	ctx := assurance.WithCodexExecution(context.Background(), assurance.CodexExecution{
+		Resolver: func() assurance.ProviderStatus {
+			return assurance.ProviderStatus{Provider: "codex", State: assurance.ProviderReady, CommandFound: true, LaunchTrusted: true, ProfileReady: true, ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`}}
+		},
+		Runner: func(context.Context, assurance.RunRequest, *masking.Masker) assurance.RunResult {
+			runnerCalls++
+			return assurance.RunResult{State: domain.AssuranceStateSucceeded, Structured: map[string]any{"answer": "fixture"}}
+		},
+	})
 	if _, err := service.store.DB().ExecContext(context.Background(), `
 CREATE TRIGGER reject_retry_session_updates
 BEFORE UPDATE ON assurance_objects
@@ -795,67 +805,95 @@ END`); err != nil {
 		t.Fatal(err)
 	}
 
-	retry, retryErr := service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry prompt")
+	_, retryErr := service.RetryAgentInvocation(ctx, original.Metadata.ID, "retry prompt")
 	if retryErr == nil || !strings.Contains(retryErr.Error(), "update assurance session after completing agent invocation") {
-		t.Fatalf("blocked retry = %#v, err=%v", retry, retryErr)
+		t.Fatalf("blocked retry err=%v", retryErr)
 	}
 	invocations, err := service.AgentInvocations(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(invocations) != 1 || invocations[0].Metadata.ID != original.Metadata.ID {
-		t.Fatalf("child invocation survived rolled-back retry = %#v", invocations)
+	if len(invocations) != 2 {
+		t.Fatalf("finalization failure lost invocation claim = %#v", invocations)
+	}
+	var child domain.AgentInvocation
+	for _, item := range invocations {
+		if item.Spec.ParentID == original.Metadata.ID {
+			child = item
+			break
+		}
+	}
+	if child.Metadata.ID == "" || child.Spec.State != domain.AssuranceStateFailed || child.Spec.FailureCode != agentInvocationPersistenceFailureCode || child.Spec.LeaseExpiresAt != nil || child.Spec.CompletedAt == nil || len(child.Spec.ArtifactIDs) != 0 {
+		t.Fatalf("terminal child after finalization failure = %#v", child)
 	}
 	artifacts, err := service.AssuranceArtifacts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(artifacts) != 0 {
-		t.Fatalf("retry artifact survived rolled-back retry = %#v", artifacts)
+		t.Fatalf("failed retry artifact survived finalization failure = %#v", artifacts)
 	}
 	if entries, err := os.ReadDir(filepath.Join(home, "artifacts", "assurance")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	} else if err == nil && len(entries) != 0 {
-		t.Fatalf("retry artifact files survived rolled-back retry = %#v", entries)
+		t.Fatalf("failed retry artifact files survived finalization failure = %#v", entries)
 	}
 	unchanged, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if unchanged.Spec.State != domain.AssuranceStateInterrupted || !hasAssuranceValue(unchanged.Spec.ResumeBrief.Pending, original.Metadata.ID) || len(unchanged.Spec.ResumeBrief.Completed) != 0 {
-		t.Fatalf("session changed after rolled-back retry = %#v", unchanged)
+		t.Fatalf("session changed after finalization failure = %#v", unchanged)
+	}
+	if runnerCalls != 1 {
+		t.Fatalf("provider calls after first retry = %d, want 1", runnerCalls)
+	}
+
+	repeated, repeatErr := service.RetryAgentInvocation(ctx, original.Metadata.ID, "retry prompt")
+	if repeatErr != nil || repeated.Metadata.ID != child.Metadata.ID || repeated.Spec.State != domain.AssuranceStateFailed {
+		t.Fatalf("same retry request = %#v, err=%v", repeated, repeatErr)
+	}
+	if runnerCalls != 1 {
+		t.Fatalf("same retry request relaunched provider: calls=%d", runnerCalls)
+	}
+	invocations, err = service.AgentInvocations(context.Background())
+	if err != nil || len(invocations) != 2 {
+		t.Fatalf("same retry request created duplicate invocation = %#v, err=%v", invocations, err)
 	}
 	if _, err := service.store.DB().ExecContext(context.Background(), `DROP TRIGGER reject_retry_session_updates`); err != nil {
 		t.Fatal(err)
 	}
 
-	retry, retryErr = service.RetryAgentInvocation(context.Background(), original.Metadata.ID, "retry prompt")
-	if retryErr != nil || retry.Spec.State != domain.AssuranceStateSucceeded {
-		t.Fatalf("retry after rollback = %#v, err=%v", retry, retryErr)
+	retry, retryErr := service.RetryAgentInvocation(ctx, child.Metadata.ID, "recovery prompt")
+	if retryErr != nil || retry.Spec.State != domain.AssuranceStateSucceeded || retry.Spec.ParentID != child.Metadata.ID {
+		t.Fatalf("explicit child retry = %#v, err=%v", retry, retryErr)
+	}
+	if runnerCalls != 2 {
+		t.Fatalf("explicit child retry provider calls = %d, want 2", runnerCalls)
 	}
 	invocations, err = service.AgentInvocations(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(invocations) != 2 {
-		t.Fatalf("retry after rollback created wrong invocation count = %#v", invocations)
+	if len(invocations) != 3 {
+		t.Fatalf("explicit child retry created wrong invocation count = %#v", invocations)
 	}
 	artifacts, err = service.AssuranceArtifacts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(artifacts) != 1 {
-		t.Fatalf("retry after rollback created wrong artifact count = %#v", artifacts)
+		t.Fatalf("explicit child retry created wrong artifact count = %#v", artifacts)
 	}
 	if _, err := os.Stat(artifacts[0].Spec.Path); err != nil {
-		t.Fatalf("retry artifact file is missing: %v", err)
+		t.Fatalf("explicit child retry artifact file is missing: %v", err)
 	}
 	updated, err := service.AssuranceSession(context.Background(), session.Metadata.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Spec.State != domain.AssuranceStateReady || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, original.Metadata.ID) || len(updated.Spec.ResumeBrief.Completed) != 1 || updated.Spec.ResumeBrief.Completed[0] != retry.Metadata.ID {
-		t.Fatalf("retry after rollback did not reconcile session = %#v", updated.Spec.ResumeBrief)
+	if updated.Spec.State != domain.AssuranceStateReady || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, original.Metadata.ID) || hasAssuranceValue(updated.Spec.ResumeBrief.Pending, child.Metadata.ID) || len(updated.Spec.ResumeBrief.Completed) != 1 || updated.Spec.ResumeBrief.Completed[0] != retry.Metadata.ID {
+		t.Fatalf("explicit child retry did not reconcile session = %#v", updated.Spec.ResumeBrief)
 	}
 }
 
@@ -1724,7 +1762,11 @@ END`,
 				t.Fatalf("operation error = %v, want context %q", err, test.wantContext)
 			}
 
-			assertAuthoringCounts(t, service, session.Metadata.ID, test.kind, 0)
+			failedInvocations := 0
+			if test.kind == "invocation" {
+				failedInvocations = 1
+			}
+			assertAuthoringCounts(t, service, session.Metadata.ID, test.kind, 0, failedInvocations)
 			if _, err := service.store.DB().ExecContext(
 				context.Background(),
 				`DROP TRIGGER reject_assurance_session_updates`,
@@ -1738,12 +1780,12 @@ END`,
 			if returnedID == "" {
 				t.Fatal("retry returned an empty result")
 			}
-			assertAuthoringCounts(t, service, session.Metadata.ID, test.kind, 1)
+			assertAuthoringCounts(t, service, session.Metadata.ID, test.kind, 1, failedInvocations)
 		})
 	}
 }
 
-func assertAuthoringCounts(t *testing.T, service *App, sessionID, successfulKind string, want int) {
+func assertAuthoringCounts(t *testing.T, service *App, sessionID, successfulKind string, want, failedInvocations int) {
 	t.Helper()
 	questions, err := service.AssuranceQuestions(context.Background(), sessionID)
 	if err != nil {
@@ -1782,6 +1824,7 @@ func assertAuthoringCounts(t *testing.T, service *App, sessionID, successfulKind
 	default:
 		t.Fatalf("unknown assurance authoring kind %q", successfulKind)
 	}
+	wantInvocations += failedInvocations
 	wantArtifacts := 0
 	if successfulKind == "proposal" || successfulKind == "invocation" {
 		wantArtifacts = want

@@ -22,7 +22,12 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/masking"
 )
 
-const agentInvocationLease = 2 * time.Hour
+const (
+	agentInvocationLease                  = 2 * time.Hour
+	agentInvocationPersistenceAttempts    = 3
+	agentInvocationPersistenceTimeout     = 5 * time.Second
+	agentInvocationPersistenceFailureCode = "agent_invocation.persistence_failed"
+)
 
 type retryInvocationLock struct {
 	available  chan struct{}
@@ -912,6 +917,9 @@ func reconcileRetrySessionState(
 	original, retry domain.AgentInvocation,
 ) {
 	session.Spec.ResumeBrief.Pending = removeAssuranceValue(session.Spec.ResumeBrief.Pending, original.Metadata.ID)
+	if original.Spec.ParentID != "" {
+		session.Spec.ResumeBrief.Pending = removeAssuranceValue(session.Spec.ResumeBrief.Pending, original.Spec.ParentID)
+	}
 	if retry.Spec.State == domain.AssuranceStateSucceeded {
 		session.Spec.State = domain.AssuranceStateReady
 		session.Spec.ResumeBrief.NextSafeAction = "새 실행의 구조화된 결과와 제안을 검토합니다."
@@ -1119,20 +1127,45 @@ func (a *App) runAgentInvocation(
 		options.prepareSession(&session, invocation)
 	}
 	if err := a.store.FinalizeAgentInvocationAndUpdateSession(ctx, invocation, preparedArtifact, session); err != nil {
+		persisted, terminalErr := a.persistAgentInvocationFinalizationFailure(ctx, invocation)
 		var cleanupErr error
-		if cleanupArtifact != nil {
+		if cleanupArtifact != nil && len(persisted.Spec.ArtifactIDs) == 0 {
 			cleanupErr = cleanupArtifact()
 		}
-		deleteErr := a.store.DeleteAgentInvocation(context.WithoutCancel(ctx), id)
 		return domain.AgentInvocation{}, fmt.Errorf(
 			"update assurance session after completing agent invocation: %w",
-			errors.Join(err, cleanupErr, deleteErr),
+			errors.Join(err, cleanupErr, terminalErr),
 		)
 	}
 	if preparedArtifact == nil {
 		return invocation, contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "agent invocation evidence could not be persisted"}
 	}
 	return invocation, nil
+}
+
+func (a *App) persistAgentInvocationFinalizationFailure(ctx context.Context, invocation domain.AgentInvocation) (domain.AgentInvocation, error) {
+	now := time.Now().UTC()
+	if invocation.Spec.CompletedAt == nil {
+		invocation.Spec.CompletedAt = &now
+	}
+	invocation.Spec.State = domain.AssuranceStateFailed
+	invocation.Spec.FailureCode = agentInvocationPersistenceFailureCode
+	invocation.Spec.LeaseExpiresAt = nil
+	invocation.Spec.Structured = nil
+	invocation.Spec.ArtifactIDs = nil
+	invocation.Spec.OutputDigest = ""
+
+	compensationContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentInvocationPersistenceTimeout)
+	defer cancel()
+	var lastErr error
+	for attempt := 0; attempt < agentInvocationPersistenceAttempts; attempt++ {
+		persisted, err := a.store.PersistAgentInvocationFinalizationFailure(compensationContext, invocation)
+		if err == nil {
+			return persisted, nil
+		}
+		lastErr = fmt.Errorf("attempt %d: %w", attempt+1, err)
+	}
+	return domain.AgentInvocation{}, lastErr
 }
 
 func sameInvocationRequest(item domain.AgentInvocation, sessionID, provider, worktreeID, model, inputDigest, idempotencyKey string) bool {

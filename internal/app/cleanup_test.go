@@ -208,6 +208,49 @@ func TestAssuranceJanitorFailsClosedWhenManagedDirectoryIsReplacedAfterValidatio
 	}
 }
 
+func TestAssuranceJanitorFailsClosedWhenHomeIsReplacedBeforeRootOpen(t *testing.T) {
+	if !assuranceCleanupRootSupported() {
+		t.Skip("directory-handle cleanup requires Go 1.24 or newer")
+	}
+	home := t.TempDir()
+	originalHome := home + "-original"
+	originalDirectory := filepath.Join(home, "artifacts", "assurance")
+	if err := os.MkdirAll(originalDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(originalDirectory, "original.json"), []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	replacementHome := t.TempDir()
+	replacementDirectory := filepath.Join(replacementHome, "artifacts", "assurance")
+	if err := os.MkdirAll(replacementDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	replacementFileName := "must-survive.json"
+	if err := os.WriteFile(filepath.Join(replacementDirectory, replacementFileName), []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := snapshotCanonicalApplicationHome(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(home, originalHome); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(originalHome) })
+	if err := os.Rename(replacementHome, home); err != nil {
+		t.Fatal(err)
+	}
+	replacementFile := filepath.Join(home, "artifacts", "assurance", replacementFileName)
+	err = cleanupOrphanedAssuranceArtifactsAt(snapshot, newAssurancePathReferences(0))
+	if err == nil || !strings.Contains(err.Error(), "application home changed during assurance cleanup validation") {
+		t.Fatalf("replaced home cleanup error = %v", err)
+	}
+	if data, err := os.ReadFile(replacementFile); err != nil || string(data) != "replacement" {
+		t.Fatalf("replaced home file was changed: %q, %v", data, err)
+	}
+}
+
 func TestGitHubMergedCommitLookupReturnsEvidenceWithoutBodyLeak(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/repos/sample-owner/sample-repository/commits/abc123/pulls" {

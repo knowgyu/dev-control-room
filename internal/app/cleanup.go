@@ -31,12 +31,17 @@ type assuranceCleanupRoot interface {
 	Close() error
 }
 
+type assuranceHomeSnapshot struct {
+	path string
+	info os.FileInfo
+}
+
 // cleanupOrphanedAssuranceFiles repairs only the crash window between an
 // assurance file-system commit and its database commit. The database remains
 // authoritative: every referenced path is preserved, and every deletion is
 // confined to the canonical application home.
 func (a *App) cleanupOrphanedAssuranceFiles(ctx context.Context) error {
-	home, err := canonicalApplicationHome(a.home)
+	home, err := snapshotCanonicalApplicationHome(a.home)
 	if err != nil {
 		return fmt.Errorf("resolve application home for assurance cleanup: %w", err)
 	}
@@ -55,35 +60,48 @@ func (a *App) cleanupOrphanedAssuranceFiles(ctx context.Context) error {
 	for _, proposal := range proposals {
 		references.add(proposal.Spec.IsolationPath)
 	}
-	if err := cleanupOrphanedAssuranceArtifacts(home, references); err != nil {
+	if err := cleanupOrphanedAssuranceArtifactsAt(home, references); err != nil {
 		return fmt.Errorf("clean assurance artifact directory: %w", err)
 	}
-	if err := cleanupOrphanedAssuranceProposals(home, references); err != nil {
+	if err := cleanupOrphanedAssuranceProposalsAt(home, references); err != nil {
 		return fmt.Errorf("clean assurance proposal directories: %w", err)
 	}
 	return nil
 }
 
 func canonicalApplicationHome(home string) (string, error) {
+	snapshot, err := snapshotCanonicalApplicationHome(home)
+	if err != nil {
+		return "", err
+	}
+	return snapshot.path, nil
+}
+
+func snapshotCanonicalApplicationHome(home string) (assuranceHomeSnapshot, error) {
 	if strings.TrimSpace(home) == "" {
-		return "", errors.New("application home is empty")
+		return assuranceHomeSnapshot{}, errors.New("application home is empty")
 	}
 	absolute, err := filepath.Abs(filepath.Clean(home))
 	if err != nil {
-		return "", fmt.Errorf("resolve application home: %w", err)
+		return assuranceHomeSnapshot{}, fmt.Errorf("resolve application home: %w", err)
 	}
 	resolved, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
-		return "", fmt.Errorf("resolve application home symlinks: %w", err)
+		return assuranceHomeSnapshot{}, fmt.Errorf("resolve application home symlinks: %w", err)
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {
-		return "", fmt.Errorf("inspect application home: %w", err)
+		return assuranceHomeSnapshot{}, fmt.Errorf("inspect application home: %w", err)
 	}
 	if !info.IsDir() {
-		return "", errors.New("application home is not a directory")
+		return assuranceHomeSnapshot{}, errors.New("application home is not a directory")
 	}
-	return filepath.Clean(resolved), nil
+	// Windows lazily loads the file identity used by os.SameFile. Force that
+	// lookup while the canonical pathname still names the original directory.
+	if !os.SameFile(info, info) {
+		return assuranceHomeSnapshot{}, errors.New("identify application home")
+	}
+	return assuranceHomeSnapshot{path: filepath.Clean(resolved), info: info}, nil
 }
 
 func newAssurancePathReferences(capacity int) assurancePathReferences {
@@ -170,7 +188,15 @@ func managedAssuranceDirectory(home string, parts ...string) (string, bool, erro
 }
 
 func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathReferences) (returnErr error) {
-	root, err := openVerifiedAssuranceCleanupRoot(home)
+	snapshot, err := snapshotCanonicalApplicationHome(home)
+	if err != nil {
+		return err
+	}
+	return cleanupOrphanedAssuranceArtifactsAt(snapshot, references)
+}
+
+func cleanupOrphanedAssuranceArtifactsAt(home assuranceHomeSnapshot, references assurancePathReferences) (returnErr error) {
+	root, err := openVerifiedAssuranceCleanupRootAt(home)
 	if err != nil {
 		return err
 	}
@@ -180,11 +206,11 @@ func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathRefe
 		}
 	}()
 
-	directory, found, err := managedAssuranceDirectory(home, "artifacts", "assurance")
+	directory, found, err := managedAssuranceDirectory(home.path, "artifacts", "assurance")
 	if err != nil || !found {
 		return err
 	}
-	relativeDirectory, err := assuranceCleanupRelativePath(home, directory)
+	relativeDirectory, err := assuranceCleanupRelativePath(home.path, directory)
 	if err != nil {
 		return err
 	}
@@ -197,7 +223,7 @@ func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathRefe
 		if references.overlaps(path) {
 			continue
 		}
-		relativePath, relativeErr := assuranceCleanupRelativePath(home, path)
+		relativePath, relativeErr := assuranceCleanupRelativePath(home.path, path)
 		if relativeErr != nil {
 			return relativeErr
 		}
@@ -211,7 +237,7 @@ func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathRefe
 		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
-		if err := removeManagedAssuranceEntry(root, home, path); err != nil {
+		if err := removeManagedAssuranceEntry(root, home.path, path); err != nil {
 			return fmt.Errorf("remove orphaned assurance artifact %q: %w", entry.Name(), err)
 		}
 	}
@@ -219,7 +245,15 @@ func cleanupOrphanedAssuranceArtifacts(home string, references assurancePathRefe
 }
 
 func cleanupOrphanedAssuranceProposals(home string, references assurancePathReferences) (returnErr error) {
-	root, err := openVerifiedAssuranceCleanupRoot(home)
+	snapshot, err := snapshotCanonicalApplicationHome(home)
+	if err != nil {
+		return err
+	}
+	return cleanupOrphanedAssuranceProposalsAt(snapshot, references)
+}
+
+func cleanupOrphanedAssuranceProposalsAt(home assuranceHomeSnapshot, references assurancePathReferences) (returnErr error) {
+	root, err := openVerifiedAssuranceCleanupRootAt(home)
 	if err != nil {
 		return err
 	}
@@ -229,11 +263,11 @@ func cleanupOrphanedAssuranceProposals(home string, references assurancePathRefe
 		}
 	}()
 
-	directory, found, err := managedAssuranceDirectory(home, "assurance", "proposals")
+	directory, found, err := managedAssuranceDirectory(home.path, "assurance", "proposals")
 	if err != nil || !found {
 		return err
 	}
-	relativeDirectory, err := assuranceCleanupRelativePath(home, directory)
+	relativeDirectory, err := assuranceCleanupRelativePath(home.path, directory)
 	if err != nil {
 		return err
 	}
@@ -246,7 +280,7 @@ func cleanupOrphanedAssuranceProposals(home string, references assurancePathRefe
 		if references.overlaps(path) {
 			continue
 		}
-		relativePath, relativeErr := assuranceCleanupRelativePath(home, path)
+		relativePath, relativeErr := assuranceCleanupRelativePath(home.path, path)
 		if relativeErr != nil {
 			return relativeErr
 		}
@@ -258,7 +292,7 @@ func cleanupOrphanedAssuranceProposals(home string, references assurancePathRefe
 			return fmt.Errorf("inspect orphaned assurance proposal %q: %w", entry.Name(), err)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			if err := removeManagedAssuranceEntry(root, home, path); err != nil {
+			if err := removeManagedAssuranceEntry(root, home.path, path); err != nil {
 				return fmt.Errorf("remove orphaned assurance proposal link %q: %w", entry.Name(), err)
 			}
 			continue
@@ -284,22 +318,19 @@ func cleanupOrphanedAssuranceProposals(home string, references assurancePathRefe
 }
 
 func openVerifiedAssuranceCleanupRoot(home string) (assuranceCleanupRoot, error) {
-	root, err := openAssuranceCleanupRoot(home)
+	snapshot, err := snapshotCanonicalApplicationHome(home)
+	if err != nil {
+		return nil, fmt.Errorf("verify application home for assurance cleanup: %w", err)
+	}
+	return openVerifiedAssuranceCleanupRootAt(snapshot)
+}
+
+func openVerifiedAssuranceCleanupRootAt(home assuranceHomeSnapshot) (assuranceCleanupRoot, error) {
+	root, err := openAssuranceCleanupRoot(home.path)
 	if err != nil {
 		return nil, fmt.Errorf("open application home for assurance cleanup: %w", err)
 	}
-	canonical, err := canonicalApplicationHome(home)
-	if err != nil {
-		return nil, closeAssuranceCleanupRootOnError(root, fmt.Errorf("verify application home for assurance cleanup: %w", err))
-	}
-	if !assurancePathEqual(canonical, home) {
-		return nil, closeAssuranceCleanupRootOnError(root, errors.New("application home is not canonical for assurance cleanup"))
-	}
-	expected, err := os.Stat(canonical)
-	if err != nil {
-		return nil, closeAssuranceCleanupRootOnError(root, fmt.Errorf("inspect canonical application home for assurance cleanup: %w", err))
-	}
-	current, err := os.Stat(home)
+	current, err := os.Stat(home.path)
 	if err != nil {
 		return nil, closeAssuranceCleanupRootOnError(root, fmt.Errorf("inspect application home replacement: %w", err))
 	}
@@ -307,7 +338,7 @@ func openVerifiedAssuranceCleanupRoot(home string) (assuranceCleanupRoot, error)
 	if err != nil {
 		return nil, closeAssuranceCleanupRootOnError(root, fmt.Errorf("inspect opened application home for assurance cleanup: %w", err))
 	}
-	if !os.SameFile(rootInfo, expected) || !os.SameFile(rootInfo, current) {
+	if !os.SameFile(rootInfo, home.info) || !os.SameFile(current, home.info) {
 		return nil, closeAssuranceCleanupRootOnError(root, errors.New("application home changed during assurance cleanup validation"))
 	}
 	return root, nil
