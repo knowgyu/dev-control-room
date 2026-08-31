@@ -92,6 +92,7 @@ func fuzzMeasurementManifestSeed() ([]byte, error) {
 		OS:                  "windows",
 		Arch:                "amd64",
 		ToolVersions:        map[string]string{"go": "go1.26.7"},
+		ToolPaths:           map[string]string{"go": `C:\Go\bin\go.exe`},
 		ConfigurationDigest: measurement.SHA256Digest([]byte("fuzz-config-v1")),
 		StartedAt:           time.Date(2026, 8, 31, 8, 0, 0, 0, time.UTC),
 		EndedAt:             time.Date(2026, 8, 31, 8, 0, 1, 0, time.UTC),

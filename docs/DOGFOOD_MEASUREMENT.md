@@ -37,7 +37,11 @@ The runner exits non-zero only when a required fixed check does not pass (or
 the runner cannot complete its own measurement). Coverage and server probing
 are optional; an unavailable optional source is recorded as `unknown` with
 `unavailable` provenance and does not turn a successful required gate into a
-pass for that source.
+pass for that source. A selected HTTP probe attempts every requested request;
+the manifest records request, success, and failure counts plus one fixed safe
+failure reason per failed request. All-success is `pass`, all-failure is
+`fail`, and mixed success/failure is `unknown` with `measured` provenance. A
+mixed probe is not a passing latency result.
 
 ## Contract
 
@@ -53,19 +57,24 @@ score and must not be converted into one.
 Each measurement contains a stable name, category, status, provenance, unit,
 sample count, bounded raw samples, `min`, `p50`, `p95`, `max`, optional
 `baseline` and `delta`, a fixed command identity, and an optional exit code.
-Summary values are absent (`null`) when no valid sample exists. A sampled
-record must have a summary consistent with its raw samples.
+Request-oriented measurements also contain `requestCount`, `successCount`,
+`failureCount`, and bounded `failureReasons`; latency samples contain only
+successful responses. Summary values are absent (`null`) when no valid sample
+exists. A sampled record must have a summary consistent with its raw samples.
 
 The reproducibility envelope contains run ID, commit, HEAD, dirty state,
-operating system, architecture, bounded tool-version strings, configuration
-digest, and UTC start/end timestamps. It deliberately has no repository path,
-output path, secret, raw command output, or arbitrary absolute path.
+operating system, architecture, bounded tool-version strings, verified tool
+executable paths, configuration digest, and UTC start/end timestamps. Tool
+paths are recorded only for verified regular files; a missing path or version
+is recorded as `unavailable`. The envelope has no repository path, output
+path, secret, raw command output, or arbitrary absolute path outside the
+explicit tool provenance field.
 
 ## Metric catalog
 
 | Measurement name | Category | Unit | Source | Required | Meaning |
 | --- | --- | --- | --- | ---: | --- |
-| `quality.gofmt` | quality | milliseconds | fixed `gofmt -l` result | yes | Formatting check duration; any unformatted file fails the check. |
+| `quality.gofmt` | quality | milliseconds | fixed tracked `gofmt -l` result | yes | Formatting check duration; any unformatted file fails the check. |
 | `quality.go.test` | quality | milliseconds | fixed Go test process | yes | Normal Go test gate duration and exit status. |
 | `quality.go.test_race` | quality | milliseconds | fixed Go race-test process | yes | Race-enabled Go test gate duration and exit status. |
 | `quality.go.vet` | quality | milliseconds | fixed `go vet` process | yes | Static vet gate duration and exit status. |
@@ -74,8 +83,8 @@ output path, secret, raw command output, or arbitrary absolute path.
 | `quality.ui.syntax` | quality | milliseconds | fixed Node syntax check | yes | Embedded UI JavaScript syntax gate duration and exit status. |
 | `quality.go.coverage` | quality | milliseconds | optional coverage test process | no | Coverage collection attempt; it does not gate the run. |
 | `quality.go.coverage_percent` | quality | percent | optional `go tool cover` summary | no | Measured total statement coverage when the profile and summary are valid. |
-| `performance.http.health.latency` | performance | milliseconds | bounded loopback GET | no | Latency samples for `/api/health`. |
-| `performance.http.state.latency` | performance | milliseconds | bounded loopback GET | no | Latency samples for `/api/state`. |
+| `performance.http.health.latency` | performance | milliseconds | bounded loopback GET | no | Successful latency samples for `/api/health`, with request outcome counts and safe failure reasons. |
+| `performance.http.state.latency` | performance | milliseconds | bounded loopback GET | no | Successful latency samples for `/api/state`, with request outcome counts and safe failure reasons. |
 | `process.dogfood.run_duration` | process | milliseconds | runner stopwatch | no | Total runner duration. |
 
 The `runtime` category is reserved for future bounded runtime observations; it
@@ -87,9 +96,11 @@ Status and provenance are independent dimensions:
 
 - `pass` means the measured check or observation met its fixed success rule.
 - `fail` means a measured process or HTTP response did not meet that rule.
-- `unknown` means the result cannot be decided from the available evidence.
-- `measured` is reserved for an executed fixed process or completed HTTP
-  response with recorded samples.
+- `unknown` means the result cannot be decided from the available evidence,
+  including a probe with both successes and failures.
+- `measured` is reserved for an executed fixed process or HTTP request batch
+  with recorded outcome evidence; latency samples exist only for successful
+  responses.
 - `estimated` is a human estimate and is never emitted by this runner.
 - `inferred` is a labelled interpretation and is never treated as measured
   evidence.
@@ -98,9 +109,12 @@ Status and provenance are independent dimensions:
 
 An unknown or unavailable measurement is not a pass. The runner preserves raw
 latency/duration samples up to 128 values and rejects non-finite or unbounded
-sample data in the Go contract. Command output is intentionally discarded
-from exported records so test output cannot carry secrets, transcripts, or
-absolute paths across the evidence boundary.
+sample data in the Go contract. For HTTP probes, `sampleCount` equals
+`successCount`; the request counts are the denominator and failure reasons are
+fixed classifications such as `http_status_503`, `request_timeout`, and
+`request_error`. Command output is intentionally discarded from exported
+records so test output cannot carry secrets, transcripts, or arbitrary paths
+across the evidence boundary.
 
 ## Baselines and deltas
 

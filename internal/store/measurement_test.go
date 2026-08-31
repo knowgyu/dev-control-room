@@ -156,6 +156,7 @@ func newStoreMeasurementRun(t *testing.T, id string, endedAt time.Time, duration
 	run, err := measurement.NewRun(measurement.Reproducibility{
 		RunID: id, Commit: strings.Repeat("a", 40), Head: strings.Repeat("b", 40), DirtyState: measurement.DirtyClean,
 		OS: "windows", Arch: "amd64", ToolVersions: map[string]string{"go": "go1.23.0", "powershell": "PowerShell 7.5"},
+		ToolPaths:           map[string]string{"go": `C:\Go\bin\go.exe`, "powershell": `C:\Program Files\PowerShell\pwsh.exe`},
 		ConfigurationDigest: measurement.SHA256Digest([]byte("dogfood-config-v1")), StartedAt: endedAt.Add(-time.Minute), EndedAt: endedAt,
 	}, []measurement.Measurement{durationMeasurement, optional})
 	if err != nil {

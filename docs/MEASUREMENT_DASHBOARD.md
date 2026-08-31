@@ -35,7 +35,10 @@ unknown.
 
    Without `-ProbeServer`, the optional HTTP measurements remain
    `status: unknown` with `provenance: unavailable`. They are not converted to
-   healthy latency values.
+   healthy latency values. With probing enabled, every requested request is
+   attempted. The manifest records request/success/failure counts and fixed
+   failure reasons; all-success is `pass`, all-failure is `fail`, and a mixed
+   result is `unknown` with measured evidence, never a passing aggregate.
 
 3. Open `검증 → 실제 측정 대시보드` and use the browser file picker to choose
    `dogfood-measurement.json`. The browser submits the manifest JSON; there is
@@ -48,12 +51,12 @@ unknown.
 
 5. Repeat the runner after a source/tool/configuration change. The dashboard
    compares the latest run with the prior run only when commit, HEAD, dirty
-   state, configuration digest, platform, and tool-version identity are all
-   known and compatible. Both runs must report `dirtyState: clean`; two dirty
-   runs are explicitly incomparable. A comparison delta is current p50 minus
-   previous p50; p95 is shown when both runs provide it. A different commit,
-   tool version, request configuration, endpoint, or unknown identity is not a
-   comparable baseline.
+   state, configuration digest, platform, tool-version identity, and verified
+   tool paths are all known and compatible. Both runs must report
+   `dirtyState: clean`; two dirty runs are explicitly incomparable. A
+   comparison delta is current p50 minus previous p50; p95 is shown when both
+   runs provide it. A different commit, tool version, tool path, request
+   configuration, endpoint, or unknown identity is not a comparable baseline.
 
    The dashboard state is `comparable` when a prior run meets those rules,
    `missing` when no prior run exists, `incomparable` when prior evidence exists
@@ -73,8 +76,9 @@ The UI uses the following local application-service endpoints:
 | `POST` | `/api/assurance/measurement-runs/import` | Import one bounded JSON manifest; requires the local mutation token |
 
 List, detail, and dashboard responses omit raw samples and command text. They
-retain status, provenance, sample counts, min/p50/p95/max, optional manifest
-baseline/delta, command IDs, required failures, and reproducibility identity.
+retain status, provenance, sample counts, request/success/failure counts,
+failure reasons, min/p50/p95/max, optional manifest baseline/delta, command IDs,
+required failures, and reproducibility identity including verified tool paths.
 The v1 manifest has no separate report/evidence identity field, so the UI
 states that it was not recorded rather than deriving one from a filename.
 

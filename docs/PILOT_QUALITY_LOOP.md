@@ -20,8 +20,8 @@ remains in [`MEASUREMENT_DASHBOARD.md`](MEASUREMENT_DASHBOARD.md).
 | `quality.ui.syntax` | Embedded UI JavaScript syntax result. | Required |
 | `quality.go.coverage` | Whether the optional coverage collection process completed; duration is supporting evidence. | Optional |
 | `quality.go.coverage_percent` | Total statement coverage when the optional profile is valid. | Optional |
-| `performance.http.health.latency` | Bounded latency samples for an explicitly selected loopback `/api/health` probe. | Optional |
-| `performance.http.state.latency` | Bounded latency samples for an explicitly selected loopback `/api/state` probe. | Optional |
+| `performance.http.health.latency` | Successful latency samples for an explicitly selected loopback `/api/health` probe, with request/success/failure counts and safe failure reasons. | Optional |
+| `performance.http.state.latency` | Successful latency samples for an explicitly selected loopback `/api/state` probe, with request/success/failure counts and safe failure reasons. | Optional |
 | `process.dogfood.run_duration` | Total duration of the measurement runner. | Informational |
 
 Use one status per metric or evidence item:
@@ -36,8 +36,10 @@ Use one status per metric or evidence item:
 `unknown` in the v1 manifest is an evidence state, not a pass. Map it to
 `NOT_RUN`, `UNAVAILABLE`, or `INCONCLUSIVE` in the scorecard according to the
 reason, and keep the reason visible. Do not turn optional evidence into a
-passing result. `quality.go.test_race` must use `-count=1`; cached race output
-does not count as a fresh pilot observation.
+passing result. A probe with both successful and failed requests is
+`INCONCLUSIVE`, not `FAIL` or `PASS`; its request counts and fixed failure
+reasons stay visible. `quality.go.test_race` must use `-count=1`; cached race
+output does not count as a fresh pilot observation.
 
 ## Comparison rule
 
@@ -46,7 +48,7 @@ these conditions hold:
 
 1. Both manifests validate as `devroom/measurement/v1` runs.
 2. Both runs have the same commit, HEAD, OS, architecture, configuration
-   digest, and complete tool-version key/value set.
+   digest, complete tool-version key/value set, and verified tool paths.
 3. Both runs report `dirtyState: clean`. A dirty run is never a baseline; two
    dirty runs are explicitly `incomparable`.
 4. The previous run ended before the current run.
@@ -70,10 +72,15 @@ pwsh -NoProfile -File .\scripts\verify-measurement-contract.ps1 -ManifestPath .\
 pwsh -NoProfile -File .\scripts\measure-dogfood.ps1 -OutputDirectory .\artifacts\dogfood -ProbeServer -ServerUri http://127.0.0.1:38471 -RequestCount 5
 ```
 
+`quality.gofmt` checks only tracked Go files from `git ls-files`; its manifest
+provenance uses the actual verified `gofmt` executable and its own build
+version. If that executable cannot run or its version cannot be established,
+the measurement remains unknown rather than borrowing the `go.exe` version.
+
 The fixed source gate and proportional verification commands are:
 
 ```powershell
-gofmt -l (git ls-files '*.go')
+gofmt -l (git ls-files --cached -- '*.go')
 go test -count=1 ./...
 $env:CGO_ENABLED = "1"; go test -count=1 -race ./...
 go vet ./...

@@ -221,6 +221,51 @@ func TestMeasurementImportPreservesUnknownAndUnavailableSeparately(t *testing.T)
 	}
 }
 
+func TestMeasurementImportPreservesHTTPProbeOutcomeCounts(t *testing.T) {
+	service, err := New(t.TempDir(), "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	mixed, err := measurement.NewMeasurement(measurement.MeasurementInput{
+		ID:             "performance-http-health",
+		Name:           "performance.http.health.latency",
+		Category:       measurement.CategoryPerformance,
+		Status:         measurement.StatusUnknown,
+		Provenance:     measurement.ProvenanceMeasured,
+		Unit:           "milliseconds",
+		Samples:        []float64{10, 20, 30, 40},
+		RequestCount:   5,
+		SuccessCount:   4,
+		FailureCount:   1,
+		FailureReasons: []string{"http_status_503"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := newAppMeasurementRun(t, "dogfood-probe-counts", time.Date(2026, 8, 31, 3, 2, 3, 0, time.UTC), 120)
+	run.Spec.Measurements[1] = mixed
+	if err := run.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	response := postMeasurementManifest(t, service, measurementManifestJSON(t, run))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	var envelope contract.Envelope[MeasurementRunSummary]
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data == nil || len(envelope.Data.Measurements) != 2 {
+		t.Fatalf("import response = %#v", envelope)
+	}
+	probe := envelope.Data.Measurements[1]
+	if probe.Status != measurement.StatusUnknown || probe.RequestCount != 5 || probe.SuccessCount != 4 || probe.FailureCount != 1 || len(probe.FailureReasons) != 1 || probe.FailureReasons[0] != "http_status_503" {
+		t.Fatalf("probe outcome summary = %#v", probe)
+	}
+}
+
 func TestComparableMeasurementRunsRequiresCleanWorktrees(t *testing.T) {
 	latest := measurementRunSummary(newAppMeasurementRun(
 		t,
@@ -279,6 +324,11 @@ func TestComparableMeasurementRunsRequiresCleanWorktrees(t *testing.T) {
 				t.Fatalf("comparableMeasurementRuns() = %v, want %v", got, test.want)
 			}
 		})
+	}
+	withoutToolPaths := latest
+	withoutToolPaths.ToolPaths = nil
+	if comparableMeasurementRuns(latest, withoutToolPaths) {
+		t.Fatal("run without verified tool paths was considered comparable")
 	}
 }
 
@@ -403,6 +453,7 @@ func newAppMeasurementRun(t *testing.T, id string, endedAt time.Time, duration f
 	run, err := measurement.NewRun(measurement.Reproducibility{
 		RunID: id, Commit: strings.Repeat("a", 40), Head: strings.Repeat("b", 40), DirtyState: measurement.DirtyClean,
 		OS: "windows", Arch: "amd64", ToolVersions: map[string]string{"go": "go1.23.0", "powershell": "PowerShell 7.5"},
+		ToolPaths:           map[string]string{"go": `C:\Go\bin\go.exe`, "powershell": `C:\Program Files\PowerShell\pwsh.exe`},
 		ConfigurationDigest: measurement.SHA256Digest([]byte("dogfood-config-v1")), StartedAt: endedAt.Add(-time.Minute), EndedAt: endedAt,
 	}, []measurement.Measurement{durationMeasurement, optional})
 	if err != nil {

@@ -2,7 +2,6 @@ package app
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -1674,23 +1673,7 @@ func decodeMeasurementManifest(response http.ResponseWriter, request *http.Reque
 	if body == nil {
 		body = http.NoBody
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(response, body, measurement.MaxManifestBytes))
-	decoder.DisallowUnknownFields()
-	var item measurement.Run
-	if err := decoder.Decode(&item); err != nil {
-		return measurement.Run{}, err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err == nil {
-			return measurement.Run{}, errors.New("measurement manifest contains multiple JSON values")
-		}
-		return measurement.Run{}, err
-	}
-	if err := item.Validate(); err != nil {
-		return measurement.Run{}, err
-	}
-	return item, nil
+	return measurement.DecodeManifest(http.MaxBytesReader(response, body, measurement.MaxManifestBytes))
 }
 
 func readBody(response http.ResponseWriter, request *http.Request) ([]byte, error) {

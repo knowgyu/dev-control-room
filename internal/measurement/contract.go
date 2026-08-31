@@ -14,13 +14,15 @@ import (
 )
 
 const (
-	APIVersion          = "devroom/measurement/v1"
-	MeasurementRunKind  = "DogfoodMeasurementRun"
-	MeasurementKind     = "Measurement"
-	MaxManifestBytes    = 512 << 10
-	MaxMeasurements     = 128
-	MaxToolVersions     = 32
-	MaxRequiredFailures = 128
+	APIVersion            = "devroom/measurement/v1"
+	MeasurementRunKind    = "DogfoodMeasurementRun"
+	MeasurementKind       = "Measurement"
+	MaxManifestBytes      = 512 << 10
+	MaxMeasurements       = 128
+	MaxToolVersions       = 32
+	MaxRequiredFailures   = 128
+	MaxToolPathBytes      = 512
+	MaxFailureReasonBytes = 128
 )
 
 type Category string
@@ -87,6 +89,7 @@ type Reproducibility struct {
 	OS                  string            `json:"os"`
 	Arch                string            `json:"arch"`
 	ToolVersions        map[string]string `json:"toolVersions"`
+	ToolPaths           map[string]string `json:"toolPaths,omitempty"`
 	ConfigurationDigest string            `json:"configurationDigest"`
 	StartedAt           time.Time         `json:"startedAt"`
 	EndedAt             time.Time         `json:"endedAt"`
@@ -102,39 +105,47 @@ type Measurement struct {
 }
 
 type MeasurementSpec struct {
-	Name        string     `json:"name"`
-	Category    Category   `json:"category"`
-	Status      Status     `json:"status"`
-	Provenance  Provenance `json:"provenance"`
-	Unit        string     `json:"unit"`
-	SampleCount int        `json:"sampleCount"`
-	RawSamples  []float64  `json:"rawSamples"`
-	Min         *float64   `json:"min"`
-	P50         *float64   `json:"p50"`
-	P95         *float64   `json:"p95"`
-	Max         *float64   `json:"max"`
-	Baseline    *float64   `json:"baseline,omitempty"`
-	Delta       *float64   `json:"delta,omitempty"`
-	CommandID   string     `json:"commandId,omitempty"`
-	Command     string     `json:"command,omitempty"`
-	ExitCode    *int       `json:"exitCode,omitempty"`
-	Required    bool       `json:"required"`
+	Name           string     `json:"name"`
+	Category       Category   `json:"category"`
+	Status         Status     `json:"status"`
+	Provenance     Provenance `json:"provenance"`
+	Unit           string     `json:"unit"`
+	SampleCount    int        `json:"sampleCount"`
+	RawSamples     []float64  `json:"rawSamples"`
+	RequestCount   int        `json:"requestCount"`
+	SuccessCount   int        `json:"successCount"`
+	FailureCount   int        `json:"failureCount"`
+	FailureReasons []string   `json:"failureReasons"`
+	Min            *float64   `json:"min"`
+	P50            *float64   `json:"p50"`
+	P95            *float64   `json:"p95"`
+	Max            *float64   `json:"max"`
+	Baseline       *float64   `json:"baseline,omitempty"`
+	Delta          *float64   `json:"delta,omitempty"`
+	CommandID      string     `json:"commandId,omitempty"`
+	Command        string     `json:"command,omitempty"`
+	ExitCode       *int       `json:"exitCode,omitempty"`
+	Required       bool       `json:"required"`
 }
 
 type MeasurementInput struct {
-	ID         string
-	Name       string
-	Category   Category
-	Status     Status
-	Provenance Provenance
-	Unit       string
-	Samples    []float64
-	Baseline   *float64
-	Delta      *float64
-	CommandID  string
-	Command    string
-	ExitCode   *int
-	Required   bool
+	ID             string
+	Name           string
+	Category       Category
+	Status         Status
+	Provenance     Provenance
+	Unit           string
+	Samples        []float64
+	RequestCount   int
+	SuccessCount   int
+	FailureCount   int
+	FailureReasons []string
+	Baseline       *float64
+	Delta          *float64
+	CommandID      string
+	Command        string
+	ExitCode       *int
+	Required       bool
 }
 
 var (
@@ -148,7 +159,8 @@ var (
 func NewMeasurement(input MeasurementInput) (Measurement, error) {
 	samples := append([]float64{}, input.Samples...)
 	summary, err := Summarize(samples)
-	if errors.Is(err, ErrNoSamples) && input.Status == StatusUnknown {
+	noSampleFailure := input.Status == StatusFail && input.RequestCount > 0 && input.SuccessCount == 0 && input.FailureCount == input.RequestCount
+	if errors.Is(err, ErrNoSamples) && (input.Status == StatusUnknown || noSampleFailure) {
 		summary = Summary{}
 		err = nil
 	}
@@ -160,23 +172,27 @@ func NewMeasurement(input MeasurementInput) (Measurement, error) {
 		Kind:       MeasurementKind,
 		Metadata:   ObjectMetadata{ID: input.ID},
 		Spec: MeasurementSpec{
-			Name:        input.Name,
-			Category:    input.Category,
-			Status:      input.Status,
-			Provenance:  input.Provenance,
-			Unit:        input.Unit,
-			SampleCount: len(samples),
-			RawSamples:  samples,
-			Min:         summary.Min,
-			P50:         summary.P50,
-			P95:         summary.P95,
-			Max:         summary.Max,
-			Baseline:    cloneFloatPointer(input.Baseline),
-			Delta:       cloneFloatPointer(input.Delta),
-			CommandID:   input.CommandID,
-			Command:     input.Command,
-			ExitCode:    cloneIntPointer(input.ExitCode),
-			Required:    input.Required,
+			Name:           input.Name,
+			Category:       input.Category,
+			Status:         input.Status,
+			Provenance:     input.Provenance,
+			Unit:           input.Unit,
+			SampleCount:    len(samples),
+			RawSamples:     samples,
+			RequestCount:   input.RequestCount,
+			SuccessCount:   input.SuccessCount,
+			FailureCount:   input.FailureCount,
+			FailureReasons: append([]string{}, input.FailureReasons...),
+			Min:            summary.Min,
+			P50:            summary.P50,
+			P95:            summary.P95,
+			Max:            summary.Max,
+			Baseline:       cloneFloatPointer(input.Baseline),
+			Delta:          cloneFloatPointer(input.Delta),
+			CommandID:      input.CommandID,
+			Command:        input.Command,
+			ExitCode:       cloneIntPointer(input.ExitCode),
+			Required:       input.Required,
 		},
 	}
 	if err := measurement.Validate(); err != nil {
@@ -269,6 +285,17 @@ func (r Reproducibility) Validate() error {
 			return errors.New("measurement reproducibility tool version is invalid")
 		}
 	}
+	if r.ToolPaths != nil && len(r.ToolPaths) > MaxToolVersions {
+		return errors.New("measurement reproducibility tool paths are invalid")
+	}
+	for name, path := range r.ToolPaths {
+		if !validID(name) || !validToolPath(path) {
+			return errors.New("measurement reproducibility tool path is invalid")
+		}
+		if _, exists := r.ToolVersions[name]; !exists {
+			return errors.New("measurement reproducibility tool path has no version")
+		}
+	}
 	if !digestPattern.MatchString(r.ConfigurationDigest) || r.StartedAt.IsZero() || r.EndedAt.IsZero() || r.EndedAt.Before(r.StartedAt) {
 		return errors.New("measurement reproducibility digest or time range is invalid")
 	}
@@ -282,11 +309,15 @@ func (m Measurement) Validate() error {
 	if !validSafeText(m.Spec.Name, 128) || !validCategory(m.Spec.Category) || !validStatus(m.Spec.Status) || !validProvenance(m.Spec.Provenance) || !unitPattern.MatchString(m.Spec.Unit) {
 		return errors.New("measurement identity or classification is invalid")
 	}
+	if err := validateRequestEvidence(m.Spec); err != nil {
+		return err
+	}
 	if m.Spec.SampleCount < 0 || m.Spec.SampleCount > MaxRawSamples || m.Spec.SampleCount != len(m.Spec.RawSamples) || m.Spec.RawSamples == nil {
 		return errors.New("measurement raw samples are invalid or unbounded")
 	}
 	if m.Spec.SampleCount == 0 {
-		if m.Spec.Status != StatusUnknown || anySummaryPresent(m.Spec) || m.Spec.Provenance == ProvenanceMeasured {
+		failureOnlyProbe := m.Spec.RequestCount > 0 && m.Spec.Status == StatusFail && m.Spec.Provenance == ProvenanceMeasured && m.Spec.FailureCount == m.Spec.RequestCount
+		if (!failureOnlyProbe && m.Spec.Status != StatusUnknown) || anySummaryPresent(m.Spec) || (!failureOnlyProbe && m.Spec.Provenance == ProvenanceMeasured) {
 			return errors.New("zero-sample measurement must be unknown and unsourced")
 		}
 	} else {
@@ -358,6 +389,31 @@ func validID(value string) bool {
 
 func validToken(value string) bool {
 	return idPattern.MatchString(value) && !strings.Contains(value, ":")
+}
+
+func validToolPath(value string) bool {
+	if value == "unavailable" {
+		return true
+	}
+	if value == "" || len(value) > MaxToolPathBytes || strings.TrimSpace(value) != value || !utf8.ValidString(value) || strings.ContainsAny(value, "*?<>|\"") {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	isWindowsPath := len(value) >= 3 && isASCIIAlpha(value[0]) && value[1] == ':' && (value[2] == '/' || value[2] == '\\')
+	isUnixPath := strings.HasPrefix(value, "/")
+	if !isWindowsPath && !isUnixPath {
+		return false
+	}
+	for _, segment := range strings.FieldsFunc(value, func(character rune) bool { return character == '/' || character == '\\' }) {
+		if segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func validCommit(value string) bool {
@@ -483,6 +539,39 @@ func anySummaryPresent(spec MeasurementSpec) bool {
 	return spec.Min != nil || spec.P50 != nil || spec.P95 != nil || spec.Max != nil
 }
 
+func validateRequestEvidence(spec MeasurementSpec) error {
+	if spec.RequestCount < 0 || spec.RequestCount > MaxRawSamples || spec.SuccessCount < 0 || spec.SuccessCount > MaxRawSamples || spec.FailureCount < 0 || spec.FailureCount > MaxRawSamples {
+		return errors.New("measurement request counts are invalid or unbounded")
+	}
+	if spec.RequestCount == 0 {
+		if spec.SuccessCount != 0 || spec.FailureCount != 0 || len(spec.FailureReasons) != 0 {
+			return errors.New("measurement request counts are inconsistent")
+		}
+		return nil
+	}
+	if spec.SuccessCount+spec.FailureCount != spec.RequestCount || spec.SampleCount != spec.SuccessCount || len(spec.FailureReasons) != spec.FailureCount {
+		return errors.New("measurement request evidence is inconsistent")
+	}
+	for _, reason := range spec.FailureReasons {
+		if !validSafeText(reason, MaxFailureReasonBytes) {
+			return errors.New("measurement failure reason is invalid")
+		}
+	}
+	var expectedStatus Status
+	switch {
+	case spec.FailureCount == 0:
+		expectedStatus = StatusPass
+	case spec.SuccessCount == 0:
+		expectedStatus = StatusFail
+	default:
+		expectedStatus = StatusUnknown
+	}
+	if spec.Status != expectedStatus || spec.Provenance != ProvenanceMeasured {
+		return errors.New("measurement request status or provenance is inconsistent")
+	}
+	return nil
+}
+
 func sameSummary(spec MeasurementSpec, summary Summary) bool {
 	return sameFloatPointer(spec.Min, summary.Min) && sameFloatPointer(spec.P50, summary.P50) && sameFloatPointer(spec.P95, summary.P95) && sameFloatPointer(spec.Max, summary.Max)
 }
@@ -509,6 +598,7 @@ func sameStrings(left, right []string) bool {
 func cloneMeasurement(value Measurement) Measurement {
 	clone := value
 	clone.Spec.RawSamples = append([]float64{}, value.Spec.RawSamples...)
+	clone.Spec.FailureReasons = append([]string{}, value.Spec.FailureReasons...)
 	clone.Spec.Min = cloneFloatPointer(value.Spec.Min)
 	clone.Spec.P50 = cloneFloatPointer(value.Spec.P50)
 	clone.Spec.P95 = cloneFloatPointer(value.Spec.P95)
@@ -524,6 +614,12 @@ func cloneReproducibility(value Reproducibility) Reproducibility {
 	clone.ToolVersions = make(map[string]string, len(value.ToolVersions))
 	for name, version := range value.ToolVersions {
 		clone.ToolVersions[name] = version
+	}
+	if value.ToolPaths != nil {
+		clone.ToolPaths = make(map[string]string, len(value.ToolPaths))
+		for name, path := range value.ToolPaths {
+			clone.ToolPaths[name] = path
+		}
 	}
 	return clone
 }

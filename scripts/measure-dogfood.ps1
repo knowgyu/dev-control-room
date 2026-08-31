@@ -23,6 +23,7 @@ $script:measurementList = [System.Collections.Generic.List[object]]::new()
 $script:resultRows = [System.Collections.Generic.List[object]]::new()
 $script:requiredFailures = [System.Collections.Generic.List[string]]::new()
 $script:toolVersions = [ordered]@{}
+$script:toolPaths = [ordered]@{}
 $script:coverageProfileName = ""
 $script:runnerFailure = $false
 $script:startedAt = [DateTime]::UtcNow
@@ -99,6 +100,26 @@ function Get-CommandPath {
     return [string]$command.Source
 }
 
+function Get-VerifiedCommandPath {
+    param([string]$Name)
+
+    $path = Get-CommandPath -Name $Name
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        return ""
+    }
+    try {
+        $fullPath = [IO.Path]::GetFullPath($path)
+        $item = Get-Item -LiteralPath $fullPath -Force -ErrorAction Stop
+        if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            return ""
+        }
+        return $fullPath
+    }
+    catch {
+        return ""
+    }
+}
+
 function Invoke-ReadOnlyProcess {
     param(
         [string]$FilePath,
@@ -166,6 +187,30 @@ function Get-SafeToolVersion {
     return $value
 }
 
+function Get-GofmtVersion {
+    param(
+        [string]$GoPath,
+        [string]$GofmtPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($GoPath) -or [string]::IsNullOrWhiteSpace($GofmtPath)) {
+        return "unavailable"
+    }
+    $result = Invoke-ReadOnlyProcess -FilePath $GoPath -Arguments @("version", "-m", $GofmtPath) -MaxLines 64
+    if (-not $result.Started -or $result.ExitCode -ne 0 -or @($result.Lines).Count -eq 0) {
+        return "unavailable"
+    }
+    $hasGofmtBuildPath = @($result.Lines | Where-Object { ([string]$_).Trim() -match "^path\s+cmd/gofmt$" }).Count -eq 1
+    $versionLine = ([string]$result.Lines[0]).Trim()
+    if (-not $hasGofmtBuildPath) {
+        return "unavailable"
+    }
+    if ($versionLine -notmatch "\s(go[0-9][^\s]*)$") {
+        return "unavailable"
+    }
+    return [string]$matches[1]
+}
+
 function Get-GitMetadata {
     param([string]$GitPath)
 
@@ -190,7 +235,7 @@ function Get-RepositoryGoFiles {
     if ([string]::IsNullOrWhiteSpace($GitPath)) {
         return @()
     }
-    $result = Invoke-ReadOnlyProcess -FilePath $GitPath -Arguments @("-C", $repositoryRoot, "ls-files", "--cached", "--others", "--exclude-standard", "--", "*.go") -MaxLines 4096
+    $result = Invoke-ReadOnlyProcess -FilePath $GitPath -Arguments @("-C", $repositoryRoot, "ls-files", "--cached", "--", "*.go") -MaxLines 4096
     if (-not $result.Started -or $result.ExitCode -ne 0 -or $result.Overflow) {
         return @()
     }
@@ -245,11 +290,12 @@ function Get-SampleSummary {
     if ($normalized.Count -eq 0) {
         return [pscustomobject]@{ Min = $null; P50 = $null; P95 = $null; Max = $null; Samples = @() }
     }
+    $sorted = @($normalized | Sort-Object)
     return [pscustomobject]@{
-        Min = [math]::Round(([double]($normalized | Sort-Object)[0]), 3)
-        P50 = [math]::Round((Get-PercentileValue -Samples $normalized -Percentile 50), 3)
-        P95 = [math]::Round((Get-PercentileValue -Samples $normalized -Percentile 95), 3)
-        Max = [math]::Round(([double]($normalized | Sort-Object)[-1]), 3)
+        Min = [double]$sorted[0]
+        P50 = Get-PercentileValue -Samples $normalized -Percentile 50
+        P95 = Get-PercentileValue -Samples $normalized -Percentile 95
+        Max = [double]$sorted[-1]
         Samples = $normalized
     }
 }
@@ -263,6 +309,10 @@ function New-MeasurementRecord {
         [string]$Provenance,
         [string]$Unit,
         [double[]]$Samples = @(),
+        [int]$RequestCountValue = 0,
+        [int]$SuccessCountValue = 0,
+        [int]$FailureCountValue = 0,
+        [string[]]$FailureReasonsValue = @(),
         [object]$Baseline = $null,
         [object]$Delta = $null,
         [string]$CommandID = "",
@@ -287,6 +337,10 @@ function New-MeasurementRecord {
             unit = $Unit
             sampleCount = @($summary.Samples).Count
             rawSamples = @($summary.Samples)
+            requestCount = $RequestCountValue
+            successCount = $SuccessCountValue
+            failureCount = $FailureCountValue
+            failureReasons = @($FailureReasonsValue)
             min = $summary.Min
             p50 = $summary.P50
             p95 = $summary.P95
@@ -304,8 +358,7 @@ function New-MeasurementRecord {
 function Add-ResultRow {
     param(
         [System.Collections.IDictionary]$Measurement,
-        [string]$DisplayCommand,
-        [int]$RequestCountValue = 0
+        [string]$DisplayCommand
     )
 
     $spec = $Measurement.spec
@@ -316,23 +369,25 @@ function Add-ResultRow {
         Provenance = [string]$spec.provenance
         Unit = [string]$spec.unit
         Samples = [int]$spec.sampleCount
+        RequestCount = [int]$spec.requestCount
+        SuccessCount = [int]$spec.successCount
+        FailureCount = [int]$spec.failureCount
+        FailureReasons = @($spec.failureReasons)
         P50 = $spec.p50
         P95 = $spec.p95
         ExitCode = $spec.exitCode
         Required = [bool]$spec.required
-        RequestCount = $RequestCountValue
     })
 }
 
 function Add-Measurement {
     param(
         [System.Collections.IDictionary]$Measurement,
-        [string]$DisplayCommand,
-        [int]$RequestCountValue = 0
+        [string]$DisplayCommand
     )
 
     [void]$script:measurementList.Add($Measurement)
-    Add-ResultRow -Measurement $Measurement -DisplayCommand $DisplayCommand -RequestCountValue $RequestCountValue
+    Add-ResultRow -Measurement $Measurement -DisplayCommand $DisplayCommand
 }
 
 function Invoke-QualityCheck {
@@ -344,7 +399,8 @@ function Invoke-QualityCheck {
         [string]$FilePath,
         [string[]]$Arguments = @(),
         [bool]$Required = $true,
-        [bool]$FailOnOutput = $false
+        [bool]$FailOnOutput = $false,
+        [string]$ProvenanceTool = ""
     )
 
     $result = Invoke-ReadOnlyProcess -FilePath $FilePath -Arguments $Arguments
@@ -356,7 +412,10 @@ function Invoke-QualityCheck {
         $samples = @([double]$result.DurationMilliseconds)
         $exitCode = $result.ExitCode
         if ($null -ne $result.ExitCode) {
-            $status = if ($result.ExitCode -eq 0 -and (-not $FailOnOutput -or -not $result.OutputSeen)) { "pass" } else { "fail" }
+            $versionKnown = [string]::IsNullOrWhiteSpace($ProvenanceTool) -or [string]$script:toolVersions[$ProvenanceTool] -ne "unavailable"
+            if ($versionKnown) {
+                $status = if ($result.ExitCode -eq 0 -and (-not $FailOnOutput -or -not $result.OutputSeen)) { "pass" } else { "fail" }
+            }
             $provenance = "measured"
             if ($FailOnOutput -and $result.OutputSeen -and $result.ExitCode -eq 0) {
                 $exitCode = 1
@@ -456,7 +515,10 @@ function Invoke-ServerProbe {
     )
 
     $samples = [System.Collections.Generic.List[double]]::new()
-    $badStatus = $false
+    $failureReasons = [System.Collections.Generic.List[string]]::new()
+    $requestCountValue = 0
+    $successCountValue = 0
+    $failureCountValue = 0
     $handler = $null
     $client = $null
     try {
@@ -466,21 +528,31 @@ function Invoke-ServerProbe {
         $client = [Net.Http.HttpClient]::new($handler)
         $client.Timeout = [TimeSpan]::FromSeconds($RequestTimeoutSeconds)
         for ($index = 0; $index -lt $RequestCount; $index++) {
+            $requestCountValue++
             $timer = [Diagnostics.Stopwatch]::StartNew()
             $response = $null
             try {
                 $response = $client.GetAsync($Origin + $Path, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
                 $timer.Stop()
-                [void]$samples.Add([math]::Round($timer.Elapsed.TotalMilliseconds, 3))
-                if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) {
-                    $badStatus = $true
+                $statusCode = [int]$response.StatusCode
+                if ($statusCode -ge 200 -and $statusCode -lt 300) {
+                    $successCountValue++
+                    [void]$samples.Add([math]::Round($timer.Elapsed.TotalMilliseconds, 3))
                 }
+                else {
+                    $failureCountValue++
+                    [void]$failureReasons.Add("http_status_" + $statusCode)
+                }
+            }
+            catch [System.Threading.Tasks.TaskCanceledException] {
+                $timer.Stop()
+                $failureCountValue++
+                [void]$failureReasons.Add("request_timeout")
             }
             catch {
                 $timer.Stop()
-                if ($samples.Count -eq 0) {
-                    break
-                }
+                $failureCountValue++
+                [void]$failureReasons.Add("request_error")
             }
             finally {
                 if ($null -ne $response) {
@@ -490,7 +562,7 @@ function Invoke-ServerProbe {
         }
     }
     catch {
-        $samples.Clear()
+        # A failure before the first request remains unavailable; counted requests are measured below.
     }
     finally {
         if ($null -ne $client) {
@@ -502,12 +574,12 @@ function Invoke-ServerProbe {
     }
     $status = "unknown"
     $provenance = "unavailable"
-    if ($samples.Count -gt 0) {
-        $status = if ($badStatus) { "fail" } else { "pass" }
+    if ($requestCountValue -gt 0) {
+        $status = if ($failureCountValue -eq 0) { "pass" } elseif ($successCountValue -eq 0) { "fail" } else { "unknown" }
         $provenance = "measured"
     }
-    $measurement = New-MeasurementRecord -ID $ID -Name ("performance.http." + $CommandID + ".latency") -Category "performance" -Status $status -Provenance $provenance -Unit "milliseconds" -Samples @($samples) -CommandID ("http.get." + $CommandID) -Command ("GET " + $Path) -Required $false
-    Add-Measurement -Measurement $measurement -DisplayCommand ("GET " + $Path) -RequestCountValue $RequestCount
+    $measurement = New-MeasurementRecord -ID $ID -Name ("performance.http." + $CommandID + ".latency") -Category "performance" -Status $status -Provenance $provenance -Unit "milliseconds" -Samples @($samples) -RequestCountValue $requestCountValue -SuccessCountValue $successCountValue -FailureCountValue $failureCountValue -FailureReasonsValue @($failureReasons) -CommandID ("http.get." + $CommandID) -Command ("GET " + $Path) -Required $false
+    Add-Measurement -Measurement $measurement -DisplayCommand ("GET " + $Path)
 }
 
 function Add-UnavailableServerProbe {
@@ -559,11 +631,12 @@ function Write-Report {
     [void]$lines.Add("")
     [void]$lines.Add("## Measurements")
     [void]$lines.Add("")
-    [void]$lines.Add("| ID | Command | Required | Status | Provenance | Samples | P50 | P95 | Exit code |")
-    [void]$lines.Add("| --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: |")
+    [void]$lines.Add("| ID | Command | Required | Status | Provenance | Requests | Successes | Failures | Failure reasons | Samples | P50 | P95 | Exit code |")
+    [void]$lines.Add("| --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |")
     foreach ($row in @($script:resultRows)) {
         $exitCode = if ($null -eq $row.ExitCode) { "unknown" } else { [string]$row.ExitCode }
-        [void]$lines.Add(("| {0}{1}{0} | {0}{2}{0} | {3} | {0}{4}{0} | {0}{5}{0} | {6} | {7} | {8} | {9} |" -f $markdownCode, $row.ID, $row.Command, $row.Required, $row.Status, $row.Provenance, $row.Samples, (Format-ReportValue $row.P50), (Format-ReportValue $row.P95), $exitCode))
+        $failureReasons = if (@($row.FailureReasons).Count -eq 0) { "none" } else { @($row.FailureReasons) -join ", " }
+        [void]$lines.Add(("| {0}{1}{0} | {0}{2}{0} | {3} | {0}{4}{0} | {0}{5}{0} | {6} | {7} | {8} | {0}{9}{0} | {10} | {11} | {12} | {13} |" -f $markdownCode, $row.ID, $row.Command, $row.Required, $row.Status, $row.Provenance, $row.RequestCount, $row.SuccessCount, $row.FailureCount, $failureReasons, $row.Samples, (Format-ReportValue $row.P50), (Format-ReportValue $row.P95), $exitCode))
     }
     [void]$lines.Add("")
     $requiredFailureText = "none"
@@ -572,7 +645,7 @@ function Write-Report {
     }
     [void]$lines.Add("Required failures: " + $requiredFailureText)
     [void]$lines.Add("")
-    [void]$lines.Add(("The JSON manifest preserves bounded raw samples. {0}unknown{0} and {0}unavailable{0} are not passes; they mean that comparable evidence was not obtained. Command output is intentionally not embedded in this report." -f $markdownCode))
+    [void]$lines.Add(("Probe counts are attempted requests with successful latency samples kept separately; a mixed success/failure probe is {0}unknown{0}, never {0}pass{0}. Failure reasons are fixed safe classifications. {0}unknown{0} and {0}unavailable{0} are not passes. Command output is intentionally not embedded in this report." -f $markdownCode))
     if (-not [string]::IsNullOrWhiteSpace($script:coverageProfileName)) {
         [void]$lines.Add(("Coverage profile artifact: {0}{1}{0}" -f $markdownCode, $script:coverageProfileName))
     }
@@ -604,6 +677,7 @@ function Write-Manifest {
                 os = $script:os
                 arch = $script:arch
                 toolVersions = $script:toolVersions
+                toolPaths = $script:toolPaths
                 configurationDigest = $ConfigurationDigest
                 startedAt = $script:startedAt.ToString("o")
                 endedAt = $EndedAt
@@ -623,18 +697,24 @@ $serverOrigin = Get-ServerOrigin
 $script:runID = "dogfood-" + [guid]::NewGuid().ToString("N")
 $script:os = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) { "windows" } elseif ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Linux)) { "linux" } else { "other" }
 $script:arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-$gitPath = Get-CommandPath "git"
-$goPath = Get-CommandPath "go"
-$gofmtPath = Get-CommandPath "gofmt"
-$nodePath = Get-CommandPath "node"
+$gitPath = Get-VerifiedCommandPath "git"
+$goPath = Get-VerifiedCommandPath "go"
+$gofmtPath = Get-VerifiedCommandPath "gofmt"
+$nodePath = Get-VerifiedCommandPath "node"
+$pwshPath = Get-VerifiedCommandPath "pwsh"
 $gitMetadata = Get-GitMetadata -GitPath $gitPath
 $script:toolVersions.git = Get-SafeToolVersion -FilePath $gitPath -Arguments @("--version")
 $script:toolVersions.go = Get-SafeToolVersion -FilePath $goPath -Arguments @("version")
-$script:toolVersions.gofmt = if ([string]::IsNullOrWhiteSpace($gofmtPath)) { "unavailable" } else { $script:toolVersions.go }
+$script:toolVersions.gofmt = Get-GofmtVersion -GoPath $goPath -GofmtPath $gofmtPath
 $script:toolVersions.node = Get-SafeToolVersion -FilePath $nodePath -Arguments @("--version")
 $script:toolVersions.powershell = "PowerShell " + $PSVersionTable.PSVersion.ToString()
+$script:toolPaths.git = if ([string]::IsNullOrWhiteSpace($gitPath)) { "unavailable" } else { $gitPath }
+$script:toolPaths.go = if ([string]::IsNullOrWhiteSpace($goPath)) { "unavailable" } else { $goPath }
+$script:toolPaths.gofmt = if ([string]::IsNullOrWhiteSpace($gofmtPath)) { "unavailable" } else { $gofmtPath }
+$script:toolPaths.node = if ([string]::IsNullOrWhiteSpace($nodePath)) { "unavailable" } else { $nodePath }
+$script:toolPaths.powershell = if ([string]::IsNullOrWhiteSpace($pwshPath)) { "unavailable" } else { $pwshPath }
 $fixedChecks = @(
-    [ordered]@{ id = "gofmt"; command = "gofmt -l [repository Go files]"; required = $true },
+    [ordered]@{ id = "gofmt"; command = "gofmt -l [tracked repository Go files]"; required = $true },
     [ordered]@{ id = "go-test"; command = "go test -count=1 ./..."; required = $true },
     [ordered]@{ id = "go-test-race"; command = "go test -count=1 -race ./..."; required = $true },
     [ordered]@{ id = "go-vet"; command = "go vet ./..."; required = $true },
@@ -654,7 +734,7 @@ $configurationDigest = "sha256:" + ([Convert]::ToHexString([Security.Cryptograph
 $goFiles = Get-RepositoryGoFiles -GitPath $gitPath
 
 try {
-    Invoke-QualityCheck -ID "quality-gofmt" -Name "quality.gofmt" -CommandID "gofmt.check" -DisplayCommand "gofmt -l [repository Go files]" -FilePath $gofmtPath -Arguments (@("-l") + @($goFiles)) -Required $true -FailOnOutput ($goFiles.Count -gt 0) | Out-Null
+    Invoke-QualityCheck -ID "quality-gofmt" -Name "quality.gofmt" -CommandID "gofmt.check" -DisplayCommand "gofmt -l [tracked repository Go files]" -FilePath $gofmtPath -Arguments (@("-l") + @($goFiles)) -Required $true -FailOnOutput ($goFiles.Count -gt 0) -ProvenanceTool "gofmt" | Out-Null
     Invoke-QualityCheck -ID "quality-go-test" -Name "quality.go.test" -CommandID "go.test" -DisplayCommand "go test -count=1 ./..." -FilePath $goPath -Arguments @("test", "-count=1", "./...") -Required $true | Out-Null
     Invoke-WithEnvironment @{ CGO_ENABLED = "1" } {
         Invoke-QualityCheck -ID "quality-go-test-race" -Name "quality.go.test_race" -CommandID "go.test.race" -DisplayCommand "go test -count=1 -race ./..." -FilePath $goPath -Arguments @("test", "-count=1", "-race", "./...") -Required $true | Out-Null

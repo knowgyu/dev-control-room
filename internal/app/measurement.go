@@ -31,6 +31,7 @@ type MeasurementRunSummary struct {
 	OS                  string                 `json:"os"`
 	Arch                string                 `json:"arch"`
 	ToolVersions        map[string]string      `json:"toolVersions"`
+	ToolPaths           map[string]string      `json:"toolPaths,omitempty"`
 	ConfigurationDigest string                 `json:"configurationDigest"`
 	StartedAt           time.Time              `json:"startedAt"`
 	EndedAt             time.Time              `json:"endedAt"`
@@ -39,22 +40,26 @@ type MeasurementRunSummary struct {
 }
 
 type MeasurementSummary struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Category    measurement.Category   `json:"category"`
-	Status      measurement.Status     `json:"status"`
-	Provenance  measurement.Provenance `json:"provenance"`
-	Unit        string                 `json:"unit"`
-	SampleCount int                    `json:"sampleCount"`
-	Min         *float64               `json:"min"`
-	P50         *float64               `json:"p50"`
-	P95         *float64               `json:"p95"`
-	Max         *float64               `json:"max"`
-	Baseline    *float64               `json:"baseline,omitempty"`
-	Delta       *float64               `json:"delta,omitempty"`
-	CommandID   string                 `json:"commandId,omitempty"`
-	ExitCode    *int                   `json:"exitCode,omitempty"`
-	Required    bool                   `json:"required"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Category       measurement.Category   `json:"category"`
+	Status         measurement.Status     `json:"status"`
+	Provenance     measurement.Provenance `json:"provenance"`
+	Unit           string                 `json:"unit"`
+	SampleCount    int                    `json:"sampleCount"`
+	RequestCount   int                    `json:"requestCount"`
+	SuccessCount   int                    `json:"successCount"`
+	FailureCount   int                    `json:"failureCount"`
+	FailureReasons []string               `json:"failureReasons"`
+	Min            *float64               `json:"min"`
+	P50            *float64               `json:"p50"`
+	P95            *float64               `json:"p95"`
+	Max            *float64               `json:"max"`
+	Baseline       *float64               `json:"baseline,omitempty"`
+	Delta          *float64               `json:"delta,omitempty"`
+	CommandID      string                 `json:"commandId,omitempty"`
+	ExitCode       *int                   `json:"exitCode,omitempty"`
+	Required       bool                   `json:"required"`
 }
 
 type MeasurementComparison struct {
@@ -152,6 +157,12 @@ func measurementRunSummary(item measurement.Run) MeasurementRunSummary {
 	for name, version := range reproducibility.ToolVersions {
 		summary.ToolVersions[name] = version
 	}
+	if reproducibility.ToolPaths != nil {
+		summary.ToolPaths = make(map[string]string, len(reproducibility.ToolPaths))
+		for name, path := range reproducibility.ToolPaths {
+			summary.ToolPaths[name] = path
+		}
+	}
 	for _, current := range item.Spec.Measurements {
 		summary.Measurements = append(summary.Measurements, measurementSummary(current))
 	}
@@ -161,22 +172,26 @@ func measurementRunSummary(item measurement.Run) MeasurementRunSummary {
 func measurementSummary(item measurement.Measurement) MeasurementSummary {
 	spec := item.Spec
 	return MeasurementSummary{
-		ID:          item.Metadata.ID,
-		Name:        spec.Name,
-		Category:    spec.Category,
-		Status:      spec.Status,
-		Provenance:  spec.Provenance,
-		Unit:        spec.Unit,
-		SampleCount: spec.SampleCount,
-		Min:         cloneMeasurementFloat(spec.Min),
-		P50:         cloneMeasurementFloat(spec.P50),
-		P95:         cloneMeasurementFloat(spec.P95),
-		Max:         cloneMeasurementFloat(spec.Max),
-		Baseline:    cloneMeasurementFloat(spec.Baseline),
-		Delta:       cloneMeasurementFloat(spec.Delta),
-		CommandID:   spec.CommandID,
-		ExitCode:    cloneMeasurementInt(spec.ExitCode),
-		Required:    spec.Required,
+		ID:             item.Metadata.ID,
+		Name:           spec.Name,
+		Category:       spec.Category,
+		Status:         spec.Status,
+		Provenance:     spec.Provenance,
+		Unit:           spec.Unit,
+		SampleCount:    spec.SampleCount,
+		RequestCount:   spec.RequestCount,
+		SuccessCount:   spec.SuccessCount,
+		FailureCount:   spec.FailureCount,
+		FailureReasons: append([]string{}, spec.FailureReasons...),
+		Min:            cloneMeasurementFloat(spec.Min),
+		P50:            cloneMeasurementFloat(spec.P50),
+		P95:            cloneMeasurementFloat(spec.P95),
+		Max:            cloneMeasurementFloat(spec.Max),
+		Baseline:       cloneMeasurementFloat(spec.Baseline),
+		Delta:          cloneMeasurementFloat(spec.Delta),
+		CommandID:      spec.CommandID,
+		ExitCode:       cloneMeasurementInt(spec.ExitCode),
+		Required:       spec.Required,
 	}
 }
 
@@ -247,6 +262,14 @@ func comparableMeasurementRuns(left, right MeasurementRunSummary) bool {
 			return false
 		}
 	}
+	if len(left.ToolPaths) != len(right.ToolPaths) {
+		return false
+	}
+	for name, path := range left.ToolPaths {
+		if right.ToolPaths[name] != path {
+			return false
+		}
+	}
 	return right.EndedAt.Before(left.EndedAt)
 }
 
@@ -257,11 +280,18 @@ func knownMeasurementRunIdentity(item MeasurementRunSummary) bool {
 		}
 	}
 	if (item.DirtyState != measurement.DirtyClean && item.DirtyState != measurement.DirtyDirty) ||
-		len(item.ToolVersions) == 0 {
+		len(item.ToolVersions) == 0 || len(item.ToolPaths) != len(item.ToolVersions) {
 		return false
 	}
-	for _, version := range item.ToolVersions {
+	for name, version := range item.ToolVersions {
 		if version == "" || version == "unknown" || version == "unavailable" {
+			return false
+		}
+		path, exists := item.ToolPaths[name]
+		if !exists {
+			return false
+		}
+		if path == "" || path == "unknown" || path == "unavailable" {
 			return false
 		}
 	}
@@ -312,10 +342,10 @@ func measurementComparisons(latest MeasurementRunSummary, previous *MeasurementR
 		actions = append(actions, MeasurementNextAction{Code: "unavailable_probe", Label: "사용할 수 없는 측정값 확인", Reason: "측정되지 않았거나 사용할 수 없는 항목: " + strings.Join(unknownNames, ", ")})
 	}
 	if !knownMeasurementRunIdentity(latest) {
-		actions = append(actions, MeasurementNextAction{Code: "incomplete_reproducibility", Label: "재현성 metadata 보완", Reason: "commit, HEAD, 변경 상태, 플랫폼, 구성 digest, 도구 버전이 모두 알려진 manifest를 가져오세요."})
+		actions = append(actions, MeasurementNextAction{Code: "incomplete_reproducibility", Label: "재현성 metadata 보완", Reason: "commit, HEAD, 변경 상태, 플랫폼, 구성 digest, 도구 버전, 실행 도구 경로가 모두 알려진 manifest를 가져오세요."})
 	}
 	if previous == nil && knownMeasurementRunIdentity(latest) && latest.DirtyState == measurement.DirtyClean {
-		actions = append(actions, MeasurementNextAction{Code: "missing_comparable_baseline", Label: "비교 가능한 이전 실행 없음", Reason: "같은 commit, HEAD, 구성 digest, 플랫폼, 도구 버전의 이전 실행을 가져오세요."})
+		actions = append(actions, MeasurementNextAction{Code: "missing_comparable_baseline", Label: "비교 가능한 이전 실행 없음", Reason: "같은 commit, HEAD, 구성 digest, 플랫폼, 도구 버전, 실행 도구 경로의 이전 실행을 가져오세요."})
 	}
 	if len(regressionNames) > 0 {
 		actions = append(actions, MeasurementNextAction{Code: "regression_comparable_metric", Label: "비교 가능한 지표 회귀", Reason: "이전 비교 실행보다 불리해진 지표: " + strings.Join(regressionNames, ", ")})

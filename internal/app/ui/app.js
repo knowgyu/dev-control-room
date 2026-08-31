@@ -1333,15 +1333,23 @@
     const tone = measurementTone(item.status);
     const baseline = item.baseline === null || item.baseline === undefined ? "기록 없음" : measurementValue(item.baseline, item.unit);
     const delta = item.delta === null || item.delta === undefined ? "기록 없음" : measurementSignedValue(item.delta, item.unit);
+    const requestCount = Number(item.requestCount || 0);
+    const successCount = Number(item.successCount || 0);
+    const failureCount = Number(item.failureCount || 0);
+    const requestDetail = requestCount > 0
+      ? `요청 ${formatCount(requestCount)}회 · 성공 ${formatCount(successCount)}회 · 실패 ${formatCount(failureCount)}회`
+      : `표본 ${formatCount(item.sampleCount)}개`;
+    const mixedProbeNote = successCount > 0 && failureCount > 0 ? " · 성공·실패 혼합으로 결론 불가" : "";
+    const failureReasons = (item.failureReasons || []).map(reason => `<code translate="no">${escapeHTML(reason)}</code>`).join("<br>");
     const comparisonText = comparison?.state === "comparable"
       ? `이전 p50 ${measurementValue(comparison.previousP50, item.unit)} · Δ ${measurementSignedValue(comparison.deltaP50, item.unit)}`
       : `이전 비교 ${measurementStateLabel(comparison?.state || "unavailable")}`;
     return `<article class="measurement-metric measurement-metric--${tone}" data-measurement-id="${escapeHTML(item.id)}">
       <header class="measurement-metric-heading"><div><h4>${escapeHTML(measurementMetricLabel(item.name))}</h4><code translate="no">${escapeHTML(item.id)}</code></div><span class="chip ${tone}">${escapeHTML(measurementStatusLabel(item.status))}</span></header>
       <div class="measurement-values"><div><span>p50</span><strong>${escapeHTML(measurementValue(item.p50, item.unit))}</strong></div><div><span>p95</span><strong>${escapeHTML(measurementValue(item.p95, item.unit))}</strong></div></div>
-      <p class="meta">표본 ${escapeHTML(formatCount(item.sampleCount))}개 · ${escapeHTML(measurementProvenanceLabel(item.provenance))} · ${escapeHTML(item.unit || "단위 미상")}</p>
+      <p class="meta">${escapeHTML(requestDetail)}${escapeHTML(mixedProbeNote)} · ${escapeHTML(measurementProvenanceLabel(item.provenance))} · ${escapeHTML(item.unit || "단위 미상")}</p>
       <p class="measurement-comparison-note">${escapeHTML(comparisonText)}</p>
-      <details><summary>측정 근거 보기</summary><dl class="detail-grid"><div><dt>최솟값 · 최댓값</dt><dd>${escapeHTML(measurementValue(item.min, item.unit))} · ${escapeHTML(measurementValue(item.max, item.unit))}</dd></div><div><dt>manifest baseline</dt><dd>${escapeHTML(baseline)}</dd></div><div><dt>manifest delta</dt><dd>${escapeHTML(delta)}</dd></div><div><dt>command ID</dt><dd><code translate="no">${escapeHTML(item.commandId || "기록 없음")}</code></dd></div><div><dt>종료 코드</dt><dd>${escapeHTML(item.exitCode === null || item.exitCode === undefined ? "기록 없음" : item.exitCode)}</dd></div><div><dt>필수 여부</dt><dd>${item.required ? "필수" : "선택"}</dd></div></dl></details>
+      <details><summary>측정 근거 보기</summary><dl class="detail-grid"><div><dt>최솟값 · 최댓값</dt><dd>${escapeHTML(measurementValue(item.min, item.unit))} · ${escapeHTML(measurementValue(item.max, item.unit))}</dd></div><div><dt>요청 결과</dt><dd>${escapeHTML(requestDetail)}</dd></div>${failureReasons ? `<div class="wide"><dt>실패 원인</dt><dd>${failureReasons}</dd></div>` : ""}<div><dt>manifest baseline</dt><dd>${escapeHTML(baseline)}</dd></div><div><dt>manifest delta</dt><dd>${escapeHTML(delta)}</dd></div><div><dt>command ID</dt><dd><code translate="no">${escapeHTML(item.commandId || "기록 없음")}</code></dd></div><div><dt>종료 코드</dt><dd>${escapeHTML(item.exitCode === null || item.exitCode === undefined ? "기록 없음" : item.exitCode)}</dd></div><div><dt>필수 여부</dt><dd>${item.required ? "필수" : "선택"}</dd></div></dl></details>
     </article>`;
   }
 
@@ -1407,7 +1415,8 @@
     const container = document.getElementById("assurance-measurement-reproducibility");
     if (!container) return;
     const tools = Object.entries(latest.toolVersions || {}).sort(([left], [right]) => left.localeCompare(right)).map(([name, version]) => `<code translate="no">${escapeHTML(name)}=${escapeHTML(version)}</code>`).join("<br>");
-    container.innerHTML = `<dl class="detail-grid"><div><dt>run ID</dt><dd><code translate="no">${escapeHTML(latest.runId)}</code></dd></div><div><dt>상태</dt><dd>${escapeHTML(measurementStatusLabel(latest.status))}</dd></div><div><dt>commit</dt><dd><code translate="no">${escapeHTML(latest.commit || "알 수 없음")}</code></dd></div><div><dt>HEAD</dt><dd><code translate="no">${escapeHTML(latest.head || "알 수 없음")}</code></dd></div><div><dt>변경 상태</dt><dd>${escapeHTML(latest.dirtyState || "알 수 없음")}</dd></div><div><dt>플랫폼</dt><dd>${escapeHTML([latest.os, latest.arch].filter(Boolean).join(" · ") || "알 수 없음")}</dd></div><div class="wide"><dt>구성 digest</dt><dd><code translate="no">${escapeHTML(latest.configurationDigest || "기록 없음")}</code></dd></div><div class="wide"><dt>도구 버전</dt><dd>${tools || "기록 없음"}</dd></div><div><dt>시작</dt><dd>${escapeHTML(formatDate(latest.startedAt))}</dd></div><div><dt>종료</dt><dd>${escapeHTML(formatDate(latest.endedAt))}</dd></div><div class="wide"><dt>보고서·근거 식별자</dt><dd>v1 manifest에 별도 기록 없음 · command ID는 각 측정값에 표시</dd></div></dl>`;
+    const toolPaths = Object.entries(latest.toolPaths || {}).sort(([left], [right]) => left.localeCompare(right)).map(([name, path]) => `<code translate="no">${escapeHTML(name)}=${escapeHTML(path)}</code>`).join("<br>");
+    container.innerHTML = `<dl class="detail-grid"><div><dt>run ID</dt><dd><code translate="no">${escapeHTML(latest.runId)}</code></dd></div><div><dt>상태</dt><dd>${escapeHTML(measurementStatusLabel(latest.status))}</dd></div><div><dt>commit</dt><dd><code translate="no">${escapeHTML(latest.commit || "알 수 없음")}</code></dd></div><div><dt>HEAD</dt><dd><code translate="no">${escapeHTML(latest.head || "알 수 없음")}</code></dd></div><div><dt>변경 상태</dt><dd>${escapeHTML(latest.dirtyState || "알 수 없음")}</dd></div><div><dt>플랫폼</dt><dd>${escapeHTML([latest.os, latest.arch].filter(Boolean).join(" · ") || "알 수 없음")}</dd></div><div class="wide"><dt>구성 digest</dt><dd><code translate="no">${escapeHTML(latest.configurationDigest || "기록 없음")}</code></dd></div><div class="wide"><dt>도구 버전</dt><dd>${tools || "기록 없음"}</dd></div><div class="wide"><dt>실행 도구 경로</dt><dd>${toolPaths || "기록 없음"}</dd></div><div><dt>시작</dt><dd>${escapeHTML(formatDate(latest.startedAt))}</dd></div><div><dt>종료</dt><dd>${escapeHTML(formatDate(latest.endedAt))}</dd></div><div class="wide"><dt>보고서·근거 식별자</dt><dd>v1 manifest에 별도 기록 없음 · command ID는 각 측정값에 표시</dd></div></dl>`;
   }
 
   function renderAssuranceMeasurementDashboard() {

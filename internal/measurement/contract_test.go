@@ -61,6 +61,94 @@ func TestNewMeasurementAllowsUnavailableUnknownWithoutSamples(t *testing.T) {
 	}
 }
 
+func TestMeasurementRequestEvidenceKeepsPartialProbesUnknown(t *testing.T) {
+	tests := []struct {
+		name           string
+		status         Status
+		requestCount   int
+		successCount   int
+		failureCount   int
+		failureReasons []string
+		samples        []float64
+		wantError      bool
+	}{
+		{
+			name:           "partial probe is unknown",
+			status:         StatusUnknown,
+			requestCount:   5,
+			successCount:   4,
+			failureCount:   1,
+			failureReasons: []string{"http_status_503"},
+			samples:        []float64{1, 2, 3, 4},
+		},
+		{
+			name:           "partial probe cannot be pass",
+			status:         StatusPass,
+			requestCount:   5,
+			successCount:   4,
+			failureCount:   1,
+			failureReasons: []string{"request_timeout"},
+			samples:        []float64{1, 2, 3, 4},
+			wantError:      true,
+		},
+		{
+			name:         "partial probe requires failure reasons",
+			status:       StatusUnknown,
+			requestCount: 5,
+			successCount: 4,
+			failureCount: 1,
+			samples:      []float64{1, 2, 3, 4},
+			wantError:    true,
+		},
+		{
+			name:           "all failed probe is fail",
+			status:         StatusFail,
+			requestCount:   3,
+			failureCount:   3,
+			failureReasons: []string{"http_status_500", "http_status_500", "http_status_500"},
+		},
+		{
+			name:           "failure reason cannot contain a path",
+			status:         StatusUnknown,
+			requestCount:   2,
+			successCount:   1,
+			failureCount:   1,
+			failureReasons: []string{`C:\secret\failure`},
+			samples:        []float64{1},
+			wantError:      true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			item, err := NewMeasurement(MeasurementInput{
+				ID:             "performance-http-health",
+				Name:           "performance.http.health.latency",
+				Category:       CategoryPerformance,
+				Status:         test.status,
+				Provenance:     ProvenanceMeasured,
+				Unit:           "milliseconds",
+				Samples:        test.samples,
+				RequestCount:   test.requestCount,
+				SuccessCount:   test.successCount,
+				FailureCount:   test.failureCount,
+				FailureReasons: test.failureReasons,
+			})
+			if (err != nil) != test.wantError {
+				t.Fatalf("NewMeasurement() error = %v, want error = %v", err, test.wantError)
+			}
+			if test.wantError {
+				return
+			}
+			if item.Spec.Status != test.status || item.Spec.SampleCount != test.successCount || item.Spec.FailureCount != test.failureCount {
+				t.Fatalf("request evidence = %#v", item.Spec)
+			}
+			if test.failureCount == test.requestCount && item.Spec.P50 != nil {
+				t.Fatalf("all-failed probe has a latency summary: %#v", item.Spec)
+			}
+		})
+	}
+}
+
 func TestNewMeasurementRejectsInvalidSampleData(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -124,7 +212,8 @@ func TestRunJSONRoundTripAndRequiredGate(t *testing.T) {
 		DirtyState:          DirtyClean,
 		OS:                  "windows",
 		Arch:                "amd64",
-		ToolVersions:        map[string]string{"go": "go1.26.7", "node": "v24.15.0"},
+		ToolVersions:        map[string]string{"go": "go1.26.7", "gofmt": "go1.26.7", "node": "v24.15.0"},
+		ToolPaths:           map[string]string{"gofmt": `C:\Program Files\Go\bin\gofmt.exe`},
 		ConfigurationDigest: digest,
 		StartedAt:           now,
 		EndedAt:             now.Add(time.Second),
@@ -184,7 +273,8 @@ func TestRunRejectsUnsafeOrInconsistentRecords(t *testing.T) {
 					DirtyState:          DirtyClean,
 					OS:                  "windows",
 					Arch:                "amd64",
-					ToolVersions:        map[string]string{"go": "go1.26.7"},
+					ToolVersions:        map[string]string{"go": "go1.26.7", "gofmt": "go1.26.7"},
+					ToolPaths:           map[string]string{"gofmt": `C:\Program Files\Go\bin\gofmt.exe`},
 					ConfigurationDigest: SHA256Digest([]byte("config")),
 					StartedAt:           now,
 					EndedAt:             now.Add(time.Second),
@@ -204,6 +294,8 @@ func TestRunRejectsUnsafeOrInconsistentRecords(t *testing.T) {
 		{name: "embedded Windows tool version path", mutate: func(run *Run) { run.Spec.Reproducibility.ToolVersions["go"] = `go1.26.7 C:\\Go\\bin` }},
 		{name: "embedded UNC tool version path", mutate: func(run *Run) { run.Spec.Reproducibility.ToolVersions["go"] = `go1.26.7 \\server\go` }},
 		{name: "embedded Unix tool version path", mutate: func(run *Run) { run.Spec.Reproducibility.ToolVersions["go"] = `go1.26.7 /usr/local/go` }},
+		{name: "tool path traversal", mutate: func(run *Run) { run.Spec.Reproducibility.ToolPaths["gofmt"] = `C:\Go\..\bin\gofmt.exe` }},
+		{name: "tool path without matching version", mutate: func(run *Run) { delete(run.Spec.Reproducibility.ToolVersions, "gofmt") }},
 		{name: "sample count mismatch", mutate: func(run *Run) { run.Spec.Measurements[0].Spec.SampleCount = 2 }},
 		{name: "required status mismatch", mutate: func(run *Run) { run.Spec.Status = StatusFail; run.Spec.RequiredFailures = []string{"other"} }},
 		{name: "absolute tool version", mutate: func(run *Run) { run.Spec.Reproducibility.ToolVersions["go"] = `C:\\Go\\bin` }},
