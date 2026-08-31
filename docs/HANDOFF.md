@@ -2,6 +2,20 @@
 
 Updated: 2026-08-31
 
+## 2026-08-31 v0.15.1 reproducible measurement foundation patch release
+
+The v0.15.1 candidate is based on commit `f193287a5749757b0e0e0cc7d37c14bdf153c3d5`.
+It adds the versioned dogfood measurement contract, deterministic bounded
+summaries, the native PowerShell runner, and the static manifest validator.
+The clean committed dogfood run recorded 12 measurements with the required
+gate passing, 57.9% total statement coverage, and both optional server metrics
+as `unknown` with `unavailable` provenance because no loopback probe was
+selected. The exact source and package records are in
+[RELEASE_NOTES_v0.15.1.md](RELEASE_NOTES_v0.15.1.md) and
+[VERIFICATION_v0.15.1.md](VERIFICATION_v0.15.1.md). The release package policy
+remains one Windows amd64 ZIP plus `SHA256SUMS`; arm64 is verification-only and
+Linux is not a release target.
+
 ## 2026-08-30 v0.14.0 quality improvement release
 
 Source candidate `6543ca67139f2e86545a338b960116b4f5dc32d8` adds the
