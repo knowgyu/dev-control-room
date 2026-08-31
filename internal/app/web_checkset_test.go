@@ -512,7 +512,40 @@ func embeddedUIAsset(t *testing.T, service *App, path, contentType string) strin
 	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, contentType) {
 		t.Fatalf("GET %s content type = %q, want prefix %q", path, got, contentType)
 	}
-	return recorder.Body.String()
+	return normalizeEmbeddedUIText(recorder.Body.String())
+}
+
+func normalizeEmbeddedUIText(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	return strings.ReplaceAll(value, "\r", "\n")
+}
+
+func TestNormalizeEmbeddedUITextPreservesBoundarySearchAcrossLineEndings(t *testing.T) {
+	const lfSource = "async function loadQualityHome() {}\n\n  async function loadAssuranceTrace() {}"
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{name: "LF", source: lfSource},
+		{name: "CRLF", source: strings.ReplaceAll(lfSource, "\n", "\r\n")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			javascript := normalizeEmbeddedUIText(test.source)
+			start := strings.Index(javascript, "async function loadQualityHome")
+			if start < 0 {
+				t.Fatal("normalized UI is missing the loader")
+			}
+			end := strings.Index(javascript[start:], "\n\n  async function loadAssuranceTrace")
+			if end < 0 {
+				t.Fatal("normalized UI loader has no end boundary")
+			}
+			if got := javascript[start : start+end]; got != "async function loadQualityHome() {}" {
+				t.Fatalf("normalized UI loader = %q", got)
+			}
+		})
+	}
 }
 
 func TestEmbeddedUIChecksetProtectedHandlerFlow(t *testing.T) {
