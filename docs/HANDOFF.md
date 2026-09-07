@@ -2,9 +2,9 @@
 
 Updated: 2026-09-07
 
-## 2026-09-07 v0.16.0 clean candidate checkpoint
+## 2026-09-07 v0.16.0 release checkpoint
 
-The clean candidate is commit `8e9e6e24c9ee3b3896f13abd7a93202ecc45ed38` with
+The released commit is `804faf0ea8c84ea182cacd9b07322d5b984dc555` with
 binary version `0.16.0`. Authoritative clean dogfood run
 `dogfood-e125339045844519a9e99a79e21142d5` passed all required checks, recorded
 58.7% statement coverage, health 5/5 (p50 0.434 ms, p95 17.284 ms), state 5/5
@@ -19,8 +19,10 @@ resilience 15 assertions, and current browser checks for seven routes with one
 `h1` each, main focus, no overflow at 1244px/485px CSS widths, guide slide 2
 reload persistence, zero console errors, and real-repository registration with
 read-only scan. The 390px override rendered at 485px actual width; no 390px
-claim is made. Package, CI, and publication remain pending. Go 1.23 runtime,
-mutation, and causal quality-score evidence remain unrun/unproven.
+claim is made. Successor GitHub CI passed Windows/Linux tests, race, vet,
+build, and module verification. The Windows amd64 ZIP was published,
+downloaded, hash-verified, and launched successfully. Mutation testing and
+causal quality-score evidence remain unrun/unproven.
 
 ## Historical 2026-09-07 quality-first pilot resume checkpoint
 

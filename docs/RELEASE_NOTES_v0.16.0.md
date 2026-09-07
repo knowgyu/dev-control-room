@@ -1,8 +1,7 @@
 # Dev Control Room v0.16.0
 
-Prepublication candidate record. The source version is now `0.16.0`. The clean
-candidate measurement is complete; package, CI, and publication evidence remain
-pending.
+Released 2026-09-07. The source version is `0.16.0`, and the Windows amd64
+package, CI, and remote asset verification are complete.
 
 v0.16.0 is the quality-first pilot persistence and measurement-safety slice
 from `v0.15.2..e216acb`.
@@ -47,11 +46,18 @@ required-gate `PASS`, 58.7%, and both HTTP probes at 5/5.
 The first Windows CI attempt did exercise the Go 1.23.0 toolchain, but its
 aggregate result was not release evidence: PowerShell masked native failures,
 and the log exposed path-fixture and storage-test failures. The follow-up
-workflow and test-fixture corrections make no production-code changes; successor
-CI, binary/package smoke, and publication remain pending. Mutation testing and
-a causal quality score remain unrun/unestablished.
+workflow and test-fixture corrections made no production-code changes. The
+successor CI passed all Windows/Linux tests, race, vet, build, and module
+verification checks. Mutation testing and a causal quality score remain
+unrun/unestablished.
 
 ## Release assets
 
 The release target is one Windows amd64 ZIP plus `SHA256SUMS`. Windows arm64 is
 verification-only; Linux and arm64 release packages are not published.
+
+Published commit/tag: `804faf0ea8c84ea182cacd9b07322d5b984dc555` / `v0.16.0`.
+The ZIP SHA-256 is
+`134592f7d0a680e026435d0ef8058e852c832b828939f5a60383d125c3cfa10c`.
+The published assets were downloaded, rehashed, extracted, and launched
+successfully on Windows amd64.

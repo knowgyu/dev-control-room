@@ -1,12 +1,12 @@
 # v0.16.0 verification record
 
-Status: **PREPUBLICATION** — clean candidate measurement and scoped acceptance passed; successor CI, package, and publication remain pending.
-Publication: **PENDING**.
-Binary/package: **PENDING**.
+Status: **RELEASED** — clean candidate measurement, scoped acceptance, successor CI, packaging, and remote asset verification passed.
+Publication: **COMPLETE** — tag `v0.16.0`.
+Binary/package: **COMPLETE** — Windows amd64 ZIP only.
 Date of available evidence: 2026-09-07.
 
-This is the candidate verification record before publication; pending items are
-not release claims.
+This record contains both the candidate evidence and the final publication
+evidence. Historical candidate limitations remain explicitly marked below.
 
 ## Candidate and scope
 
@@ -95,18 +95,18 @@ the diff check for `scripts/measure-dogfood.ps1` and
   and module verification, but it is not a passing release gate: PowerShell
   masked native exit codes and the log exposed path-fixture and storage-test
   failures. The successor workflow/test-fixture correction changes no
-  production code; its CI result is pending. The Go 1.23 build-tag test was not
+  production code; its CI result passed. The Go 1.23 build-tag test was not
   run.
 - Mutation campaign: **not run**.
 - Causal quality score/improvement: **not run/unproven**.
 
-## Final evidence pending from main
+## Final publication evidence
 
 | Evidence | Status |
 | --- | --- |
-| v0.16.0 Windows amd64 binary, ZIP, archive smoke, and SHA-256 | **PENDING** |
-| Successor CI result for the final candidate | **PENDING** |
-| Tag, publication, and remote asset/hash verification | **PENDING** |
+| v0.16.0 Windows amd64 binary, ZIP, archive smoke, and SHA-256 | **PASS** — `134592f7d0a680e026435d0ef8058e852c832b828939f5a60383d125c3cfa10c` |
+| Successor CI result for the final candidate | **PASS** — Windows/Linux tests, race, vet, build, and module verification |
+| Tag, publication, and remote asset/hash verification | **PASS** — `v0.16.0`, downloaded and launched successfully |
 
 When completed, the release output must contain only:
 

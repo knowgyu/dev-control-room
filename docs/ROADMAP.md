@@ -10,18 +10,18 @@ product-usability work is separately planned in
 Historical plans and verification documents remain evidence; they are not
 instructions to rerun completed work.
 
-Current repository status (2026-09-07): clean v0.16.0 candidate
-`8e9e6e24c9ee3b3896f13abd7a93202ecc45ed38`. Dogfood run
+Current repository status (2026-09-07): released v0.16.0 at
+`804faf0ea8c84ea182cacd9b07322d5b984dc555`. Dogfood run
 `dogfood-e125339045844519a9e99a79e21142d5` passed all required checks with
 58.7% coverage, health/state 5/5 probes, validator/import/dashboard checks,
 and the populated browser dashboard confirms the exact run ID with required-gate
-PASS. The scoped journey/native/browser acceptance passed. Package, CI, and
-publication remain pending. Go 1.23 runtime, mutation, and causal quality
-score evidence remain unrun/unproven.
+PASS. The scoped journey/native/browser acceptance passed. Windows/Linux CI,
+Windows amd64 packaging, publication, and downloaded-binary verification passed.
+Mutation testing and causal quality score evidence remain unrun/unproven.
 
 | Area | Current status | Source of truth |
 | --- | --- | --- |
-| Quality-first pilot / v0.16.0 | Clean candidate `8e9e6e2`; dogfood PASS, 58.7% coverage, health/state probes 5/5, journeys 373 PASS, native resilience 15 PASS, browser scoped acceptance PASS; package, CI, publication, Go 1.23 runtime, mutation, and causal score remain pending/unproven | [RELEASE_NOTES_v0.16.0.md](RELEASE_NOTES_v0.16.0.md), [VERIFICATION_v0.16.0.md](VERIFICATION_v0.16.0.md), and docs/HANDOFF.md |
+| Quality-first pilot / v0.16.0 | Released `804faf0`; dogfood PASS, 58.7% coverage, health/state probes 5/5, journeys 373 PASS, native resilience 15 PASS, browser scoped acceptance PASS, successor CI/package/publication PASS; mutation and causal score remain unrun/unproven | [RELEASE_NOTES_v0.16.0.md](RELEASE_NOTES_v0.16.0.md), [VERIFICATION_v0.16.0.md](VERIFICATION_v0.16.0.md), and docs/HANDOFF.md |
 | P0 local control plane | implemented and accepted | milestone verification documents and docs/HANDOFF.md |
 | P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
 | P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |
