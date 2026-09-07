@@ -1,7 +1,7 @@
 # Roadmap
 
 Status: active status index
-Updated: 2026-08-28
+Updated: 2026-09-07
 
 The active detailed feature plan is Phase 1,
 [AI_CODE_ASSURANCE_PLAN.md](AI_CODE_ASSURANCE_PLAN.md). Its follow-on Phase 2
@@ -10,8 +10,17 @@ product-usability work is separately planned in
 Historical plans and verification documents remain evidence; they are not
 instructions to rerun completed work.
 
+Current repository status (2026-09-07): [RESUME_2026-09-07.md](RESUME_2026-09-07.md).
+At the resume/verification base `2a95404`, v0.15.2 is published and the
+regression slice is locally verified with the reviewed dirty changes. The
+native Full record is PASS for all 10 steps in
+`artifacts/verification-resume-20260907`; it used Go 1.26.7 native Windows.
+Go 1.23 native execution and the Go 1.23 build-tag test were not run. Clean
+pilot baseline, browser UI acceptance, and release evidence remain pending.
+
 | Area | Current status | Source of truth |
 | --- | --- | --- |
+| Quality-first pilot / v0.16.0 | v0.15.2 published; 2026-09-07 regression slice locally verified at resume/verification base `2a95404` with dirty changes; native Full artifact PASS, all 10 steps; Go 1.23 native execution and build-tag test not run; clean-baseline/browser, mutation, causal, and release evidence remain pending | [RESUME_2026-09-07.md](RESUME_2026-09-07.md) and docs/HANDOFF.md |
 | P0 local control plane | implemented and accepted | milestone verification documents and docs/HANDOFF.md |
 | P1 configured project/release foundation | source implemented; native 0.5.0 UI/provider/cleanup/release acceptance has recorded gaps | docs/HANDOFF.md and docs/NATIVE_WINDOWS_SMOKE.md |
 | P2 Agent Profiles, Handoff, MCP, safeguards | implemented foundation; managed assurance expansion is active | docs/AI_INTEGRATION.md and docs/AI_CODE_ASSURANCE_PLAN.md |

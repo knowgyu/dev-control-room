@@ -41,6 +41,12 @@ type assuranceHomeSnapshot struct {
 // authoritative: every referenced path is preserved, and every deletion is
 // confined to the canonical application home.
 func (a *App) cleanupOrphanedAssuranceFiles(ctx context.Context) error {
+	if !assuranceCleanupRootSupported() {
+		// Go 1.23 has no os.Root equivalent. Do not fall back to an
+		// unanchored path delete; defer janitor cleanup until a runtime with
+		// directory-handle support is available.
+		return nil
+	}
 	home, err := snapshotCanonicalApplicationHome(a.home)
 	if err != nil {
 		return fmt.Errorf("resolve application home for assurance cleanup: %w", err)
@@ -53,12 +59,21 @@ func (a *App) cleanupOrphanedAssuranceFiles(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list assurance proposals for startup cleanup: %w", err)
 	}
-	references := newAssurancePathReferences(len(artifacts) + len(proposals))
+	invocations, err := a.AgentInvocations(ctx)
+	if err != nil {
+		return fmt.Errorf("list agent invocations for startup cleanup: %w", err)
+	}
+	references := newAssurancePathReferences(len(artifacts) + len(proposals) + len(invocations))
 	for _, artifact := range artifacts {
 		references.add(artifact.Spec.Path)
 	}
 	for _, proposal := range proposals {
 		references.add(proposal.Spec.IsolationPath)
+	}
+	for _, invocation := range invocations {
+		if invocationMayHavePreparedArtifact(invocation.Spec.State) {
+			references.add(preparedAgentInvocationArtifactPath(home.path, invocation.Metadata.ID))
+		}
 	}
 	if err := cleanupOrphanedAssuranceArtifactsAt(home, references); err != nil {
 		return fmt.Errorf("clean assurance artifact directory: %w", err)

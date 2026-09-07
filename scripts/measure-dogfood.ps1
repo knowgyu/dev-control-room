@@ -137,7 +137,6 @@ function Invoke-ReadOnlyProcess {
         if ([string]::IsNullOrWhiteSpace($FilePath)) {
             return [pscustomobject]@{ Started = $false; ExitCode = $null; OutputSeen = $false; Overflow = $false; Lines = @(); DurationMilliseconds = 0 }
         }
-        $started = $true
         & $FilePath @Arguments 2>&1 | ForEach-Object {
             $outputSeen = $true
             if ($MaxLines -gt 0 -and $lines.Count -lt $MaxLines) {
@@ -147,6 +146,7 @@ function Invoke-ReadOnlyProcess {
                 $overflow = $true
             }
         }
+        $started = $true
         if ($null -eq $LASTEXITCODE) {
             $exitCode = 0
         }
@@ -652,8 +652,28 @@ function Write-Report {
     [IO.File]::WriteAllLines($reportPath, $lines, [Text.UTF8Encoding]::new($false))
 }
 
+function Assert-CanonicalManifest {
+    param(
+        [string]$GoPath,
+        [string]$Path
+    )
+
+    $result = Invoke-ReadOnlyProcess -FilePath $GoPath -Arguments @("run", "./cmd/verify-measurement-contract", "--manifest", $Path) -MaxLines 128
+    if (-not $result.Started) {
+        throw "canonical Go measurement validator could not be started"
+    }
+    if ($null -eq $result.ExitCode -or $result.ExitCode -ne 0) {
+        $detail = @($result.Lines | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join " "
+        if ([string]::IsNullOrWhiteSpace($detail)) {
+            throw "canonical Go measurement validator failed with exit code $($result.ExitCode)"
+        }
+        throw "canonical Go measurement validator failed: $detail"
+    }
+}
+
 function Write-Manifest {
     param(
+        [string]$GoPath,
         [string]$Status,
         [string]$Commit,
         [string]$Head,
@@ -686,7 +706,17 @@ function Write-Manifest {
         }
     }
     $json = $manifest | ConvertTo-Json -Depth 20
-    [IO.File]::WriteAllText($manifestPath, $json, [Text.UTF8Encoding]::new($false))
+    $temporaryPath = Join-Path $outputPath (".dogfood-measurement-" + [guid]::NewGuid().ToString("N") + ".tmp")
+    try {
+        [IO.File]::WriteAllText($temporaryPath, $json, [Text.UTF8Encoding]::new($false))
+        Assert-CanonicalManifest -GoPath $GoPath -Path $temporaryPath
+        Move-Item -LiteralPath $temporaryPath -Destination $manifestPath -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 $outputPath = Get-OutputPath
@@ -731,7 +761,7 @@ $measurementConfig = [ordered]@{
 }
 $configurationJson = $measurementConfig | ConvertTo-Json -Depth 12 -Compress
 $configurationDigest = "sha256:" + ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($configurationJson))).ToLowerInvariant())
-$goFiles = Get-RepositoryGoFiles -GitPath $gitPath
+$goFiles = @(Get-RepositoryGoFiles -GitPath $gitPath)
 
 try {
     Invoke-QualityCheck -ID "quality-gofmt" -Name "quality.gofmt" -CommandID "gofmt.check" -DisplayCommand "gofmt -l [tracked repository Go files]" -FilePath $gofmtPath -Arguments (@("-l") + @($goFiles)) -Required $true -FailOnOutput ($goFiles.Count -gt 0) -ProvenanceTool "gofmt" | Out-Null
@@ -762,7 +792,7 @@ $endedAt = [DateTime]::UtcNow
 $runStatus = if ($script:requiredFailures.Count -eq 0 -and -not $script:runnerFailure) { "pass" } else { "fail" }
 $runDuration = [math]::Round(($endedAt - $script:startedAt).TotalMilliseconds, 3)
 Add-Measurement -Measurement (New-MeasurementRecord -ID "process-dogfood-run" -Name "process.dogfood.run_duration" -Category "process" -Status $runStatus -Provenance "measured" -Unit "milliseconds" -Samples @([double]$runDuration) -CommandID "runner" -Command "measure-dogfood.ps1" -Required $false) -DisplayCommand "measure-dogfood.ps1"
-Write-Manifest -Status $runStatus -Commit $gitMetadata.Commit -Head $gitMetadata.Head -DirtyState $gitMetadata.DirtyState -ConfigurationDigest $configurationDigest -EndedAt $endedAt.ToString("o")
+Write-Manifest -GoPath $goPath -Status $runStatus -Commit $gitMetadata.Commit -Head $gitMetadata.Head -DirtyState $gitMetadata.DirtyState -ConfigurationDigest $configurationDigest -EndedAt $endedAt.ToString("o")
 Write-Report -Status $runStatus -Commit $gitMetadata.Commit -Head $gitMetadata.Head -DirtyState $gitMetadata.DirtyState -ConfigurationDigest $configurationDigest -EndedAt $endedAt.ToString("o")
 Write-Host ("Status: " + $runStatus.ToUpperInvariant())
 Write-Host ("Manifest: " + [IO.Path]::GetFileName($manifestPath))

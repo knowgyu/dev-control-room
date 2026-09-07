@@ -134,6 +134,9 @@ func TestStartupAssuranceJanitorRemovesCrashOrphansAndPreservesReferences(t *tes
 }
 
 func TestAssuranceJanitorRejectsSymlinkedManagedDirectory(t *testing.T) {
+	if !assuranceCleanupRootSupported() {
+		t.Skip("directory-handle cleanup requires Go 1.24 or newer")
+	}
 	home := t.TempDir()
 	outside := t.TempDir()
 	outsideFile := filepath.Join(outside, "must-survive.txt")

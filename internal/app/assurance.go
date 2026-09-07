@@ -1237,6 +1237,10 @@ func recoverableInvocationState(state string) bool {
 	return state == domain.AssuranceStateQueued || state == domain.AssuranceStateRunning || state == domain.AssuranceStateCancelling
 }
 
+func invocationMayHavePreparedArtifact(state string) bool {
+	return recoverableInvocationState(state) || state == domain.AssuranceStateInterrupted
+}
+
 func retryableInvocationState(state string) bool {
 	return state == domain.AssuranceStateFailed || state == domain.AssuranceStateInterrupted
 }
@@ -1375,6 +1379,11 @@ func (a *App) prepareAssuranceArtifact(
 	if name == "." || name == "" {
 		name = id + ".dat"
 	}
+	if input.SourceType == "agent_invocation" {
+		if deterministicID, deterministicName, ok := agentInvocationArtifactIdentity(input.SourceID); ok {
+			id, name = deterministicID, deterministicName
+		}
+	}
 	path := filepath.Join(directory, id+"-"+name)
 	temporary, err := os.CreateTemp(directory, ".artifact-write-*")
 	if err != nil {
@@ -1415,6 +1424,30 @@ func (a *App) prepareAssuranceArtifact(
 		}
 		return err
 	}, nil
+}
+
+// agentInvocationArtifactIdentity is stable before provider execution. The
+// invocation row is committed before the provider runs, so startup cleanup can
+// preserve a prepared file even when its artifact row was part of a rolled-back
+// finalization transaction.
+func agentInvocationArtifactIdentity(invocationID string) (string, string, bool) {
+	invocationID = strings.TrimSpace(invocationID)
+	if invocationID == "" || normalizeAppID(invocationID) != invocationID {
+		return "", "", false
+	}
+	name := invocationID + ".json"
+	return assuranceID("artifact", "agent_invocation", invocationID, name), name, true
+}
+
+func preparedAgentInvocationArtifactPath(home, invocationID string) string {
+	if strings.TrimSpace(home) == "" {
+		return ""
+	}
+	id, name, ok := agentInvocationArtifactIdentity(invocationID)
+	if !ok {
+		return ""
+	}
+	return filepath.Join(home, "artifacts", "assurance", id+"-"+name)
 }
 
 func removeEmptyDirectory(path string) error {

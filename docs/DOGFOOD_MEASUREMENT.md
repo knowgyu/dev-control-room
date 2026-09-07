@@ -25,7 +25,9 @@ The runner writes `dogfood-measurement.json` and
 `dogfood-measurement-report.md`. When coverage succeeds it also keeps a
 run-specific `coverage-<run-id>.out` profile. Output under `artifacts/` is
 ignored by the repository. The runner does not edit source files, install
-tools, contact external services, or run arbitrary commands.
+tools, contact external services, or run arbitrary commands. The final
+manifest is written only after the canonical Go contract validator accepts a
+temporary manifest; a failed validation does not replace the final manifest.
 
 The optional static contract check is:
 
@@ -106,6 +108,10 @@ Status and provenance are independent dimensions:
   evidence.
 - `unavailable` means the source could not supply a defensible measurement,
   such as an absent local server or an unavailable optional coverage path.
+
+If a resolved quality-check executable disappears or cannot be launched, the
+record is `unknown` with `unavailable` provenance, no duration sample, and no
+exit code. A launch failure is not represented as a measured result.
 
 An unknown or unavailable measurement is not a pass. The runner preserves raw
 latency/duration samples up to 128 values and rejects non-finite or unbounded

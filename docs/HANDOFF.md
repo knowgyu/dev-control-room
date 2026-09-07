@@ -1,6 +1,62 @@
 # Current state and implementation handoff
 
-Updated: 2026-08-31
+Updated: 2026-09-07
+
+## 2026-09-07 quality-first pilot resume checkpoint
+
+The quality-first pilot paused on 2026-09-01. At the 2026-09-07
+resume/verification base, local `main` was 10 commits ahead of `origin/main`,
+with `HEAD` at `2a954048` (`fix: harden dogfood measurement boundaries`). The
+local tracking ref and fresh remote `main` were
+`b777d97cea5b7216a46f6d9cf1b022b0001f116b`. The binary version remains
+`0.15.2`; `v0.16.0` is planned and not released. Fresh remote verification
+confirmed the v0.15.2 release was published at `2026-08-31T12:31:59Z`. No
+`dev-control-room` process was running. Resolve HEAD and ahead/behind status
+again after the reviewed local commit; these values identify the verification
+base.
+
+The completed local commits since `origin/main` are: `297021e` session
+persistence; `f4cf236` embedded-UI line endings; `715b973` pilot UI
+responsiveness/focus; `03b715e` quality-pilot evidence; `62812f7` atomic
+Assurance writes; `f5454b8` recovery boundaries; `bf595e6` retry recovery and
+cleanup; `19dd875` finalization and cleanup; `cac2376` uncertain-finalization
+artifact preservation; and `2a95404` measurement boundaries. The current
+regression slice is locally verified at the 2026-09-07 resume/verification
+base with the reviewed dirty Go/PowerShell changes atop `2a95404`; it was not
+a clean tree. The exact native Full record is
+[`verification-summary.json`](../artifacts/verification-resume-20260907/verification-summary.json):
+status `PASS`, completed `2026-09-07T22:20:41.7406263+09:00`, and all 10 steps
+passed. The environment was native Windows with PowerShell `7.6.5`, Go
+`1.26.7 windows/amd64`, Node `v24.15.0`, GCC `16.2.0`, and Git
+`2.53.0.windows.1`. Go 1.23 native execution and the Go 1.23 build-tag test
+were not run.
+
+The script worker also passed on 2026-09-07: Pester 6/6 in 8.56s, PowerShell
+parse, and diff check for `scripts/measure-dogfood.ps1` and
+`scripts/measurement-contract.tests.ps1`. A launch failure records
+`unavailable` with zero samples and a null exit code; canonical temporary
+validation precedes replacement, and rejection preserves the existing valid
+file.
+
+Evidence must stay separate: the historical clean v0.15.2 run at `3dec04e`
+recorded required `pass` and 58.4% statement coverage. The
+`artifacts/dogfood-p2-final-v2` run at `cac2376` recorded required `pass` and
+58.6%, but was dirty, was not current `HEAD`, and used deliberately mixed
+fixture probes with `unknown` results. It is not a clean baseline, so the
+figures do not establish a 0.2-point improvement. Existing same-commit
+measurement comparison is repeatability evidence, not before/after code
+improvement. Coverage is not quality; a future pilot must record
+defect -> fix -> regression and architecture review as separate evidence.
+
+The 2026-09-07 pilot checkpoint uses concrete defect -> linked regression test
+-> fix -> regression evidence for restart evidence loss and an invalid
+launch-failure manifest; raw coverage or a same-commit latency delta is not a
+substitute. The current regression slice is complete and locally verified;
+clean pilot baseline, browser UI acceptance, and the v0.16.0 release remain
+pending.
+Mutation campaign: **not run**. Causal improvement: **not run/unproven**.
+Latest UI acceptance: **not run**. The older v0.15.2 section below retains its
+contemporaneous prepublication record.
 
 ## 2026-08-31 v0.15.2 measurement boundary hardening patch release prep
 

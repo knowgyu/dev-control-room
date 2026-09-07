@@ -903,7 +903,11 @@ func TestAgentInvocationPreservesPreparedArtifactWhenFinalizationAndCompensation
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer service.Close()
+	defer func() {
+		if service != nil {
+			_ = service.Close()
+		}
+	}()
 	project, err := service.AddProject(
 		context.Background(),
 		AddProjectInput{Name: "Uncertain finalization", Path: tempGitRepository(t, "uncertain-finalization")},
@@ -916,7 +920,7 @@ func TestAgentInvocationPreservesPreparedArtifactWhenFinalizationAndCompensation
 	}
 	session, err := service.CreateAssuranceSession(
 		context.Background(),
-		AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary"},
+		AssuranceSessionInput{ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", Provider: "codex", RequestedModel: "fixture-model"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -942,10 +946,30 @@ END`); err != nil {
 		t.Fatal(err)
 	}
 
-	_, invokeErr := service.RunAgentInvocation(context.Background(), AgentInvocationInput{
-		SessionID: session.Metadata.ID,
-		Provider:  "fake",
-		ProfileID: "fake",
+	runnerCalls := 0
+	execution := assurance.CodexExecution{
+		Resolver: func() assurance.ProviderStatus {
+			return assurance.ProviderStatus{
+				Provider:        "codex",
+				State:           assurance.ProviderReady,
+				CommandFound:    true,
+				LaunchTrusted:   true,
+				ProfileReady:    true,
+				ResolvedCommand: []string{`C:\Program Files\nodejs\node.exe`, `C:\Users\fixture\node_modules\@openai\codex\bin\codex.js`},
+			}
+		},
+		Runner: func(context.Context, assurance.RunRequest, *masking.Masker) assurance.RunResult {
+			runnerCalls++
+			return assurance.RunResult{State: domain.AssuranceStateSucceeded, Structured: map[string]any{"answer": "fixture"}}
+		},
+	}
+	invokeCtx := assurance.WithCodexExecution(context.Background(), execution)
+	_, invokeErr := service.RunAgentInvocation(invokeCtx, AgentInvocationInput{
+		SessionID:      session.Metadata.ID,
+		Provider:       "codex",
+		ProfileID:      "codex",
+		RequestedModel: "fixture-model",
+		Prompt:         "original prompt",
 	})
 	if invokeErr == nil {
 		t.Fatal("agent invocation succeeded after finalization was blocked")
@@ -972,6 +996,99 @@ END`); err != nil {
 		t.Fatalf("rolled-back finalization left artifact rows = %#v", artifacts)
 	}
 	assertAssuranceArtifactFileCount(t, home, 1)
+	if runnerCalls != 1 {
+		t.Fatalf("provider calls after uncertain finalization = %d, want 1", runnerCalls)
+	}
+	invocations, err = service.AgentInvocations(context.Background())
+	if err != nil || len(invocations) != 1 {
+		t.Fatalf("uncertain invocation lookup = %#v, %v", invocations, err)
+	}
+	originalID := invocations[0].Metadata.ID
+	artifactEntries, err := os.ReadDir(filepath.Join(home, "artifacts", "assurance"))
+	if err != nil || len(artifactEntries) != 1 {
+		t.Fatalf("prepared artifact entries = %#v, err=%v", artifactEntries, err)
+	}
+	preparedPath := filepath.Join(home, "artifacts", "assurance", artifactEntries[0].Name())
+	if _, err := os.Stat(preparedPath); err != nil {
+		t.Fatalf("prepared artifact is missing before restart: %v", err)
+	}
+	for _, trigger := range []string{"reject_uncertain_finalization_session_updates", "reject_uncertain_terminal_invocation_updates"} {
+		if _, err := service.store.DB().ExecContext(context.Background(), "DROP TRIGGER "+trigger); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	service = nil
+
+	restarted, err := New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if restarted != nil {
+			_ = restarted.Close()
+		}
+	}()
+	if runnerCalls != 1 {
+		t.Fatalf("provider relaunched during startup recovery: calls=%d, want 1", runnerCalls)
+	}
+	if _, err := os.Stat(preparedPath); err != nil {
+		t.Fatalf("prepared artifact was removed during startup cleanup: %v", err)
+	}
+	assertAssuranceArtifactFileCount(t, home, 1)
+	recoveredInvocations, err := restarted.AgentInvocations(context.Background())
+	if err != nil || len(recoveredInvocations) != 1 || recoveredInvocations[0].Metadata.ID != originalID || recoveredInvocations[0].Spec.State != domain.AssuranceStateInterrupted || len(recoveredInvocations[0].Spec.ArtifactIDs) != 0 {
+		t.Fatalf("recovered uncertain invocation = %#v, %v", recoveredInvocations, err)
+	}
+	recoveredSession, err := restarted.AssuranceSession(context.Background(), session.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recoveredSession.Spec.State != domain.AssuranceStateInterrupted || !hasAssuranceValue(recoveredSession.Spec.ResumeBrief.Pending, originalID) {
+		t.Fatalf("recovered uncertain session = %#v", recoveredSession)
+	}
+	if err := restarted.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted = nil
+	restarted, err = New(home, "127.0.0.1:38471")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runnerCalls != 1 {
+		t.Fatalf("provider relaunched during repeated startup recovery: calls=%d, want 1", runnerCalls)
+	}
+	if _, err := os.Stat(preparedPath); err != nil {
+		t.Fatalf("prepared artifact was removed while invocation was interrupted: %v", err)
+	}
+	assertAssuranceArtifactFileCount(t, home, 1)
+	repeatedRecoveryInvocations, err := restarted.AgentInvocations(context.Background())
+	if err != nil || len(repeatedRecoveryInvocations) != 1 || repeatedRecoveryInvocations[0].Spec.State != domain.AssuranceStateInterrupted {
+		t.Fatalf("repeated recovery invocation = %#v, %v", repeatedRecoveryInvocations, err)
+	}
+	retry, err := restarted.RetryAgentInvocation(assurance.WithCodexExecution(context.Background(), execution), originalID, "retry prompt")
+	if err != nil || retry.Spec.State != domain.AssuranceStateSucceeded || retry.Spec.ParentID != originalID {
+		t.Fatalf("explicit retry after recovery = %#v, err=%v", retry, err)
+	}
+	if runnerCalls != 2 {
+		t.Fatalf("provider calls after explicit retry = %d, want 2", runnerCalls)
+	}
+	repeated, err := restarted.RetryAgentInvocation(assurance.WithCodexExecution(context.Background(), execution), originalID, "retry prompt")
+	if err != nil || repeated.Metadata.ID != retry.Metadata.ID {
+		t.Fatalf("repeated explicit retry = %#v, err=%v", repeated, err)
+	}
+	if runnerCalls != 2 {
+		t.Fatalf("idempotent retry relaunched provider: calls=%d", runnerCalls)
+	}
+	artifacts, err = restarted.AssuranceArtifacts(context.Background())
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("explicit retry artifacts = %#v, err=%v", artifacts, err)
+	}
+	if _, err := os.Stat(artifacts[0].Spec.Path); err != nil {
+		t.Fatalf("explicit retry artifact is missing: %v", err)
+	}
 }
 
 func TestReconcileRetrySessionPreservesActualSessionFailure(t *testing.T) {

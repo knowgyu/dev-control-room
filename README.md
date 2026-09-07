@@ -46,6 +46,11 @@ Start-Process http://127.0.0.1:38471
 .\dev-control-room.exe serve --home "$env:TEMP\dev-control-room-fixture"
 ```
 
+이 모듈의 최소 Go 대상 버전은 Go 1.23입니다. Go 1.23에서는 안전한
+directory-handle 삭제 API가 없으므로 시작 시 Assurance orphan 정리를
+삭제 없이 보류하며, Go 1.24 이상에서만 검증된 root handle 기반 정리를
+수행합니다.
+
 ## 재현 가능한 dogfood 측정
 
 현재 저장소의 고정된 읽기 전용 점검과 선택한 loopback 서버의 제한된
