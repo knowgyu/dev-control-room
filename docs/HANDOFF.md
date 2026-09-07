@@ -2,7 +2,27 @@
 
 Updated: 2026-09-07
 
-## 2026-09-07 quality-first pilot resume checkpoint
+## 2026-09-07 v0.16.0 clean candidate checkpoint
+
+The clean candidate is commit `8e9e6e24c9ee3b3896f13abd7a93202ecc45ed38` with
+binary version `0.16.0`. Authoritative clean dogfood run
+`dogfood-e125339045844519a9e99a79e21142d5` passed all required checks, recorded
+58.7% statement coverage, health 5/5 (p50 0.434 ms, p95 17.284 ms), state 5/5
+(p50 2.881 ms, p95 5.090 ms), validator exit 0, import 201, and matching
+dashboard run ID. See [the manifest](../artifacts/dogfood-v0.16.0/dogfood-measurement.json)
+and [the report](../artifacts/dogfood-v0.16.0/dogfood-measurement-report.md).
+The populated browser dashboard confirms the exact run ID, required-gate
+`PASS`, 58.7%, and both HTTP probes at 5/5.
+
+Scoped acceptance also passed: Phase 2 journeys 373 assertions, native
+resilience 15 assertions, and current browser checks for seven routes with one
+`h1` each, main focus, no overflow at 1244px/485px CSS widths, guide slide 2
+reload persistence, zero console errors, and real-repository registration with
+read-only scan. The 390px override rendered at 485px actual width; no 390px
+claim is made. Package, CI, and publication remain pending. Go 1.23 runtime,
+mutation, and causal quality-score evidence remain unrun/unproven.
+
+## Historical 2026-09-07 quality-first pilot resume checkpoint
 
 The quality-first pilot paused on 2026-09-01. At the 2026-09-07
 resume/verification base, local `main` was 10 commits ahead of `origin/main`,

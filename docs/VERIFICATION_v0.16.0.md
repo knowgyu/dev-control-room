@@ -1,21 +1,56 @@
 # v0.16.0 verification record
 
-Status: **PENDING** — pre-version-bump regression evidence only.
+Status: **PREPUBLICATION** — clean candidate measurement and scoped acceptance passed; package, CI, and publication remain pending.
 Publication: **PENDING**.
 Binary/package: **PENDING**.
 Date of available evidence: 2026-09-07.
 
+This is the candidate verification record before publication; pending items are
+not release claims.
+
 ## Candidate and scope
 
-The intended v0.16.0 scope is `v0.15.2..e216acb93f16adcb703303c91d040d9bbb0651ad`.
+The implementation scope is `v0.15.2..e216acb93f16adcb703303c91d040d9bbb0651ad`.
 The range hardens the existing quality-pilot Assurance continuity and atomic
 writes, preserves evidence across repeated restart/finalization failures,
 strengthens measurement manifest boundaries, and improves pilot UI
 responsiveness. The current source version is `0.16.0`; the retained
-pre-version-bump record does not verify the current versioned binary.
+clean candidate is `8e9e6e24c9ee3b3896f13abd7a93202ecc45ed38`.
 
 The release target is Windows amd64 only. Windows arm64 is verification-only;
 Linux and arm64 release packages are not produced.
+
+## Clean candidate dogfood
+
+The authoritative manifest and report are
+[`dogfood-measurement.json`](../artifacts/dogfood-v0.16.0/dogfood-measurement.json)
+and [`dogfood-measurement-report.md`](../artifacts/dogfood-v0.16.0/dogfood-measurement-report.md).
+
+| Field | Result |
+| --- | --- |
+| Commit / head | `8e9e6e24c9ee3b3896f13abd7a93202ecc45ed38` |
+| Dirty state / platform | `clean` / Windows x64 |
+| Run ID / required status | `dogfood-e125339045844519a9e99a79e21142d5` / `pass` |
+| Required failures | none |
+| Go statement coverage | `58.7%` |
+| Health probe | 5/5, p50 `0.434 ms`, p95 `17.284 ms` |
+| State probe | 5/5, p50 `2.881 ms`, p95 `5.090 ms` |
+| Contract validator / import / dashboard | exit `0` / `201` / run ID matches |
+
+## Scoped native and browser acceptance
+
+- `verify-phase2-journeys.ps1`: **PASS**, 373 assertions; isolated temporary
+  fixtures, CLI/MCP/first-use/recovery, real-repository registration and
+  read-only scan. Log: [`journeys-v0.16.0.log`](../artifacts/journeys-v0.16.0.log).
+- `verify-native-resilience.ps1`: **PASS**, 15 assertions; no real provider,
+  production action, or user-data mutation.
+- Current browser check: seven routes, one `h1` per route, main focus, no
+  overflow at 1244px and 485px CSS widths, guide slide 2 survives reload, and
+  console errors `0`. The 390px override rendered at 485px actual width; no
+  390px claim is made. Real-repository registration/read-only scan passed.
+- The populated measurement dashboard displayed the exact run ID
+  `dogfood-e125339045844519a9e99a79e21142d5`, required-gate `PASS`, 58.7%, and
+  both HTTP probes at 5/5.
 
 ## Pre-version-bump source evidence
 
@@ -64,9 +99,8 @@ the diff check for `scripts/measure-dogfood.ps1` and
 
 | Evidence | Status |
 | --- | --- |
-| Clean dogfood at the final source SHA | **PENDING** |
 | v0.16.0 Windows amd64 binary, ZIP, archive smoke, and SHA-256 | **PENDING** |
-| Native browser/UI acceptance | **PENDING** |
+| CI result for the final candidate | **PENDING** |
 | Tag, publication, and remote asset/hash verification | **PENDING** |
 
 When completed, the release output must contain only:

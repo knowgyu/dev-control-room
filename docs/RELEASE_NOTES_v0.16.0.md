@@ -1,7 +1,8 @@
 # Dev Control Room v0.16.0
 
-Draft release notes. The source version is now `0.16.0`; the release is not
-published and final release verification remains pending.
+Prepublication candidate record. The source version is now `0.16.0`. The clean
+candidate measurement is complete; package, CI, and publication evidence remain
+pending.
 
 v0.16.0 is the quality-first pilot persistence and measurement-safety slice
 from `v0.15.2..e216acb`.
@@ -28,11 +29,24 @@ from `v0.15.2..e216acb`.
 The 2026-09-07 native Windows resume run passed all 10 gates, and the script
 worker passed Pester 6/6. Those results were recorded before the version bump
 on a dirty worktree rooted at `2a95404` with reviewed changes; they are
-regression evidence, not proof that a clean v0.16.0 candidate is fully tested.
+historical regression evidence rather than the clean candidate record.
 
-Clean dogfood, the v0.16.0 binary/package smoke, browser acceptance, and
-publication remain pending. Go 1.23 runtime execution, the mutation campaign,
-and a causal quality score were not run or established.
+The clean candidate at `8e9e6e24c9ee3b3896f13abd7a93202ecc45ed38` recorded
+dogfood run `dogfood-e125339045844519a9e99a79e21142d5`, required status `pass`,
+58.7% statement coverage, health/state probes at 5/5 successes, validator exit
+0, measurement import 201, and a matching dashboard run ID. The 373-assertion
+journey and 15-assertion native resilience checks also passed. Current browser
+acceptance passed seven routes with one `h1` each, main focus, no overflow at
+1244px and 485px CSS widths, guide slide 2 surviving reload, zero console
+errors, and real-repository registration/read-only scan. The 390px override
+rendered at 485px actual width; no 390px claim is made.
+
+The populated browser measurement dashboard confirmed the exact run ID,
+required-gate `PASS`, 58.7%, and both HTTP probes at 5/5.
+
+The v0.16.0 binary/package smoke, CI, and publication remain pending. Go 1.23
+runtime execution, the mutation campaign, and a causal quality score were not
+run or established.
 
 ## Release assets
 
