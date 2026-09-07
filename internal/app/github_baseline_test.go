@@ -43,6 +43,7 @@ func TestTrustedGitHubCLIPathRejectsSymlinkAndRequiresRegularExecutable(t *testi
 
 func TestPRCIBaselineUsesAuthoritativeGitHubContextsWithoutPersistingRawProviderData(t *testing.T) {
 	repository := tempGitRepository(t, "github-baseline")
+	wantRepository := canonicalTestDirectory(t, repository)
 	gitFixture(t, repository, "remote", "add", "origin", "https://github.com/sample-owner/sample-repository.git")
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
@@ -59,8 +60,8 @@ func TestPRCIBaselineUsesAuthoritativeGitHubContextsWithoutPersistingRawProvider
 	service.githubBaselinePath = func() (string, error) { return "C:\\tools\\gh.exe", nil }
 	var invocations []assurance.GitHubBaselineInvocation
 	service.githubBaselineExecutor = func(_ context.Context, invocation assurance.GitHubBaselineInvocation, directory string) (assurance.GitHubBaselineResponse, error) {
-		if directory != repository {
-			t.Fatalf("baseline worktree = %q, want %q", directory, repository)
+		if directory != wantRepository {
+			t.Fatalf("baseline worktree = %q, want %q", directory, wantRepository)
 		}
 		invocations = append(invocations, invocation)
 		switch invocation.Arguments[len(invocation.Arguments)-1] {

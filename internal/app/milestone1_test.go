@@ -264,6 +264,15 @@ func tempGitRepository(t *testing.T, name string) string {
 	return directory
 }
 
+func canonicalTestDirectory(t *testing.T, path string) string {
+	t.Helper()
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Clean(canonical)
+}
+
 func gitFixture(t *testing.T, directory string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", args...)

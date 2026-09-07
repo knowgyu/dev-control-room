@@ -95,6 +95,15 @@ func gitTest(t *testing.T, directory string, args ...string) {
 	}
 }
 
+func canonicalTestDirectory(t *testing.T, path string) string {
+	t.Helper()
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Clean(canonical)
+}
+
 func TestWorktreeDetailsReadsNULPorcelainAndRealLinkedState(t *testing.T) {
 	repository := t.TempDir()
 	gitTest(t, repository, "init", "--initial-branch=main")
@@ -221,23 +230,26 @@ func (proofFailureRunner) Run(ctx context.Context, executable string, args []str
 
 func TestWorktreeDetailsPreservesCanonicalPathOnProofFailure(t *testing.T) {
 	repository := t.TempDir()
+	wantRepository := canonicalTestDirectory(t, repository)
 	gitTest(t, repository, "init", "--initial-branch=main")
 	advertised := repository + string(os.PathSeparator) + "."
 	items, complete := NewGitCollector(proofFailureRunner{}).WorktreeDetails(context.Background(), repository, []Worktree{{Path: advertised}})
-	if complete || len(items) != 1 || items[0].Error == "" || items[0].Path != repository {
+	if complete || len(items) != 1 || items[0].Error == "" || items[0].Path != wantRepository {
 		t.Fatalf("proof failure did not retain canonical path: %#v complete=%v", items, complete)
 	}
 }
 
 func TestWorktreeForeignCommonDirectoryDoesNotReadState(t *testing.T) {
-	registered, foreign := t.TempDir(), t.TempDir()
+	registeredInput, foreignInput := t.TempDir(), t.TempDir()
+	registered := canonicalTestDirectory(t, registeredInput)
+	foreign := canonicalTestDirectory(t, foreignInput)
 	for _, path := range []string{filepath.Join(registered, ".git"), filepath.Join(foreign, ".git")} {
 		if err := os.Mkdir(path, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	runner := &recordingGitRunner{registered: registered, foreign: foreign}
-	items, complete := NewGitCollector(runner).WorktreeDetails(context.Background(), registered, []Worktree{{Path: foreign, Trust: "unverified"}})
+	items, complete := NewGitCollector(runner).WorktreeDetails(context.Background(), registeredInput, []Worktree{{Path: foreignInput, Trust: "unverified"}})
 	if complete || len(items) != 1 || items[0].Trust != "unverified" || items[0].Error == "" {
 		t.Fatalf("foreign worktree was trusted: %#v complete=%v", items, complete)
 	}
@@ -272,6 +284,7 @@ func TestRegisteredLinkedWorktreeIsPrimary(t *testing.T) {
 	gitTest(t, repository, "commit", "-m", "fixture")
 	linked := filepath.Join(t.TempDir(), "registered-linked")
 	gitTest(t, repository, "worktree", "add", "-b", "linked", linked)
+	wantLinked := canonicalTestDirectory(t, linked)
 	collector := NewGitCollector(nil)
 	state, err := collector.Collect(context.Background(), linked)
 	if err != nil {
@@ -285,7 +298,7 @@ func TestRegisteredLinkedWorktreeIsPrimary(t *testing.T) {
 	for _, item := range items {
 		if item.Primary {
 			primary++
-			if item.ID != "primary" || item.Path != linked {
+			if item.ID != "primary" || item.Path != wantLinked {
 				t.Fatalf("registered linked checkout is not primary: %#v", item)
 			}
 		}

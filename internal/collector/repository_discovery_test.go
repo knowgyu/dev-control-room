@@ -15,12 +15,14 @@ func TestDiscoverGitRootsFindsNestedRootsAndSkipsInternals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	wantFirst := canonicalTestDirectory(t, first)
+	wantSecond := canonicalTestDirectory(t, second)
 	got, err := DiscoverGitRoots(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{first, second}
-	if len(got) != len(want) || got[0] != first || got[1] != second {
+	want := []string{wantFirst, wantSecond}
+	if len(got) != len(want) || got[0] != wantFirst || got[1] != wantSecond {
 		t.Fatalf("roots = %#v, want %#v", got, want)
 	}
 }
@@ -30,8 +32,9 @@ func TestDiscoverGitRootsTreatsGitFileAsWorktreeRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: C:/fixture/.git/worktrees/one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	wantRoot := canonicalTestDirectory(t, root)
 	got, err := DiscoverGitRoots(root)
-	if err != nil || len(got) != 1 || got[0] != root {
+	if err != nil || len(got) != 1 || got[0] != wantRoot {
 		t.Fatalf("roots = %#v, err = %v", got, err)
 	}
 }

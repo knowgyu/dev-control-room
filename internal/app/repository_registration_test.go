@@ -22,6 +22,8 @@ func TestAddProjectTreeRegistersNestedRepositories(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	wantFirst := canonicalTestDirectory(t, first)
+	wantSecond := canonicalTestDirectory(t, second)
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +33,7 @@ func TestAddProjectTreeRegistersNestedRepositories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(project.Spec.Repositories) != 2 || project.Spec.Repositories[0].Spec.Path != first || project.Spec.Repositories[1].Spec.Path != second {
+	if len(project.Spec.Repositories) != 2 || project.Spec.Repositories[0].Spec.Path != wantFirst || project.Spec.Repositories[1].Spec.Path != wantSecond {
 		t.Fatalf("registered repositories = %#v", project.Spec.Repositories)
 	}
 }
@@ -42,6 +44,7 @@ func TestRepositoryDiscoveryEndpointUsesProtectedApplicationService(t *testing.T
 	if err := os.MkdirAll(filepath.Join(repository, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	wantRepository := canonicalTestDirectory(t, repository)
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +63,7 @@ func TestRepositoryDiscoveryEndpointUsesProtectedApplicationService(t *testing.T
 		t.Fatalf("discovery response = %d: %s", recorder.Code, recorder.Body.String())
 	}
 	var envelope contract.Envelope[[]RepositoryCandidate]
-	if err := json.NewDecoder(recorder.Body).Decode(&envelope); err != nil || !envelope.OK || len(*envelope.Data) != 1 || (*envelope.Data)[0].Path != repository {
+	if err := json.NewDecoder(recorder.Body).Decode(&envelope); err != nil || !envelope.OK || len(*envelope.Data) != 1 || (*envelope.Data)[0].Path != wantRepository {
 		t.Fatalf("discovery envelope = %#v, err = %v", envelope, err)
 	}
 }

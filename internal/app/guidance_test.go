@@ -79,6 +79,7 @@ func (l *recordingHandoffLauncher) Launch(_ context.Context, executable string, 
 func TestHandoffLaunchRequiresCurrentPreviewAndUsesExactArgv(t *testing.T) {
 	home := t.TempDir()
 	repository := tempGitRepository(t, "handoff-launch")
+	wantRepository := canonicalTestDirectory(t, repository)
 	service, err := New(home, "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +119,7 @@ func TestHandoffLaunchRequiresCurrentPreviewAndUsesExactArgv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if launch.PID != 4242 || launch.TranscriptIncluded || launcher.calls != 1 || launcher.executable != "fixture-agent" || launcher.directory != repository {
+	if launch.PID != 4242 || launch.TranscriptIncluded || launcher.calls != 1 || launcher.executable != "fixture-agent" || launcher.directory != wantRepository {
 		t.Fatalf("handoff launch contract = %#v, launcher = %#v", launch, launcher)
 	}
 	if len(launcher.arguments) != len(preview.Arguments) || launcher.arguments[0] != preview.Arguments[0] || launcher.arguments[1] != preview.Arguments[1] || launcher.arguments[2] != preview.Arguments[2] {

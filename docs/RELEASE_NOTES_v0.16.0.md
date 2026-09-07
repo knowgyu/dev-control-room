@@ -44,9 +44,12 @@ rendered at 485px actual width; no 390px claim is made.
 The populated browser measurement dashboard confirmed the exact run ID,
 required-gate `PASS`, 58.7%, and both HTTP probes at 5/5.
 
-The v0.16.0 binary/package smoke, CI, and publication remain pending. Go 1.23
-runtime execution, the mutation campaign, and a causal quality score were not
-run or established.
+The first Windows CI attempt did exercise the Go 1.23.0 toolchain, but its
+aggregate result was not release evidence: PowerShell masked native failures,
+and the log exposed path-fixture and storage-test failures. The follow-up
+workflow and test-fixture corrections make no production-code changes; successor
+CI, binary/package smoke, and publication remain pending. Mutation testing and
+a causal quality score remain unrun/unestablished.
 
 ## Release assets
 

@@ -228,7 +228,7 @@ func TestStorageProcessHelper(t *testing.T) {
 	if err != nil || iterations < 1 {
 		t.Fatalf("invalid storage helper iterations")
 	}
-	db, err := Open(context.Background(), path)
+	db, err := openStorageProcessDatabase(path)
 	if err != nil {
 		t.Fatalf("open storage: %v", err)
 	}
@@ -248,6 +248,39 @@ VALUES (?, 'devroom/v1alpha1', 'Project', ?, '{}')`, id, id); err != nil {
 		var count int
 		if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM projects WHERE id LIKE 'storage-%'`).Scan(&count); err != nil {
 			t.Fatalf("read storage item %d: %v", index, err)
+		}
+	}
+}
+
+const (
+	storageProcessOpenDeadline     = 20 * time.Second
+	storageProcessOpenRetryBackoff = 25 * time.Millisecond
+)
+
+// Once readiness is published, the server immediately starts its write/read
+// loop. A client can lose the cross-process lock race during that loop and
+// Open can return typed busy after its bounded production wait. Retry only
+// that explicit result; the write loop below remains one-shot so an ambiguous
+// INSERT is never replayed.
+func openStorageProcessDatabase(path string) (*sql.DB, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), storageProcessOpenDeadline)
+	defer cancel()
+
+	for {
+		db, err := Open(ctx, path)
+		if err == nil {
+			return db, nil
+		}
+		if !IsStorageBusy(err) {
+			return nil, err
+		}
+
+		timer := time.NewTimer(storageProcessOpenRetryBackoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
 		}
 	}
 }

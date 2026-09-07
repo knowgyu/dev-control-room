@@ -42,22 +42,62 @@ jobs:
       - name: Normalize Windows checkout
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           git config core.autocrlf false
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "git config failed with exit code $exitCode"; exit $exitCode }
           git restore --source=HEAD --worktree -- .
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "git restore failed with exit code $exitCode"; exit $exitCode }
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: Check formatting and embedded UI syntax
         shell: pwsh
         run: |
-          $formatted = gofmt -l (git ls-files '*.go')
+          $ErrorActionPreference = 'Stop'
+          $goFiles = git ls-files '*.go'
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "git ls-files failed with exit code $exitCode"; exit $exitCode }
+          $formatted = gofmt -l $goFiles
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "gofmt failed with exit code $exitCode"; exit $exitCode }
           if ($formatted) { $formatted | Write-Error; exit 1 }
           node --check internal/app/ui/app.js
-      - name: Windows Go test and build
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "node --check failed with exit code $exitCode"; exit $exitCode }
+      - name: Windows Go tests
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           go test -count=1 ./...
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "go test failed with exit code $exitCode"; exit $exitCode }
+      - name: Windows Go race tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           go test -count=1 -race ./...
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "go test -race failed with exit code $exitCode"; exit $exitCode }
+      - name: Windows Go vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           go vet ./...
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "go vet failed with exit code $exitCode"; exit $exitCode }
+      - name: Windows Go build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           go build ./...
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "go build failed with exit code $exitCode"; exit $exitCode }
+      - name: Windows Go module verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           go mod verify
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { Write-Error "go mod verify failed with exit code $exitCode"; exit $exitCode }

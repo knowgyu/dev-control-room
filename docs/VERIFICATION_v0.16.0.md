@@ -1,6 +1,6 @@
 # v0.16.0 verification record
 
-Status: **PREPUBLICATION** — clean candidate measurement and scoped acceptance passed; package, CI, and publication remain pending.
+Status: **PREPUBLICATION** — clean candidate measurement and scoped acceptance passed; successor CI, package, and publication remain pending.
 Publication: **PENDING**.
 Binary/package: **PENDING**.
 Date of available evidence: 2026-09-07.
@@ -91,7 +91,12 @@ the diff check for `scripts/measure-dogfood.ps1` and
 - The later dirty `dogfood-p2-final-v2` result is not a clean baseline and does
   not establish a coverage or quality improvement. Coverage and same-commit
   latency are not causal quality evidence.
-- Go 1.23 actual runtime execution and the Go 1.23 build-tag test were not run.
+- The first Windows CI attempt exercised Go `1.23.0` for test, race, vet, build,
+  and module verification, but it is not a passing release gate: PowerShell
+  masked native exit codes and the log exposed path-fixture and storage-test
+  failures. The successor workflow/test-fixture correction changes no
+  production code; its CI result is pending. The Go 1.23 build-tag test was not
+  run.
 - Mutation campaign: **not run**.
 - Causal quality score/improvement: **not run/unproven**.
 
@@ -100,7 +105,7 @@ the diff check for `scripts/measure-dogfood.ps1` and
 | Evidence | Status |
 | --- | --- |
 | v0.16.0 Windows amd64 binary, ZIP, archive smoke, and SHA-256 | **PENDING** |
-| CI result for the final candidate | **PENDING** |
+| Successor CI result for the final candidate | **PENDING** |
 | Tag, publication, and remote asset/hash verification | **PENDING** |
 
 When completed, the release output must contain only:
