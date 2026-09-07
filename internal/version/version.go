@@ -2,4 +2,4 @@
 // adapters that identify the running Dev Control Room service.
 package version
 
-const Current = "0.15.2"
+const Current = "0.16.0"
