@@ -4,6 +4,29 @@ Updated: 2026-09-10
 
 ## Active: project-oriented analysis (not yet released)
 
+### Model-selection correction and pause — 2026-09-10
+
+The user caught incorrect model use during resume. Local `turn_context` records
+show that resumed Fermat, Beauvoir, Banach and Bacon actually ran
+`gpt-6-astra` / `xhigh`, despite their original Luna assignments. Only the newly
+spawned Hegel documentation worker ran `gpt-5.6-luna` / `xhigh`. Prior commentary
+calling all resumed work Luna was incorrect. Do not assume `resume_agent`
+preserves a previous worker's model. The resume interface has no model override.
+
+All five workers are now closed; Bacon was interrupted on the user's objection.
+For future implementation/QA delegation, spawn a fresh worker with explicit
+`model: gpt-5.6-luna` and requested effort, pass a compact scoped handoff, and
+verify the actual first `turn_context` model before assigning more work.
+Keep the main Astra role to review/insight as requested. Do not silently resume
+these IDs for more implementation.
+
+Implemented candidate committed at
+`7a112dcd580e1c4116d349bb6cbc64d50f16c92a`, local only, version 0.17.0.
+Focused tests and preliminary browser checks passed; native Full, final-browser
+retake, push, package, tag and release are not complete. The working copy may
+contain this later documentation correction. Inspect the frozen-source QA
+artifact and actual 38482 process before claiming which binary is running.
+
 2026-09-10 resumed checkpoint: M1 detector, API, UI, bounded repository discovery
 and 0.17.0 version/documentation are implemented and frozen. Focused package/API,
 collector, embedded-UI and ten UI-state behavior tests passed on native Windows.
