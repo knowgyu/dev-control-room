@@ -1,8 +1,8 @@
-# Dev Control Room 0.17.0 (planned)
+# Dev Control Room 0.17.0
 
-v0.16.0 is the latest verified release. This checkout prepares the unreleased
-v0.17.0 M1 project-oriented setup scope; main validation, packaging, and
-publication are still pending.
+Download the Windows amd64 package from [GitHub Releases](https://github.com/knowgyu/dev-control-room/releases).
+Version 0.17.0 adds project-oriented setup guidance. Python/FastAPI and Vue
+inspection is read-only; actual checks remain available for root Go modules.
 
 Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만 관찰하고,
 근거가 있는 점검과 Action을 계획·승인·실행합니다. 서비스는 loopback에만
@@ -83,7 +83,9 @@ pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.17.0
 
 이 명령은 `docs/RELEASE_NOTES_v0.17.0.md`와
 `docs/VERIFICATION_v0.17.0.md`가 모두 있을 때 패키지를 만듭니다. v0.17.0
-패키지는 아직 실행하지 않았습니다.
+패키지의 해시는 배포 파일에 포함된 `SHA256SUMS`로 확인합니다.
+정확한 지원 범위와 검증 결과는
+[`docs/VERIFICATION_v0.17.0.md`](docs/VERIFICATION_v0.17.0.md)에서 확인합니다.
 
 검증까지 포함한 후보 확인은 다음 명령을 먼저 실행합니다.
 
@@ -187,8 +189,8 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 - [현재 상태와 handoff](docs/HANDOFF.md)
 - [dogfood 측정 계약과 절차](docs/DOGFOOD_MEASUREMENT.md)
 - [실제 측정 대시보드 workflow](docs/MEASUREMENT_DASHBOARD.md)
-- [v0.17.0 예정 릴리즈 노트](docs/RELEASE_NOTES_v0.17.0.md)
-- [v0.17.0 예정 검증 기록](docs/VERIFICATION_v0.17.0.md)
+- [v0.17.0 릴리즈 노트](docs/RELEASE_NOTES_v0.17.0.md)
+- [v0.17.0 검증 기록](docs/VERIFICATION_v0.17.0.md)
 - [v0.16.0 릴리즈 노트](docs/RELEASE_NOTES_v0.16.0.md)
 - [v0.16.0 검증 기록](docs/VERIFICATION_v0.16.0.md)
 - [v0.15.1 릴리즈 노트](docs/RELEASE_NOTES_v0.15.1.md)

@@ -2,58 +2,51 @@
 
 Updated: 2026-09-10
 
-## Active: project-oriented analysis (not yet released)
+## Active: v0.17.0 M1 project-oriented setup release candidate
 
-### Model-selection correction and pause — 2026-09-10
+Status: **RELEASE CANDIDATE — NOT PUBLISHED**
+
+### Model-selection correction and final QA ownership — 2026-09-10
 
 The user caught incorrect model use during resume. Local `turn_context` records
 show that resumed Fermat, Beauvoir, Banach and Bacon actually ran
-`gpt-6-astra` / `xhigh`, despite their original Luna assignments. Only the newly
-spawned Hegel documentation worker ran `gpt-5.6-luna` / `xhigh`. Prior commentary
-calling all resumed work Luna was incorrect. Do not assume `resume_agent`
-preserves a previous worker's model. The resume interface has no model override.
+`gpt-6-astra` / `xhigh`, despite their original Luna assignments. The earlier
+record that only the newly spawned Hegel documentation worker was confirmed as
+Luna is historical. Current Galileo verification explicitly ran
+`gpt-5.6-luna` / `xhigh` and completed the native Full gate. Do not assume
+`resume_agent` preserves a previous worker's model; the resume interface has no
+model override. For future implementation or QA delegation, use a fresh
+`fork_context: false` fork with explicit `model: gpt-5.6-luna` and requested
+effort, then verify the first `turn_context` model before assigning work. The
+`fork_context: true` Linnaeus worker was requested as Luna but initially logged
+Astra and was closed immediately before execution; the fresh
+`fork_context: false` Kierkegaard worker verified Luna/xhigh. No additional
+agent work is part of this documentation handoff.
 
-All five workers are now closed; Bacon was interrupted on the user's objection.
-For future implementation/QA delegation, spawn a fresh worker with explicit
-`model: gpt-5.6-luna` and requested effort, pass a compact scoped handoff, and
-verify the actual first `turn_context` model before assigning more work.
-Keep the main Astra role to review/insight as requested. Do not silently resume
-these IDs for more implementation.
+The production implementation is in local commit
+`7a112dcd580e1c4116d349bb6cbc64d50f16c92a`. The clean candidate source is
+`998325b4297d75be63d51747b33f2beb9e9e6243`; main pushed it to `origin/main` for
+CI. Native Full is PASS, and final browser acceptance is PASS. The exact gate,
+fixture, binary, and remaining-gap record is
+[`VERIFICATION_v0.17.0.md`](VERIFICATION_v0.17.0.md).
 
-Implemented candidate committed at
-`7a112dcd580e1c4116d349bb6cbc64d50f16c92a`, local only, version 0.17.0.
-Focused tests and preliminary browser checks passed; native Full, final-browser
-retake, push, package, tag and release are not complete. The working copy may
-contain this later documentation correction. Inspect the frozen-source QA
-artifact and actual 38482 process before claiming which binary is running.
+The candidate process was verified on port 38482 from the isolated QA run. The
+candidate is version 0.17.0. Package generation, CI result recording, tag
+creation, and release publication remain pending; no package, tag, or release
+publication has been performed.
 
-2026-09-10 resumed checkpoint: M1 detector, API, UI, bounded repository discovery
-and 0.17.0 version/documentation are implemented and frozen. Focused package/API,
-collector, embedded-UI and ten UI-state behavior tests passed on native Windows.
-The exact clean-candidate Full gate, final browser retake and publication are
-still pending; do not treat the version bump as a release. Earlier partial
-build/test failures remain documented in `UX_VERIFICATION_20260909.md`.
-
-The preliminary candidate is on 38482 with an isolated QA home under
-`artifacts/project-setup-qa-20260910`; main registered the independent mixed
-fixture through the UI. Empty registration -> scan -> Python/FastAPI and Vue
-detection worked. Seven routes had one visible h1 and no horizontal overflow at
-1244px and 485px actual CSS widths, with no console errors. Those checks used
-an earlier binary and require retaking after the frozen 0.17.0 rebuild. Do not
-claim 390px coverage: the browser override renders a minimum 485px CSS viewport.
-
-User clarified primary targets are Python/FastAPI + Vue, not Go-only. Preserve
-all prior UX/discovery fixes and research; do not mistake the application's Go
-implementation for the user's target stack. Astra is a development assistant,
-not a requested hardcoded product API integration.
+M1 provides bounded language detection, mixed-component evidence, manual display
+filters, and display-only setup guidance. Python/FastAPI and Vue remain
+read-only guidance: no analyzer execution, installation, AI launch, or
+configuration write is claimed. Existing root Go actions remain available.
+The prior design and UX research remain authoritative; do not mistake the
+application's Go implementation for the user's Python/FastAPI + Vue targets.
 
 Read [the current design](PROJECT_ANALYSIS_DESIGN_20260910.md),
-[UX findings](UX_REWORK_20260909.md) and
-[verification checkpoint](UX_VERIFICATION_20260909.md) before continuing.
-Sol high reviewed M1; main resolved bounded discovery, identity/filter and state
-semantics in the design. Luna workers implement read-only project setup, UI,
-CSS and QA with disjoint write scopes. Do not message older Codex app tasks as
-subagents; use the current multi-agent IDs and re-check ownership before edits.
+[UX findings](UX_REWORK_20260909.md), and
+[verification checkpoint](UX_VERIFICATION_20260909.md) before changing code.
+Earlier partial failures in the UX checkpoint are historical evidence and are
+superseded for the candidate source by the recorded Full and browser results.
 
 M1: language detection/manual correction, mixed components, applicable existing
 configuration and display-only setup previews. M2: real Python/Vue analysis and
@@ -62,11 +55,10 @@ Do not pretend M1 previews can execute or install. A local UI preference is not
 an approved executable plan. User authorized incremental Windows amd64 releases;
 publish only after actual milestone verification and artifact checks.
 
-The previous UX slice's embedded UI tests passed after correction, but its full
-suite was not completed on the final sources. Port 38481 held an older isolated
-test candidate, not the new project-setup implementation. Fixture coverage of
-100% is one test statement, not main-repository coverage. Confirm live process,
-source, version and test state rather than relying on this checkpoint alone.
+The final candidate's native Full suite is complete. Any 100% coverage result
+belongs only to the named QA fixture, not the main repository. Confirm source,
+version, process, and evidence from the verification record rather than relying
+on an older checkpoint alone.
 
 ## 2026-09-07 v0.16.0 release checkpoint
 
@@ -610,7 +602,7 @@ changes. AI is a client, never the source of truth or a privileged actor.
 - Company repository names, paths, endpoints, tokens, and runbooks are not
   committed to this repository. Tests use generic fixtures only.
 
-Current contract versions:
+Historical contract snapshot at this handoff (v0.11.1 baseline):
 
 - binary version: `0.11.1`;
 - API objects: `devroom/v1alpha1`;
