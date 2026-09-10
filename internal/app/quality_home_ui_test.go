@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestEmbeddedUIQualityHomePopulatedQueueRendersOneSemanticState(t *testing.T) {
+func TestEmbeddedUIQualityHomeTargetFlowRendersOneSelectedTarget(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
@@ -13,44 +13,33 @@ func TestEmbeddedUIQualityHomePopulatedQueueRendersOneSemanticState(t *testing.T
 	defer service.Close()
 
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
-	itemStart := strings.Index(javascript, "function renderQualityQueueItem")
-	if itemStart < 0 {
-		t.Fatal("embedded UI is missing the quality queue renderer")
-	}
-	itemEnd := strings.Index(javascript[itemStart:], "\n  function renderQualityHome")
-	if itemEnd < 0 {
-		t.Fatal("embedded UI quality queue renderer has no end boundary")
-	}
-	itemRenderer := javascript[itemStart : itemStart+itemEnd]
-	if got := strings.Count(itemRenderer, "stateText(qualityQueueStateLabel(stateValue), tone)"); got != 1 {
-		t.Fatalf("quality queue item renders semantic state %d times, want once", got)
-	}
-	if strings.Contains(itemRenderer, `quality-queue-item__heading`) && strings.Contains(itemRenderer, `class="chip`) {
-		t.Fatal("quality queue item still renders a duplicate visible state chip")
-	}
-
 	renderStart := strings.Index(javascript, "function renderQualityHome")
 	if renderStart < 0 {
-		t.Fatal("embedded UI is missing the QualityHome renderer")
+		t.Fatal("embedded UI is missing the home target renderer")
 	}
 	renderEnd := strings.Index(javascript[renderStart:], "\n  function renderHome")
 	if renderEnd < 0 {
-		t.Fatal("embedded UI QualityHome renderer has no end boundary")
+		t.Fatal("embedded UI home target renderer has no end boundary")
 	}
 	renderer := javascript[renderStart : renderStart+renderEnd]
 	for _, value := range []string{
-		"quality-queue-list",
-		"queue.map(renderQualityQueueItem)",
-		"quality-queue-next-state",
-		`qualityHome.status === "ready"`,
+		"const targets = targetOptions()",
+		"targetSelect.disabled = !targets.length || Boolean(state.qualityRunPending)",
+		"rememberTarget(target.value)",
+		"home-next-state",
+		"작업에서 구성 확인",
+		"Git 상태 확인 항목입니다. 품질 점검 결과와 섞지 않았습니다.",
 	} {
 		if !strings.Contains(renderer, value) {
-			t.Errorf("populated QualityHome renderer missing %q", value)
+			t.Errorf("home target renderer missing %q", value)
 		}
+	}
+	if strings.Contains(renderer, "quality-queue-list") || strings.Contains(renderer, "queue.map(renderQualityQueueItem)") {
+		t.Fatal("home target renderer still uses the retired queue surface")
 	}
 }
 
-func TestEmbeddedUIQualityHomeEndpointErrorShowsRetryableAlert(t *testing.T) {
+func TestEmbeddedUIServiceRecoveryKeepsStaleDataAndOffersRefresh(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
@@ -58,45 +47,20 @@ func TestEmbeddedUIQualityHomeEndpointErrorShowsRetryableAlert(t *testing.T) {
 	defer service.Close()
 
 	javascript := embeddedUIAsset(t, service, "/ui/app.js", "text/javascript")
-	loadStart := strings.Index(javascript, "async function loadQualityHome")
-	if loadStart < 0 {
-		t.Fatal("embedded UI is missing the QualityHome loader")
-	}
-	loadEnd := strings.Index(javascript[loadStart:], "\n\n  async function loadAssuranceTrace")
-	if loadEnd < 0 {
-		t.Fatal("embedded UI QualityHome loader has no end boundary")
-	}
-	loader := javascript[loadStart : loadStart+loadEnd]
+	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`request("/api/quality/home")`,
-		`status: "error"`,
-		"normalizeQualityHomeError(error)",
-		"renderQualityHome()",
+		"function renderServiceRecovery()",
+		`state.service.status === "offline"`,
+		`data-service-refresh`,
+		"Promise.all(requests.map",
+		"state.service = failed.length === 0",
 	} {
-		if !strings.Contains(loader, value) {
-			t.Errorf("QualityHome endpoint-error loader missing %q", value)
+		if !strings.Contains(javascript, value) {
+			t.Errorf("service recovery contract missing %q", value)
 		}
 	}
-
-	renderStart := strings.Index(javascript, "function renderQualityHome")
-	if renderStart < 0 {
-		t.Fatal("embedded UI is missing the QualityHome renderer")
-	}
-	renderEnd := strings.Index(javascript[renderStart:], "\n  function renderHome")
-	if renderEnd < 0 {
-		t.Fatal("embedded UI QualityHome renderer has no end boundary")
-	}
-	renderer := javascript[renderStart : renderStart+renderEnd]
-	for _, value := range []string{
-		`if (failed)`,
-		`class="quality-queue-error" role="alert"`,
-		"data-quality-retry",
-		"qualityHome.error",
-		"다른 프로젝트·실행·활동 데이터는 계속 확인할 수 있습니다.",
-	} {
-		if !strings.Contains(renderer, value) {
-			t.Errorf("endpoint-error UI missing %q", value)
-		}
+	if !strings.Contains(html, `id="service-recovery"`) {
+		t.Fatal("embedded UI is missing the single service recovery band")
 	}
 }
 

@@ -1,19 +1,24 @@
 # Dev Control Room design system
 
 Status: active
-Target: v0.13
-Refreshed: 2026-08-30
+Target: usability-first working tree (not released)
+Refreshed: 2026-09-09
 
 This is the source of truth for the embedded loopback UI. The research and
 product reasoning behind this contract is preserved in
 `docs/AI_GENERATED_UI_RESEARCH_2026-08-30.md`. Changes must satisfy both files.
+The current usability slice is defined in `docs/UX_REWORK_20260909.md`. Its
+task-oriented rules below supersede older ledger-only composition choices;
+the historical research and safety/evidence principles remain intact.
 The system is implemented in plain embedded HTML, CSS, and JavaScript; it is not
 a package or a frontend framework.
 
 ## Product job
 
-Dev Control Room is a **local repository operational ledger** for one developer
-on Windows. It helps the operator answer, in order:
+Dev Control Room is a **local code-quality workbench** for one developer
+on Windows. Its everyday path is select repository, configure existing checks,
+run saved checks, inspect problems, and recheck after a fix. It helps the
+operator answer, in order:
 
 1. what changed or needs attention;
 2. what evidence supports that observation;
@@ -67,7 +72,8 @@ status / subject             evidence or consequence              next action
 status / subject             evidence or consequence              next action
 ```
 
-A bordered surface is justified only when it contains editable controls or an
+A bordered surface is justified when it groups one concrete task and its state,
+contains editable controls or an
 operation lifecycle, isolates an error/approval/safety consequence, or is a
 native disclosure/dialog or selected detail inspector. Do not nest boxes around
 a heading, list, and every row. Do not add a box merely to fill whitespace.
@@ -79,7 +85,10 @@ compact three-step purpose line. It has no marketing hero or duplicate bottom
 call to action. The `사용법` route provides the fuller four-step guide when the
 operator needs orientation.
 
-Established use opens with exceptions and the next safe action. Healthy counts
+Established use opens with the selected scope and a concrete next task, then
+exceptions. Do not label a section “다음 행동 하나” or repeat the queue heading.
+Repository observation must be labelled separately from test/check execution.
+Healthy counts
 are compressed into a single summary line. Recent execution and assurance
 evidence follow as ledger rows. Setup guidance is linked, not permanently
 expanded.
@@ -196,8 +205,10 @@ interaction exists in at least two independent routes.
 ## Copy and progressive disclosure
 
 Use concise Korean nouns for labels and short `합니다` sentences only for a
-cause, consequence, or recovery step. Keep exact terms such as Worktree,
-Provider, Action, artifact, and HEAD when translation would reduce precision.
+cause, consequence, or recovery step. Prefer “작업 폴더”, “점검 목록”,
+“실행 기록”, and “근거 파일” for ordinary tasks. Keep exact terms such as
+Worktree, Provider, Action, artifact, and HEAD in technical detail when needed
+for precision, not as prerequisites for using the first screen.
 Do not use an eyebrow to restate the following heading. Do not label routine
 sections with marketing phrases such as “한눈에”, “스마트”, or “강력한”.
 
@@ -209,6 +220,11 @@ required approval is never hidden.
 Every data surface owns loading, empty, partial-failure, approval-required, and
 completed behavior. Error copy exposes a safe reason and recovery step, never
 raw credentials, provider transcripts, or unmasked sensitive paths.
+
+One disconnected local service should have one prominent recovery entry, not
+an error banner and retry button in every section. Retained results must be
+marked as old data. An empty check list is setup guidance, not evidence that
+the repository passed. Missing measurements remain unknown, not zero.
 
 ## Accessibility and responsive behavior
 

@@ -1,6 +1,49 @@
 # Current state and implementation handoff
 
-Updated: 2026-09-07
+Updated: 2026-09-10
+
+## Active: project-oriented analysis (not yet released)
+
+2026-09-10 resumed checkpoint: M1 detector, API, UI, bounded repository discovery
+and 0.17.0 version/documentation are implemented and frozen. Focused package/API,
+collector, embedded-UI and ten UI-state behavior tests passed on native Windows.
+The exact clean-candidate Full gate, final browser retake and publication are
+still pending; do not treat the version bump as a release. Earlier partial
+build/test failures remain documented in `UX_VERIFICATION_20260909.md`.
+
+The preliminary candidate is on 38482 with an isolated QA home under
+`artifacts/project-setup-qa-20260910`; main registered the independent mixed
+fixture through the UI. Empty registration -> scan -> Python/FastAPI and Vue
+detection worked. Seven routes had one visible h1 and no horizontal overflow at
+1244px and 485px actual CSS widths, with no console errors. Those checks used
+an earlier binary and require retaking after the frozen 0.17.0 rebuild. Do not
+claim 390px coverage: the browser override renders a minimum 485px CSS viewport.
+
+User clarified primary targets are Python/FastAPI + Vue, not Go-only. Preserve
+all prior UX/discovery fixes and research; do not mistake the application's Go
+implementation for the user's target stack. Astra is a development assistant,
+not a requested hardcoded product API integration.
+
+Read [the current design](PROJECT_ANALYSIS_DESIGN_20260910.md),
+[UX findings](UX_REWORK_20260909.md) and
+[verification checkpoint](UX_VERIFICATION_20260909.md) before continuing.
+Sol high reviewed M1; main resolved bounded discovery, identity/filter and state
+semantics in the design. Luna workers implement read-only project setup, UI,
+CSS and QA with disjoint write scopes. Do not message older Codex app tasks as
+subagents; use the current multi-agent IDs and re-check ownership before edits.
+
+M1: language detection/manual correction, mixed components, applicable existing
+configuration and display-only setup previews. M2: real Python/Vue analysis and
+normalized results. M3: bounded configured-agent proposals with human review.
+Do not pretend M1 previews can execute or install. A local UI preference is not
+an approved executable plan. User authorized incremental Windows amd64 releases;
+publish only after actual milestone verification and artifact checks.
+
+The previous UX slice's embedded UI tests passed after correction, but its full
+suite was not completed on the final sources. Port 38481 held an older isolated
+test candidate, not the new project-setup implementation. Fixture coverage of
+100% is one test statement, not main-repository coverage. Confirm live process,
+source, version and test state rather than relying on this checkpoint alone.
 
 ## 2026-09-07 v0.16.0 release checkpoint
 

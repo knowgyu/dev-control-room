@@ -12,6 +12,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/environment"
 	"github.com/knowgyu/dev-control-room/internal/measurement"
+	"github.com/knowgyu/dev-control-room/internal/qualitysetup"
 	"github.com/knowgyu/dev-control-room/internal/scheduler"
 )
 
@@ -70,6 +71,7 @@ type QueryService interface {
 	QualityObjective(context.Context, string) (domain.QualityObjective, error)
 	QualityHome(context.Context) (QualityHome, error)
 	QualityTools(context.Context) (assurance.QualityToolsReadModel, error)
+	QualitySetup(context.Context, string, string, string, []string) (qualitysetup.Report, error)
 	QualityCampaigns(context.Context) ([]domain.QualityCampaign, error)
 	QualityRuns(context.Context) ([]domain.QualityRun, error)
 	AgentInvocations(context.Context) ([]domain.AgentInvocation, error)
@@ -180,6 +182,13 @@ type ApplicationService interface {
 	CommandService
 }
 
+// repositoryDiscoveryDetailsService is an additive capability. Keeping it
+// outside CommandService lets existing adapters and test doubles retain the
+// legacy discovery contract while the detailed HTTP route is adopted.
+type repositoryDiscoveryDetailsService interface {
+	DiscoverRepositoriesDetailed(context.Context, string) (RepositoryDiscoveryDetails, error)
+}
+
 type Health struct {
 	OK            bool   `json:"ok"`
 	Service       string `json:"service"`
@@ -203,6 +212,15 @@ type AddProjectTreeInput struct {
 type RepositoryCandidate struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+// RepositoryDiscoveryDetails is the additive result for bounded discovery.
+// Repositories may be usable for display even when Partial is true, but they
+// must not be registered as a complete automatic selection.
+type RepositoryDiscoveryDetails struct {
+	Repositories []RepositoryCandidate `json:"repositories"`
+	Partial      bool                  `json:"partial"`
+	Warnings     []string              `json:"warnings"`
 }
 
 type AddRepositoryInput struct {

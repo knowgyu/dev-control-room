@@ -34,8 +34,9 @@ func TestEmbeddedUIResponsiveAccessibilityPolishContract(t *testing.T) {
 		`aria-describedby="activity-table-scroll-hint"`,
 		`id="activity-table-scroll-hint" class="table-scroll-hint"`,
 		`["ArrowLeft", "ArrowRight", "Home", "End"]`,
-		`nextSection?.classList.toggle("home-next-action--empty", !hasProjects);`,
-		`quality-queue-next-state--inline`,
+		`const hasObservedTarget = projectID => targetOptions().some`,
+		`data-repository-refresh`,
+		`targetSelect.disabled = !targets.length || Boolean(state.qualityRunPending);`,
 		`projectImportFile?.addEventListener("cancel"`,
 		`프로젝트 설정 파일을 선택하지 않았습니다.`,
 	} {
@@ -46,14 +47,13 @@ func TestEmbeddedUIResponsiveAccessibilityPolishContract(t *testing.T) {
 
 	for _, value := range []string{
 		`min-width: 0;`,
-		`main:focus-visible,`,
-		`main.route-focus:focus`,
+		`:focus-visible`,
 		`outline: 2px solid var(--accent);`,
-		`.home-next-action--empty`,
 		`.table-wrap:focus-visible`,
 		`.table-scroll-hint`,
-		`.demo-run > div:last-child`,
-		`border-left: 1px solid var(--rule);`,
+		`.quality-work-surface`,
+		`.advanced-work`,
+		`.provider-card`,
 	} {
 		if !strings.Contains(styles, value) {
 			t.Errorf("embedded UI style contract missing %q", value)
@@ -64,6 +64,9 @@ func TestEmbeddedUIResponsiveAccessibilityPolishContract(t *testing.T) {
 	}
 	if strings.Contains(styles, "overflow-x: hidden") {
 		t.Fatal("embedded UI must not hide page overflow to mask narrow-layout clipping")
+	}
+	if strings.Contains(styles, "main:focus-visible") || strings.Contains(styles, "main.route-focus:focus") {
+		t.Fatal("route focus must not draw a full main-content box")
 	}
 	if strings.Contains(javascript, `href="#projects">프로젝트 등록으로 이동</a>`) {
 		t.Fatal("empty Home must not duplicate the onboarding project-registration CTA")

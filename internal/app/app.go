@@ -923,16 +923,36 @@ func (a *App) AddProject(ctx context.Context, input AddProjectInput) (domain.Pro
 	return project, nil
 }
 
-func (a *App) DiscoverRepositories(_ context.Context, root string) ([]RepositoryCandidate, error) {
-	paths, err := collector.DiscoverGitRoots(root)
+func (a *App) DiscoverRepositories(ctx context.Context, root string) ([]RepositoryCandidate, error) {
+	result, err := a.DiscoverRepositoriesDetailed(ctx, root)
 	if err != nil {
-		return nil, contract.InvalidInput(err.Error())
+		return nil, err
 	}
-	items := make([]RepositoryCandidate, 0, len(paths))
-	for _, path := range paths {
-		items = append(items, RepositoryCandidate{Name: filepath.Base(path), Path: path})
+	if result.Partial {
+		return nil, contract.Unavailable("repository discovery was incomplete; narrow the selected folder and try again")
 	}
-	return items, nil
+	return result.Repositories, nil
+}
+
+func (a *App) DiscoverRepositoriesDetailed(ctx context.Context, root string) (RepositoryDiscoveryDetails, error) {
+	result := RepositoryDiscoveryDetails{
+		Repositories: []RepositoryCandidate{},
+		Warnings:     []string{},
+	}
+	discovered, err := collector.DiscoverGitRootsDetailed(ctx, root)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return result, err
+		}
+		return result, contract.InvalidInput(err.Error())
+	}
+	result.Partial = discovered.Partial
+	result.Warnings = append(result.Warnings, discovered.Warnings...)
+	result.Repositories = make([]RepositoryCandidate, 0, len(discovered.Roots))
+	for _, path := range discovered.Roots {
+		result.Repositories = append(result.Repositories, RepositoryCandidate{Name: filepath.Base(path), Path: path})
+	}
+	return result, nil
 }
 
 func (a *App) PickDirectory(_ context.Context) (string, error) {
@@ -956,9 +976,16 @@ func (a *App) AddProjectTree(ctx context.Context, input AddProjectTreeInput) (do
 	}
 	paths := input.Paths
 	if len(paths) == 0 {
-		paths, err = collector.DiscoverGitRoots(root)
-		if err != nil {
-			return domain.Project{}, contract.InvalidInput(err.Error())
+		discovered, discoveryErr := a.DiscoverRepositoriesDetailed(ctx, root)
+		if discoveryErr != nil {
+			return domain.Project{}, discoveryErr
+		}
+		if discovered.Partial {
+			return domain.Project{}, contract.Unavailable("repository discovery was incomplete; no repositories were registered")
+		}
+		paths = make([]string, 0, len(discovered.Repositories))
+		for _, repository := range discovered.Repositories {
+			paths = append(paths, repository.Path)
 		}
 	}
 	canonicalPaths := make([]string, 0, len(paths))

@@ -753,6 +753,26 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(items))
 	}))
+	mux.HandleFunc("POST /api/projects/discover-details", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		detailedService, ok := service.(repositoryDiscoveryDetailsService)
+		if !ok {
+			writeServiceError(response, contract.Unavailable("detailed repository discovery is unavailable"))
+			return
+		}
+		var input struct {
+			Path string `json:"path"`
+		}
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		result, err := detailedService.DiscoverRepositoriesDetailed(request.Context(), input.Path)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(result))
+	}))
 	mux.HandleFunc("POST /api/actions/plans", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
 		var input ActionPlanInput
 		if err := decodeBody(response, request, &input); err != nil {
@@ -1289,6 +1309,27 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 	mux.HandleFunc("GET /api/quality/tools", func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Cache-Control", "no-store")
 		item, err := service.QualityTools(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/quality/setup", func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Cache-Control", "no-store")
+		query := request.URL.Query()
+		languages, err := parseQualitySetupLanguages(query.Get("languages"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		item, err := service.QualitySetup(
+			request.Context(),
+			query.Get("projectId"),
+			query.Get("repositoryId"),
+			query.Get("worktreeId"),
+			languages,
+		)
 		if err != nil {
 			writeServiceError(response, err)
 			return

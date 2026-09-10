@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="control-room-token" content="__MUTATION_TOKEN__">
   <title>Dev Control Room</title>
-    <link rel="stylesheet" href="/ui/app.css?v=0.16.0">
+    <link rel="stylesheet" href="/ui/app.css?v=0.17.0">
 </head>
 <body>
   <a class="skip-link" href="#main-content">본문으로 건너뛰기</a>
@@ -28,20 +28,21 @@
           </nav>
           <div class="topbar-tools">
             <p class="local-note"><span class="status-dot" aria-hidden="true"></span><span>로컬 전용</span></p>
-            <button id="scan" class="button primary" type="button" data-home-established-only hidden>지금 점검</button>
+            <button id="scan" class="button primary" type="button" data-home-established-only hidden>저장소 상태 새로고침</button>
           </div>
         </div>
       </header>
 
       <main id="main-content" tabindex="-1" aria-label="개선">
+        <div id="service-recovery" class="service-recovery" role="status" aria-live="polite" hidden></div>
         <section class="view" data-view="home">
           <header class="page-heading home-heading">
             <div>
-              <h1 id="home-title">개선할 일을 정리합니다.</h1>
-              <p id="home-subtitle">지금 손볼 품질 항목과 다음 행동을 확인합니다.</p>
+              <h1 id="home-title">저장소를 연결하세요.</h1>
+              <p id="home-subtitle">프로젝트를 등록하면 검사할 저장소와 브랜치를 선택할 수 있습니다.</p>
             </div>
             <div class="page-meta" data-home-established-only hidden>
-              <span>마지막 점검</span>
+              <span>마지막 상태 새로고침</span>
               <strong id="m-scan">아직 없음</strong>
             </div>
           </header>
@@ -49,13 +50,9 @@
           <section id="home-onboarding" class="decision-strip home-setup" aria-labelledby="workflow-title">
             <div class="decision-main">
               <span class="eyebrow">시작하기</span>
-              <h2 id="workflow-title">저장소를 연결하면 시작합니다.</h2>
+              <h2 id="workflow-title">검사할 프로젝트</h2>
               <p>선택한 폴더에서 Git 저장소를 찾습니다. 파일은 읽기만 합니다.</p>
-              <ol class="purpose-steps" aria-label="Dev Control Room 사용 순서">
-                <li><span>01</span><strong>연결</strong><small>저장소 선택</small></li>
-                <li><span>02</span><strong>확인</strong><small>상태와 근거 검토</small></li>
-                <li><span>03</span><strong>실행</strong><small>승인한 작업만 진행</small></li>
-              </ol>
+              <p class="setup-note">등록 후에는 같은 대상이 홈과 작업 화면에 유지됩니다. 저장소 상태 새로고침과 코드 검사는 별도 동작입니다.</p>
             </div>
             <div class="decision-action">
               <button id="home-pick-folder" class="button primary" type="button">폴더 선택</button>
@@ -63,34 +60,26 @@
             </div>
           </section>
 
-          <div id="home-metrics" class="summary-line quality-queue-metrics" aria-label="품질 개선 요약" aria-live="polite" aria-busy="true">
-            <span><strong id="m-quality-queue">—</strong> 개선 큐</span>
-            <span><strong id="m-quality-findings">—</strong> 열린 확인</span>
-            <span><strong id="m-quality-failed-runs">—</strong> 실패한 점검</span>
-            <span><strong id="m-quality-objectives">—</strong> 활성 목표</span>
-          </div>
-
           <div class="home-ledger">
-            <section id="quality-queue-section" class="ledger-section home-findings-section quality-queue-section" aria-labelledby="quality-queue-title">
+            <section id="quality-home" class="ledger-section quality-home" aria-labelledby="quality-home-title" data-home-established-only hidden>
               <header class="section-heading">
                 <div>
-                  <span class="eyebrow">개선 큐</span>
-                  <h2 id="quality-queue-title">지금 개선할 것</h2>
+                  <span class="eyebrow">현재 대상</span>
+                  <h2 id="quality-home-title">코드 검사</h2>
                 </div>
-                <span id="quality-queue-status" class="meta">응답을 기다리는 중</span>
+                <a href="#work">작업 열기</a>
               </header>
-              <div id="home-findings" class="quality-queue" aria-live="polite" aria-busy="true">품질 개선 항목을 불러오는 중입니다.</div>
+              <div id="home-target-panel" class="home-target-panel">
+                <label for="home-target"><span>검사할 저장소</span><select id="home-target" aria-label="홈 검사 대상"><option value="">등록된 저장소가 없습니다</option></select></label>
+              </div>
+              <div id="home-next-step" class="home-next-step" aria-live="polite"><div class="empty-state"><strong>검사 대상을 불러오는 중입니다.</strong></div></div>
+              <div class="home-check-grid">
+                <section id="home-check-state" class="home-check-state" aria-labelledby="home-check-state-title"><h3 id="home-check-state-title">최근 검사</h3><div class="empty-state">결과를 불러오는 중입니다.</div></section>
+                <section id="home-issues" class="home-issues" aria-labelledby="home-issues-title"><h3 id="home-issues-title">저장소 확인 항목</h3><div class="empty-state">상태를 불러오는 중입니다.</div></section>
+              </div>
             </section>
 
             <section id="quality-objective-detail" class="ledger-section quality-objective-detail" aria-labelledby="quality-objective-detail-title" aria-live="polite" aria-busy="false" hidden></section>
-
-            <section id="home-next-action-section" class="decision-strip home-next-action quality-queue-next-section" aria-labelledby="home-next-action-title">
-              <div class="decision-main">
-                <span class="eyebrow">다음 행동</span>
-                <h2 id="home-next-action-title">다음 행동 하나</h2>
-                <div id="home-next-action" class="quality-queue-next" aria-live="polite" aria-busy="true">품질 개선 큐에서 다음 행동을 고르는 중입니다.</div>
-              </div>
-            </section>
 
             <section class="ledger-section" data-home-established-only hidden>
               <header class="section-heading">
@@ -131,7 +120,7 @@
             <div>
               <span class="eyebrow">처음 10분</span>
               <h1>사용법</h1>
-              <p>저장소를 연결하고, 품질 점검 하나를 실행한 뒤 결과를 다시 확인하는 흐름입니다.</p>
+              <p>저장소를 연결하고 언어별 설정과 준비 방법을 확인합니다. 저장소 최상위 폴더의 Go 검사는 직접 실행할 수 있습니다.</p>
             </div>
             <div class="page-actions">
               <a class="button primary" href="#projects">프로젝트 등록</a>
@@ -142,12 +131,12 @@
           <section class="guide-purpose" aria-labelledby="guide-purpose-title">
             <div class="guide-purpose-main">
               <span class="eyebrow">이 도구가 해결하는 일</span>
-              <h2 id="guide-purpose-title">코드 변경을 맡기기 전에, 품질 상태와 근거를 한 줄로 이어봅니다.</h2>
-              <p>Dev Control Room은 저장소를 대신 수정하는 화면이 아닙니다. Git·Worktree 상태와 결정론적 점검 결과를 먼저 확인하고, AI Agent나 외부 작업은 사람이 승인한 범위 안에서만 이어지게 합니다.</p>
+              <h2 id="guide-purpose-title">이 저장소의 검사 준비부터 확인하세요.</h2>
+              <p>Python/FastAPI와 Vue는 구성 파일과 준비 방법까지만 안내합니다. Go 실행을 선택하면 실제 명령과 결과를 작업에서 확인합니다.</p>
             </div>
             <dl class="guide-boundary">
-              <div><dt>자동 확인</dt><dd>Git 상태 · 점검 명령 · 결과 · HEAD · artifact</dd></div>
-              <div><dt>사람이 결정</dt><dd>제안 적용 · 외부 작업 · 릴리스 · 정리</dd></div>
+              <div><dt>구성 확인</dt><dd>언어 · 구성 파일 · 준비 방법</dd></div>
+              <div><dt>직접 실행</dt><dd>지원되는 검사 선택 · 명령 확인 · 결과 보기</dd></div>
             </dl>
           </section>
 
@@ -156,16 +145,16 @@
               <div>
                 <span class="eyebrow">가장 짧은 경로</span>
                 <h2 id="guide-route-title">이 순서대로 누르세요.</h2>
-                <p class="meta">처음에는 하나의 저장소와 하나의 점검만 확인하면 됩니다.</p>
+                <p class="meta">처음에는 저장소 하나의 구성과 준비 상태를 확인하세요.</p>
               </div>
-              <span class="guide-route-note">읽기 → 검토 → 승인 → 기록</span>
+              <span class="guide-route-note">등록 → 대상 선택 → 구성 확인</span>
             </header>
             <ol class="guide-route" aria-label="Dev Control Room 첫 사용 순서">
               <li><a href="#projects"><span class="guide-route-index">01</span><span><strong>프로젝트</strong><small>폴더 선택 → 저장소 등록</small></span></a></li>
-              <li><a href="#diagnostics"><span class="guide-route-index">02</span><span><strong>진단</strong><small>Git·품질 도구 확인</small></span></a></li>
-              <li><a href="#home"><span class="guide-route-index">03</span><span><strong>개선</strong><small>먼저 볼 항목 선택</small></span></a></li>
-              <li><a href="#work"><span class="guide-route-index">04</span><span><strong>작업</strong><small>점검 기준 만들기·실행</small></span></a></li>
-              <li><a href="#assurance"><span class="guide-route-index">05</span><span><strong>검증</strong><small>결과·근거 다시 확인</small></span></a></li>
+              <li><a href="#home"><span class="guide-route-index">02</span><span><strong>개선</strong><small>저장소·브랜치 선택</small></span></a></li>
+              <li><a href="#work"><span class="guide-route-index">03</span><span><strong>작업</strong><small>구성·준비 방법 확인</small></span></a></li>
+              <li><a href="#diagnostics"><span class="guide-route-index">04</span><span><strong>진단</strong><small>필요한 환경만 확인</small></span></a></li>
+              <li><a href="#assurance"><span class="guide-route-index">05</span><span><strong>검증</strong><small>실행한 검사 결과 보기</small></span></a></li>
               <li><a href="#activity"><span class="guide-route-index">06</span><span><strong>활동</strong><small>무슨 일이 있었는지 확인</small></span></a></li>
             </ol>
           </section>
@@ -196,8 +185,8 @@
               <nav class="guide-page-map" aria-label="화면별 역할">
                 <a href="#home"><strong>개선</strong><span>지금 손볼 항목과 다음 행동</span></a>
                 <a href="#projects"><strong>프로젝트</strong><span>저장소·Worktree 관찰 범위</span></a>
-                <a href="#work"><strong>작업</strong><span>점검 기준과 승인된 실행</span></a>
-                <a href="#assurance"><strong>검증</strong><span>Quality Run·효과·근거</span></a>
+                <a href="#work"><strong>작업</strong><span>구성 확인·준비 방법·지원되는 검사</span></a>
+                <a href="#assurance"><strong>검증</strong><span>실행한 검사 결과와 근거</span></a>
                 <a href="#diagnostics"><strong>진단</strong><span>Git·품질 도구·Provider 설정</span></a>
                 <a href="#activity"><strong>활동</strong><span>등록·점검·실행의 시간순 기록</span></a>
               </nav>
@@ -240,7 +229,7 @@
             <form id="add-form" class="form-grid">
               <label>
                 <span>프로젝트 이름</span>
-                <input id="name" name="project-name" autocomplete="off" placeholder="예: 개인 도구…" required>
+                <input id="name" name="project-name" autocomplete="off" placeholder="선택 사항 · 폴더 이름을 기본값으로 사용">
               </label>
               <div class="wide field-group">
                 <label for="path">상위 폴더 또는 Git 저장소</label>
@@ -276,56 +265,52 @@
           <header class="page-heading">
             <div>
               <h1>작업</h1>
-              <p>관찰한 상태에서 근거를 확인하고 승인된 작업을 실행합니다.</p>
+              <p>대상을 고르고, 저장소 구성을 확인한 뒤 가능한 다음 단계를 선택합니다.</p>
             </div>
           </header>
 
-          <div class="evidence-flow work-flow" aria-label="작업 흐름">
-            <section class="ledger-section flow-step" data-step="관찰">
-              <header class="section-heading">
-                <div>
-                  <span class="step-index">01</span>
-                  <h2>발견된 점검</h2>
-                </div>
-                <span class="state-text state-neutral">관찰</span>
-              </header>
-               <p class="section-note">선택한 Worktree에서 이미 쓰는 점검 명령을 읽기 전용으로 찾습니다.</p>
-              <div id="proposal-ui" class="ledger">발견 결과를 불러오는 중입니다.</div>
-            </section>
-
-            <section class="ledger-section flow-step" data-step="근거">
-              <header class="section-heading">
-                <div>
-                  <span class="step-index">02</span>
-                  <h2>점검 기준</h2>
-                </div>
-                <span class="state-text state-neutral">근거</span>
-              </header>
-              <p class="section-note">명령·HEAD·제한 시간을 확인한 뒤 점검 기준으로 적용합니다.</p>
-              <div id="checksets" class="ledger">Checkset을 불러오는 중입니다.</div>
-            </section>
-
-            <section class="ledger-section flow-step" data-step="승인">
-              <header class="section-heading">
-                <div>
-                  <span class="step-index">03</span>
-                  <h2>실행 계획</h2>
-                </div>
-                <span class="state-text state-warning">승인</span>
-              </header>
-              <p class="section-note">대상과 Worktree를 확인하고, 승인한 계획만 실행합니다.</p>
-              <div id="action-ui" class="ledger">Action 계획을 불러오는 중입니다.</div>
-            </section>
-          </div>
-
-          <section class="decision-strip work-operations" aria-labelledby="operations-title">
-            <div class="decision-main">
-              <span class="state-text state-warning">승인 필요</span>
-              <h2 id="operations-title">외부 시스템 작업</h2>
-              <p>Jenkins와 릴리스 작업은 계획과 승인을 거친 뒤 실행합니다.</p>
+          <section id="quality-work-surface" class="ledger-section quality-work-surface" aria-labelledby="quality-work-title">
+            <header class="section-heading">
+              <div>
+                <span class="eyebrow">기본 경로</span>
+                <h2 id="quality-work-title">프로젝트 구성 확인</h2>
+                <p class="meta">선택한 저장소의 근거를 읽어 언어·구성 요소·준비 상태를 표시합니다.</p>
+              </div>
+            </header>
+            <div class="quality-target-panel">
+              <label for="quality-target"><span>확인할 저장소</span><select id="quality-target" aria-label="프로젝트 구성 확인 대상"><option value="">등록된 저장소가 없습니다</option></select></label>
+              <div id="quality-target-meta" class="quality-target-meta"><div class="empty-state">확인 대상을 불러오는 중입니다.</div></div>
             </div>
-            <div id="operations-ui" class="ledger">외부 작업 계획을 불러오는 중입니다.</div>
+            <p class="quality-support-note">현재 버전은 준비 방법까지 안내합니다. Python·Vue 검사 실행은 아직 지원하지 않습니다. 여기서는 설정만 확인하며, 도구를 설치하거나 실행하지 않습니다.</p>
+            <div id="quality-setup" class="quality-setup" aria-live="polite"><div class="empty-state">구성 확인을 불러오는 중입니다.</div></div>
+            <div id="quality-techniques" class="quality-technique-grid" aria-live="polite"><div class="empty-state">구성 확인 후 가능한 기존 실행을 표시합니다.</div></div>
+            <section class="quality-run-results" aria-labelledby="quality-run-results-title">
+              <header class="section-heading"><div><h3 id="quality-run-results-title">이 대상의 기존 결과</h3><p class="meta">실행한 명령·종료 코드·HEAD를 바로 확인합니다. 구성 확인과 실행 결과는 별도 기록입니다.</p></div><a href="#assurance">전체 결과</a></header>
+              <div id="quality-run-results" class="quality-run-results__list" aria-live="polite"><div class="empty-state">결과를 불러오는 중입니다.</div></div>
+            </section>
           </section>
+
+          <details id="advanced-work" class="disclosure advanced-work">
+            <summary><span><strong>기존 점검 기준과 저장소 작업</strong><small>발견·저장된 기준·Git 작업·외부 시스템</small></span><span class="summary-action">고급 작업 보기</span></summary>
+            <div class="disclosure-body">
+              <section class="ledger-section" aria-labelledby="discovery-title">
+                <header class="section-heading"><div><h2 id="discovery-title">기존 점검 기준 찾기</h2><p class="meta">이미 저장소에서 사용하던 명령을 읽기 전용으로 찾습니다. 기본 코드 검사와는 별도 경로입니다.</p></div></header>
+                <div id="proposal-ui" class="ledger">발견 결과를 불러오는 중입니다.</div>
+              </section>
+              <section class="ledger-section" aria-labelledby="saved-checks-title">
+                <header class="section-heading"><div><h2 id="saved-checks-title">저장된 점검 기준</h2><p class="meta">명령·HEAD·제한 시간을 확인한 뒤 별도로 적용합니다.</p></div></header>
+                <div id="checksets" class="ledger">저장된 점검 기준을 불러오는 중입니다.</div>
+              </section>
+              <section class="ledger-section" aria-labelledby="action-title">
+                <header class="section-heading"><div><h2 id="action-title">저장소 작업 계획</h2><p class="meta">Git 동기화와 기타 작업은 코드 검사와 별도로 계획·승인합니다.</p></div></header>
+                <div id="action-ui" class="ledger">저장소 작업 계획을 불러오는 중입니다.</div>
+              </section>
+              <section class="decision-strip work-operations" aria-labelledby="operations-title">
+                <div class="decision-main"><span class="state-text state-warning">승인 필요</span><h2 id="operations-title">외부 시스템 작업</h2><p>Jenkins와 릴리스 작업은 계획과 승인을 거친 뒤 실행합니다.</p></div>
+                <div id="operations-ui" class="ledger">외부 작업 계획을 불러오는 중입니다.</div>
+              </section>
+            </div>
+          </details>
         </section>
 
         <section class="view" data-view="diagnostics" hidden>
@@ -348,16 +333,21 @@
               <div id="environment" class="ledger" aria-live="polite">개발 환경 상태를 불러오는 중입니다.</div>
             </section>
 
-            <section id="quality-tools-section" class="ledger-section quality-tools-section" aria-labelledby="quality-tools-title">
-              <header class="section-heading">
-                <div>
-                  <h2 id="quality-tools-title">품질 도구</h2>
-                  <p class="meta">로컬 도구 탐색 결과만 표시합니다. 실행·신뢰 여부는 여기서 판단하지 않습니다.</p>
-                </div>
-                <button id="quality-tools-refresh" class="button" type="button">다시 확인</button>
-              </header>
-              <div id="quality-tools" class="quality-tools" aria-live="polite" aria-busy="true">로컬 도구 탐색 결과를 불러오는 중입니다.</div>
-            </section>
+            <details id="quality-tools-disclosure" class="disclosure quality-tools-disclosure">
+              <summary><span><strong>추가 품질 도구</strong><small>선택 사항 · 기본 검사에는 모두 설치할 필요 없음</small></span><span class="summary-action">상세 보기</span></summary>
+              <div class="disclosure-body">
+                <section id="quality-tools-section" class="ledger-section quality-tools-section" aria-labelledby="quality-tools-title">
+                  <header class="section-heading">
+                    <div>
+                      <h2 id="quality-tools-title">품질 도구</h2>
+                      <p class="meta">로컬 도구 탐색 결과만 표시합니다. 실행·신뢰 여부는 여기서 판단하지 않습니다.</p>
+                    </div>
+                    <button id="quality-tools-refresh" class="button" type="button">다시 확인</button>
+                  </header>
+                  <div id="quality-tools" class="quality-tools" aria-live="polite" aria-busy="true">로컬 도구 탐색 결과를 불러오는 중입니다.</div>
+                </section>
+              </div>
+            </details>
 
             <section class="ledger-section" aria-labelledby="provider-title">
               <header class="section-heading">
@@ -504,6 +494,11 @@
             </footer>
           </section>
 
+          <section class="ledger-section assurance-primary-runs" aria-labelledby="assurance-runs-title">
+            <header class="section-heading"><div><h2 id="assurance-runs-title">코드 검사 결과</h2><p class="meta">작업에서 실행한 결과를 대상별로 다시 확인합니다.</p></div><a href="#work">작업으로 돌아가기</a></header>
+            <div id="assurance-runs" class="ledger">코드 검사 결과를 불러오는 중입니다.</div>
+          </section>
+
           <section id="assurance-measurement-dashboard" class="measurement-dashboard" aria-labelledby="assurance-measurement-title">
             <header class="measurement-dashboard-heading">
               <div>
@@ -603,19 +598,15 @@
           </div>
 
           <div id="assurance-metrics" class="summary-line assurance-metrics" aria-label="검증 요약" data-assurance-populated>
-            <span><strong>0</strong> Quality Run</span>
-            <span><strong>0</strong> 통과</span>
-            <span><strong>0</strong> Agent 실행</span>
-            <span><strong>0</strong> 효과 기록</span>
-            <span><strong>0</strong> 사용량</span>
+            <span><strong>—</strong> Quality Run</span>
+            <span><strong>—</strong> 통과</span>
+            <span><strong>—</strong> Agent 실행</span>
+            <span><strong>—</strong> 효과 기록</span>
+            <span><strong>—</strong> 사용량</span>
             <span><strong>미확인</strong> 비용 상태</span>
           </div>
 
           <div class="assurance-records" data-assurance-populated>
-            <section class="ledger-section">
-              <header class="section-heading"><h2>Quality Run</h2><span class="meta">다시 실행 가능한 기준</span></header>
-              <div id="assurance-runs" class="ledger">Quality Run을 불러오는 중입니다.</div>
-            </section>
             <section class="ledger-section">
               <header class="section-heading"><h2>효과 기록</h2><span class="meta">측정 · 추정 · 확인 불가</span></header>
               <div id="assurance-effects" class="ledger">효과 기록을 불러오는 중입니다.</div>
@@ -672,6 +663,6 @@
     </form>
   </dialog>
 
-    <script src="/ui/app.js?v=0.16.0" defer></script>
+    <script src="/ui/app.js?v=0.17.0" defer></script>
 </body>
 </html>

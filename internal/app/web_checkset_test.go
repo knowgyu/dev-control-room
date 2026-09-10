@@ -25,7 +25,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
 		`<html lang="ko">`, "본문으로 건너뛰기", "개선", "프로젝트", "작업", "검증", "진단", "활동",
-		"지금 개선할 것", "프로젝트별 상태", "최근 실행", "검증 근거",
+		"프로젝트별 상태", "최근 실행", "검증 근거", "코드 검사", "추가 품질 도구",
 		"시작하기", "Jenkins 대상 그룹", "사용법", "처음 10분", "이 도구가 해결하는 일", "가장 짧은 경로", "화면 연결", "상황별 시작점",
 		"프로젝트에서 폴더를 고르세요.", "이 순서대로 누르세요.", "완료 기준",
 		"폴더 선택", "저장소 찾기",
@@ -33,8 +33,8 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"등록 정보만 제거하며 저장소 파일은 삭제하지 않습니다.",
 		"assurance-demo-board", "예시 화면 보기",
 		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`, `id="home-assurance" class="ledger" aria-live="polite"`,
-		`class="decision-strip home-setup"`, `class="evidence-flow work-flow"`,
-		`href="/ui/app.css?v=0.16.0"`, `src="/ui/app.js?v=0.16.0"`, `meta name="control-room-token"`,
+		`class="decision-strip home-setup"`, `id="quality-work-surface"`, `id="advanced-work"`, `id="quality-tools-disclosure"`,
+		`href="/ui/app.css?v=0.17.0"`, `src="/ui/app.js?v=0.17.0"`, `meta name="control-room-token"`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI HTML missing %q", value)
@@ -80,7 +80,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums", "--space-7: 32px", "--control-height: 40px", ".button.primary:disabled", ".flow-step", "align-items: start;", ".assurance-empty", "grid-template-columns: minmax(76px, auto) minmax(0, 1fr) auto", ".project-card .ledger-row__context { display: none; }", "grid-template-columns: minmax(116px, 140px) minmax(0, 1fr) auto", ".diagnostic-findings .finding", "#environment > .list-item", "#environment > .list-item > p { margin: 0; }", ".provider-card { border-left: 0; }", ".demo-banner", ".demo-board", ".demo-kpis", ".guide-purpose", ".guide-route", ".guide-action-grid", ".guide-page-map", ".guide-branch"} {
+	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums", "--space-7: 32px", "--control-height: 40px", ".button.primary:disabled", ".flow-step", "align-items: start;", ".assurance-empty", "grid-template-columns: minmax(76px, auto) minmax(0, 1fr) auto", ".project-card .ledger-row__context { display: none; }", "grid-template-columns: minmax(96px, 116px) minmax(0, 1fr) auto", ".diagnostic-findings .finding", "#environment > .list-item", "#environment > .list-item > p { margin: 0; }", ".provider-card", ".quality-work-surface", ".advanced-work", ".demo-banner", ".demo-board", ".demo-kpis", ".guide-purpose", ".guide-route", ".guide-action-grid", ".guide-page-map", ".guide-branch"} {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded UI CSS missing %q", value)
 		}
@@ -185,7 +185,7 @@ func TestEmbeddedUIInformationArchitectureContract(t *testing.T) {
 	if strings.Contains(javascript, "view-title") {
 		t.Error("embedded UI route handling must not access view-title")
 	}
-	for _, value := range []string{`class="decision-strip`, `class="ledger`, `class="evidence-flow`, `class="ledger-row`} {
+	for _, value := range []string{`class="decision-strip`, `class="ledger`, "quality-work-surface", `class="ledger-row`} {
 		if !strings.Contains(html+javascript, value) {
 			t.Errorf("embedded UI v0.13 ledger structure missing %q", value)
 		}
@@ -420,8 +420,8 @@ func TestEmbeddedUIFirstUseAndFindingTargetContract(t *testing.T) {
 
 	html := embeddedUIAsset(t, service, "/", "text/html")
 	for _, value := range []string{
-		`id="home-onboarding"`, `id="home-metrics"`, `id="home-providers"`, `id="home-assurance"`,
-		`data-home-established-only hidden`, `id="home-next-action-section"`, "시작하기", "프로젝트 등록",
+		`id="home-onboarding"`, `id="home-target-panel"`, `id="home-check-state"`, `id="home-issues"`, `id="home-providers"`, `id="home-assurance"`,
+		`data-home-established-only hidden`, `id="home-next-step"`, "시작하기", "프로젝트 등록",
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI first-use HTML missing %q", value)

@@ -15,6 +15,10 @@
     providerStatuses: [],
     assuranceDashboard: { invocations: [], effects: [], usageComplete: true, costState: "unknown" },
     assuranceRuns: [],
+    qualityCampaigns: [],
+    qualityCampaignsStatus: "loading",
+    qualityCampaignsError: "",
+    qualitySetup: { status: "idle", targetValue: "", requestKey: "", data: null, error: "", preferenceReset: false },
     assuranceMeasurement: { status: "loading", data: null, error: "" },
     assuranceInvocations: [],
     assuranceArtifacts: [],
@@ -24,11 +28,15 @@
     assuranceTrace: null,
     assuranceTraceEffectID: "",
     assuranceTraceOpener: null,
+    assuranceFocusConsumed: "",
     assuranceImpactError: "",
     assuranceStorageError: "",
     assuranceTraceError: "",
     qualityHome: { status: "loading", data: null, error: "" },
     qualityTools: { status: "loading", data: null, error: "" },
+    homeChecks: { status: "loading", items: [], error: "" },
+    service: { status: "loading", message: "로컬 서비스에 연결하는 중입니다…", error: "" },
+    lastSuccessfulRefreshAt: "",
     assuranceFilters: { days: "30", provider: "", model: "", project: "" },
     assuranceEffectFilter: "all",
     workItems: [],
@@ -48,6 +56,11 @@
     kubernetesLogs: {},
     operationResults: {},
     activeProjectID: "",
+    selectedTargetValue: "",
+    qualityRunPending: "",
+    qualityRunTargetValue: "",
+    qualityRunError: "",
+    qualityRunErrorTargetValue: "",
     checkRuns: new Map(),
     expandedChecks: new Set(),
     expandedActions: new Set(),
@@ -89,41 +102,41 @@
       href: "#projects",
     },
     {
-      kicker: "02 · 준비",
-      status: "처음 한 번 확인",
-      tone: "positive",
-      title: "진단에서 실행 가능한 도구를 확인하세요.",
-      body: "Git과 품질 도구의 경로를 확인합니다. Provider나 Agent는 필요한 경우에만 연결하며, 결정론적 점검은 AI 연결 없이도 시작할 수 있습니다.",
-      place: "진단",
-      control: "환경 확인 → 품질 도구 다시 확인",
-      done: "필수 도구가 ‘사용 가능’으로 표시됨",
-      bullets: ["도구 탐색은 설치·버전·신뢰 여부를 대신 판단하지 않습니다.", "Jenkins·릴리스 설정은 외부 작업이 필요할 때만 추가합니다."],
-      action: "진단 열기",
-      href: "#diagnostics",
+      kicker: "02 · 대상",
+      status: "저장소와 브랜치 선택",
+      tone: "neutral",
+      title: "작업에서 확인할 저장소를 고르세요.",
+      body: "등록한 저장소와 브랜치를 확인합니다. 선택한 대상은 개선과 작업 화면을 오가거나 다시 열어도 유지됩니다.",
+      place: "개선 · 작업",
+      control: "저장소 선택 → 브랜치 확인",
+      done: "확인하려는 대상과 경로가 표시됨",
+      bullets: ["등록한 대상이 보이지 않으면 저장소 상태를 새로 고치세요.", "환경 문제가 있을 때는 진단에서 기본 도구를 확인합니다."],
+      action: "작업 열기",
+      href: "#work",
     },
     {
       kicker: "03 · 우선순위",
       status: "현재 상태를 기준으로 선택",
       tone: "neutral",
-      title: "개선에서 먼저 볼 한 가지를 고르세요.",
-      body: "프로젝트를 등록한 뒤 ‘지금 점검’을 실행하면 현재 상태가 갱신됩니다. 개선 화면의 큐에서 확인 항목과 다음 행동을 고릅니다.",
-      place: "개선",
-      control: "지금 점검 → 지금 개선할 것 → 항목 열기",
-      done: "확인 항목에 처리 방향과 다음 행동이 보임",
-      bullets: ["변경된 Worktree나 오래된 근거는 새로 확인해야 합니다.", "항목을 고르면 작업 화면에서 연결된 점검과 실행 계획을 이어서 봅니다."],
-      action: "개선 큐 열기",
-      href: "#home",
+      title: "저장소 상태와 점검 결과를 구분해 보세요.",
+      body: "‘저장소 상태 새로고침’은 Git 상태와 확인 항목을 갱신합니다. 프로젝트 구성 확인과 검사 실행은 작업 화면에서 별도로 선택합니다.",
+      place: "개선 · 작업",
+      control: "저장소 상태 새로고침 → 작업 → 구성 확인",
+      done: "저장소 상태와 구성 확인 결과를 각각 확인함",
+      bullets: ["새로고침은 테스트나 품질 점검을 실행하지 않습니다.", "구성 확인은 선택한 저장소의 제한된 근거만 읽습니다."],
+      action: "작업 열기",
+      href: "#work",
     },
     {
-      kicker: "04 · 점검",
-      status: "명시적으로 실행",
+      kicker: "04 · 구성 확인",
+      status: "근거를 먼저 확인",
       tone: "attention",
-      title: "점검 기준을 검토하고 실행하세요.",
-      body: "작업에서 Worktree를 고른 뒤 기존 점검을 찾습니다. 제안을 확인하고 Checkset으로 만든 다음, 적용한 기준만 실행합니다.",
+      title: "언어와 구성 요소를 확인하세요.",
+      body: "작업에서 저장소를 고르면 언어·프레임워크·패키지 관리자와 확인한 근거를 표시합니다. 필요하면 언어 범위를 직접 좁힐 수 있지만, 선택만으로 언어가 확인되지는 않습니다.",
       place: "작업",
-      control: "기존 점검 찾기 → 제안 적용 → Checkset 만들기 → 적용 → 실행",
-      done: "결과 보기에서 통과 여부·종료 코드·HEAD를 확인함",
-      bullets: ["점검 명령·제한 시간·원본 파일·digest를 실행 전에 확인합니다.", "근거가 바뀐 ‘stale’ 제안은 실행하지 말고 기존 점검을 다시 찾습니다."],
+      control: "대상 선택 → 자동 감지 → 언어 선택(필요시) → 근거 보기",
+      done: "구성 상태·근거·준비 안내를 확인함",
+      bullets: ["Python/FastAPI와 Vue는 설정과 준비 방법까지만 안내합니다.", "저장소 최상위 폴더에 Go 구성이 있으면 기존 검사를 선택해 실행할 수 있습니다.", "언어 선택은 표시 범위를 바꾸며 설정 파일을 만들지 않습니다."],
       action: "작업으로 이동",
       href: "#work",
     },
@@ -131,12 +144,12 @@
       kicker: "05 · 기록",
       status: "다시 확인할 수 있음",
       tone: "positive",
-      title: "검증에서 결과를 확인하고, 활동에서 흐름을 되짚으세요.",
-      body: "검증에는 Quality Run, 효과, artifact 근거가 연결됩니다. 활동에는 등록·점검·계획·실행이 시간순으로 남아 다음 작업의 출발점이 됩니다.",
+      title: "실행한 검사의 결과를 확인하세요.",
+      body: "지원되는 검사를 직접 실행했다면 작업에서 결과를 바로 확인합니다. 전체 결과는 검증에서, 등록과 실행 기록은 활동에서 다시 볼 수 있습니다.",
       place: "검증 · 활동",
       control: "결과 보기 → 검증의 근거 확인 → 활동 기록 열기",
       done: "무엇을 언제 어떤 기준으로 확인했는지 설명할 수 있음",
-      bullets: ["검증된 효과는 원본·artifact·같은 HEAD의 재검증이 연결된 경우만 집계합니다.", "예시 화면은 실제 기록·비용·효과에 포함되지 않는 읽기 전용 화면입니다."],
+      bullets: ["설정 확인만으로 검사 결과가 생기지는 않습니다.", "테스트·커버리지는 저장소의 테스트 코드를 실행하므로 명령을 먼저 확인하세요."],
       action: "검증 기록 보기",
       href: "#assurance",
     },
@@ -213,7 +226,7 @@
     ["Repository has uncommitted changes", "저장소에 커밋하지 않은 변경이 있습니다."],
     ["Review the worktree before any cleanup or automation.", "정리나 자동화를 실행하기 전에 Worktree를 검토하세요."],
     ["Repository HEAD is detached", "저장소 HEAD가 detached 상태입니다."],
-    ["Check out an intentional branch before making changes.", "변경하기 전에 의도한 브랜치를 checkout하세요."],
+    ["Check out an intentional branch before making changes.", "변경하기 전에 의도한 브랜치를 확인하세요."],
     ["Repository has no normalized remote", "저장소에 확인된 remote가 없습니다."],
     ["Configure a remote only after confirming the intended destination.", "대상 주소를 확인한 뒤 remote를 설정하세요."],
     ["Worktree cleanup is unsafe", "현재 Worktree를 안전하게 정리할 수 없습니다."],
@@ -307,7 +320,8 @@
     return !(environment.environment || []).some(item => item.state !== "declared");
   };
   const assuranceTechniqueLabels = {
-    static_security: "정적 보안",
+    static_security: "Go 정적 검사 (go vet)",
+    go_test_coverage: "테스트·커버리지",
     mutation: "변이",
     property: "Property",
     fuzz: "Fuzz",
@@ -420,10 +434,52 @@
     (project.repos || []).map(repository => ({ ...repository, projectID: project.id, projectName: project.name })));
   const openFindings = () => state.findings.filter(item => ["open", "acknowledged"].includes(item.spec.state));
   const registryProject = projectID => state.registryProjects.find(project => project.metadata.id === projectID);
-  const targetOptions = () => projectRepositories().flatMap(repository => (repository.worktrees || []).map(worktree => ({
-    value: `${repository.projectID}|${repository.id}|${worktree.metadata.id}`,
-    label: `${repository.projectName} / ${repository.id} / ${worktree.metadata.id}`,
-  })));
+  const targetOptions = () => projectRepositories().flatMap(repository => (repository.worktrees || []).map(worktree => {
+    const branch = worktree.spec?.branch || worktree.metadata?.name || "브랜치 미상";
+    const primary = worktree.spec?.primary || worktree.spec?.isPrimary || worktree.metadata?.name === "main" || worktree.metadata?.name === "master";
+    const repositoryName = repository.name || repository.metadata?.name || repository.id;
+    const branchLabel = primary ? `${branch} · 기본` : branch;
+    const targetName = [...new Set([repository.projectName, repositoryName].filter(Boolean))].join(" · ");
+    return {
+      value: `${repository.projectID}|${repository.id}|${worktree.metadata.id}`,
+      label: `${targetName} · ${branchLabel}`,
+      projectID: repository.projectID,
+      projectName: repository.projectName,
+      repositoryID: repository.id,
+      repositoryName,
+      repositoryPath: repository.path || repository.spec?.path || "",
+      worktreeID: worktree.metadata.id,
+      branch,
+      head: worktree.spec?.head || "",
+      digest: worktree.spec?.digest || worktree.spec?.configDigest || "",
+      primary,
+    };
+  }));
+  const selectedTargetStorageKey = "dev-control-room.selected-target";
+  const readStoredTarget = () => {
+    try { return window.localStorage.getItem(selectedTargetStorageKey) || ""; } catch (_) { return ""; }
+  };
+  const qualitySetupLanguageLabels = {
+    python: "Python",
+    javascript: "JavaScript",
+    typescript: "TypeScript",
+    go: "Go",
+  };
+  const qualitySetupLanguages = Object.keys(qualitySetupLanguageLabels);
+  const qualitySetupStatusLabels = {
+    existing_configuration: "구성 확인됨",
+    setup_needed: "준비 필요",
+    unsupported: "지원 범위 밖",
+    ambiguous: "확인 필요",
+  };
+  const rememberTarget = value => {
+    state.selectedTargetValue = value || "";
+    try {
+      if (value) window.localStorage.setItem(selectedTargetStorageKey, value);
+      else window.localStorage.removeItem(selectedTargetStorageKey);
+    } catch (_) { /* selection remains in memory when storage is unavailable */ }
+  };
+  const selectedTarget = () => targetOptions().find(target => target.value === state.selectedTargetValue) || targetOptions()[0] || null;
   const decodeURIComponentSafe = value => {
     try { return decodeURIComponent(value); } catch (_) { return ""; }
   };
@@ -432,15 +488,19 @@
     const [name, projectID = ""] = path.split("/", 2);
     let findingID = "";
     let objectiveID = "";
+    let targetValue = "";
+    let runID = "";
     try {
       const params = new URLSearchParams(query);
       findingID = params.get("finding") || "";
       objectiveID = params.get("objective") || "";
+      targetValue = params.get("target") || "";
+      runID = params.get("run") || "";
     } catch (_) {
       findingID = "";
       objectiveID = "";
     }
-    return { name, projectID: decodeURIComponentSafe(projectID), findingID, objectiveID, query };
+    return { name, projectID: decodeURIComponentSafe(projectID), findingID, objectiveID, targetValue, runID, query };
   };
   const isAssuranceDemoRoute = () => {
     const target = routeState();
@@ -558,6 +618,8 @@
     if (active === "assurance") applyAssuranceRouteState(target);
     pendingFindingID = active === "projects" ? target.findingID : "";
     state.qualityObjective.selectedID = active === "home" ? decodeURIComponentSafe(target.objectiveID) : "";
+    if (target.targetValue) rememberTarget(target.targetValue);
+    else if (!state.selectedTargetValue) state.selectedTargetValue = readStoredTarget();
     if (active === "projects" && target.projectID) state.activeProjectID = target.projectID;
     document.querySelectorAll("[data-view]").forEach(view => { view.hidden = view.dataset.view !== active; });
     document.querySelectorAll("[data-route]").forEach(link => {
@@ -779,58 +841,62 @@
     </article>`;
   }
 
+  const qualityRunStatusText = run => {
+    const spec = run?.spec || {};
+    if (spec.outcome === "runner_unavailable" || spec.state === "unavailable") return "이 대상에서는 사용할 수 없음";
+    if (spec.state === "succeeded") return "완료";
+    if (spec.state === "running" || spec.state === "queued") return "실행 중";
+    return label(spec.state || "unknown");
+  };
+  const qualityRunUnavailableText = run => {
+    const reason = String(run?.spec?.staleReason || "");
+    if (reason.includes("worktree")) return "선택한 저장소 상태를 다시 확인할 수 없습니다.";
+    if (reason.includes("runner")) return "이 저장소에서 Go 점검 도구를 사용할 수 없습니다.";
+    return "이 저장소에서 현재 점검을 사용할 수 없습니다.";
+  };
+  const runsForTarget = target => (state.assuranceRuns || [])
+    .filter(item => item.spec?.projectId === target?.projectID && item.spec?.repositoryId === target?.repositoryID && item.spec?.worktreeId === target?.worktreeID)
+    .sort((left, right) => new Date(right.spec?.startedAt || 0) - new Date(left.spec?.startedAt || 0));
+
   function renderQualityHome() {
-    const metrics = document.getElementById("home-metrics");
-    const queueContainer = document.getElementById("home-findings");
-    const queueStatus = document.getElementById("quality-queue-status");
-    const nextAction = document.getElementById("home-next-action");
-    const nextSection = document.getElementById("home-next-action-section");
-    if (!metrics || !queueContainer || !nextAction) return;
-    const qualityHome = state.qualityHome || { status: "loading", data: null, error: "" };
-    const data = normalizeQualityHome(qualityHome.data);
-    const loading = qualityHome.status === "loading";
-    const failed = qualityHome.status === "error";
-    const queue = data.queue;
-    const firstItem = queue[0];
-    const setMetric = (id, value) => { const element = document.getElementById(id); if (element) element.textContent = value; };
-    metrics.setAttribute("aria-busy", String(loading));
-    queueContainer.setAttribute("aria-busy", String(loading));
-    nextAction.setAttribute("aria-busy", String(loading));
-    setMetric("m-quality-queue", qualityHome.status === "ready" ? qualitySummaryCount(data.summary, "queueItems") : "—");
-    setMetric("m-quality-findings", qualityHome.status === "ready" ? qualitySummaryCount(data.summary, "openFindings") : "—");
-    setMetric("m-quality-failed-runs", qualityHome.status === "ready" ? qualitySummaryCount(data.summary, "failedRuns") : "—");
-    setMetric("m-quality-objectives", qualityHome.status === "ready" ? qualitySummaryCount(data.summary, "activeObjectives") : "—");
-    if (queueStatus) {
-      queueStatus.textContent = loading ? "응답을 기다리는 중" : failed ? "읽기 실패" : `${formatCount(queue.length)}개 · 목표 ${formatCount(data.objectives.length)}개`;
+    const targetSelect = document.getElementById("home-target");
+    const nextStep = document.getElementById("home-next-step");
+    const checkState = document.getElementById("home-check-state");
+    const issues = document.getElementById("home-issues");
+    if (!targetSelect || !nextStep || !checkState || !issues) return;
+    const targets = targetOptions();
+    if (!state.selectedTargetValue || !targets.some(target => target.value === state.selectedTargetValue)) {
+      state.selectedTargetValue = targets[0]?.value || "";
     }
-    if (loading) {
-      nextSection?.classList.remove("home-next-action--empty");
-      queueContainer.innerHTML = '<div class="quality-queue-loading"><strong>품질 개선 항목을 불러오는 중입니다.</strong><span>저장된 QualityHome 결과를 읽고 있습니다.</span></div>';
-      nextAction.innerHTML = '<div class="quality-queue-next-state"><strong>다음 행동을 계산하는 중입니다.</strong><p>개선 큐의 첫 항목을 확인하고 있습니다.</p></div>';
+    targetSelect.innerHTML = targets.length
+      ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("")
+      : '<option value="">등록된 저장소가 없습니다</option>';
+    targetSelect.value = state.selectedTargetValue;
+    targetSelect.disabled = !targets.length || Boolean(state.qualityRunPending);
+    const target = selectedTarget();
+    if (!target) {
+      const hasProjects = (state.snapshot.projects || []).length > 0;
+      nextStep.innerHTML = hasProjects
+        ? '<div class="home-next-state"><strong>저장소 상태를 새로 고치세요.</strong><p>등록된 프로젝트는 있지만 아직 관찰된 Worktree가 없습니다. 저장소 상태를 다시 읽은 뒤 코드 검사 대상을 고릅니다.</p><button class="button primary small" type="button" data-repository-refresh>저장소 상태 새로 고침</button></div>'
+        : '<div class="home-next-state"><strong>첫 저장소를 등록하세요.</strong><p>저장소를 등록하면 이곳에서 바로 실행할 점검 대상을 고를 수 있습니다.</p><a class="button primary small" href="#projects">프로젝트 등록</a></div>';
+      checkState.innerHTML = "";
+      issues.innerHTML = "";
       return;
     }
-    if (failed) {
-      nextSection?.classList.remove("home-next-action--empty");
-      const errorMessage = qualityHome.error || "품질 개선 큐를 읽지 못했습니다.";
-      queueContainer.innerHTML = `<div class="quality-queue-error" role="alert"><strong>품질 개선 큐를 불러오지 못했습니다.</strong><span>${escapeHTML(errorMessage)}</span><button class="button small" type="button" data-quality-retry>다시 불러오기</button></div>`;
-      nextAction.innerHTML = `<div class="quality-queue-next-state"><strong>품질 개선 큐를 다시 불러오세요.</strong><p>다른 프로젝트·실행·활동 데이터는 계속 확인할 수 있습니다.</p><button class="button small" type="button" data-quality-retry>다시 불러오기</button></div>`;
-      return;
-    }
-    queueContainer.innerHTML = queue.length
-      ? `<div class="quality-queue-list">${queue.map(renderQualityQueueItem).join("")}</div>`
-      : '<div class="quality-queue-empty"><strong>현재 확인할 품질 개선 항목이 없습니다.</strong><span>저장된 QualityHome 결과에 개선 큐가 비어 있습니다.</span></div>';
-    if (firstItem) {
-      nextSection?.classList.remove("home-next-action--empty");
-      const title = String(firstItem.title || "").trim() || "첫 번째 개선 항목";
-      const action = qualityQueueAction(firstItem);
-      nextAction.innerHTML = `<div class="quality-queue-next-state"><span class="eyebrow">큐 첫 항목</span><strong>${escapeHTML(title)}</strong><p>${escapeHTML(String(firstItem.summary || "개선 사유가 기록되지 않았습니다."))}</p><a class="button primary small" href="${escapeHTML(action.href)}">${escapeHTML(action.label)}</a></div>`;
-      return;
-    }
-    const hasProjects = (state.snapshot.projects || []).length > 0;
-    nextSection?.classList.toggle("home-next-action--empty", !hasProjects);
-    nextAction.innerHTML = hasProjects
-      ? '<div class="quality-queue-next-state"><strong>새 개선 항목을 확인하세요.</strong><p>현재 큐가 비어 있습니다. 작업에서 Quality Run을 실행하면 새 결과를 확인할 수 있습니다.</p><a class="button primary small" href="#work">Quality Run 실행으로 이동</a></div>'
-      : '<div class="quality-queue-next-state quality-queue-next-state--inline"><strong>프로젝트를 연결하면 개선 큐가 열립니다.</strong></div>';
+    rememberTarget(target.value);
+    const runs = runsForTarget(target);
+    const latest = runs[0];
+    const offline = state.service.status === "offline" || state.service.status === "error";
+    const actionHref = `#work?target=${encode(target.value)}`;
+    const latestLabel = latest ? qualityRunStatusText(latest) : "아직 실행하지 않음";
+    nextStep.innerHTML = latest
+      ? `<div class="home-next-state"><span class="eyebrow">${escapeHTML(assuranceTechniqueLabels[latest.spec?.technique] || latest.spec?.technique || "품질 점검")}</span><strong>${escapeHTML(latestLabel === "완료" ? "최근 점검 결과를 확인하세요." : "최근 점검 결과를 다시 확인하세요.")}</strong><p>${escapeHTML(latest.spec?.summary || qualityRunUnavailableText(latest))}</p><div class="item-actions"><a class="button primary small" href="${escapeHTML(actionHref)}">작업에서 다시 실행</a><a class="button small" href="#assurance?run=${encode(latest.metadata?.id || "")}">결과 열기</a></div></div>`
+      : `<div class="home-next-state"><span class="eyebrow">구성 확인</span><strong>이 저장소의 구성을 확인하세요.</strong><p>언어와 구성 요소를 자동으로 확인하고, 필요한 준비 안내를 대상에 맞춰 표시합니다. 실제 실행 가능 여부와 결과는 별도 단계입니다.</p><a class="button primary small" href="${escapeHTML(actionHref)}">작업에서 구성 확인</a></div>`;
+    checkState.innerHTML = `<div class="home-check-summary"><div><span class="eyebrow">선택한 대상</span><strong>${escapeHTML(target.label)}</strong><span class="meta">${escapeHTML(target.branch)} · HEAD ${escapeHTML(target.head || "확인 전")}</span></div><span class="chip ${latest ? (latest.spec?.state === "succeeded" ? "ok" : "warn") : ""}">${escapeHTML(latestLabel)}</span></div>${offline ? '<p class="meta">오프라인 상태입니다. 마지막으로 불러온 결과만 표시하며 새 점검은 실행할 수 없습니다.</p>' : latest ? `<p class="meta">마지막 실행 ${escapeHTML(formatDate(latest.spec?.startedAt))} · 결과는 작업 화면에서 대상별로 이어집니다.</p>` : '<p class="meta">저장된 실행 결과가 없습니다. 아직 0건이라는 뜻이 아니라, 이 대상의 실행 기록을 확인하지 못한 상태일 수 있습니다.</p>'}`;
+    const projectFindings = openFindings().filter(item => item.spec?.projectId === target.projectID);
+    issues.innerHTML = projectFindings.length
+      ? `<div class="home-issue-summary"><strong>저장소 확인 항목 ${escapeHTML(projectFindings.length)}개</strong><span>Git 상태 확인 항목입니다. 품질 점검 결과와 섞지 않았습니다.</span><a class="text-link" href="#projects/${encode(target.projectID)}">프로젝트에서 확인</a></div>`
+      : '<div class="empty-state"><strong>저장소 확인 항목이 없습니다.</strong><span>저장소 상태와 품질 점검 결과는 서로 다른 기록으로 표시합니다.</span></div>';
   }
 
   const qualityObjectiveStateLabels = {
@@ -953,8 +1019,8 @@
     const findings = openFindings();
     const established = projects.length > 0;
     document.querySelectorAll("[data-home-established-only]").forEach(element => { element.hidden = !established; });
-    document.getElementById("home-title").textContent = established ? "개선할 일을 정리합니다." : "품질 개선을 시작하세요.";
-    document.getElementById("home-subtitle").textContent = established ? "지금 손볼 품질 항목과 다음 행동을 확인합니다." : "프로젝트를 등록하면 저장된 품질 결과에서 개선 항목을 찾습니다.";
+    document.getElementById("home-title").textContent = established ? "이 저장소에서 다음 코드를 검사하세요." : "저장소를 연결하세요.";
+    document.getElementById("home-subtitle").textContent = established ? "선택한 대상의 코드 검사와 최근 결과를 한곳에서 이어 봅니다." : "프로젝트를 등록하면 검사할 저장소와 브랜치를 선택할 수 있습니다.";
     document.getElementById("home-onboarding").hidden = established;
     document.getElementById("m-scan").textContent = formatDate(state.snapshot.generated_at);
     renderQualityHome();
@@ -1014,6 +1080,277 @@
     effectSelect.value = state.assuranceEffectFilter;
   }
 
+  const primaryQualityTechniques = [
+    {
+      id: "static_security",
+      label: "Go 정적 검사 (go vet)",
+      description: "Go 코드의 정적 분석을 실행합니다. 파일을 수정하지 않습니다.",
+      command: "go vet -mod=readonly ./...",
+    },
+    {
+      id: "go_test_coverage",
+      label: "테스트·커버리지",
+      description: "저장소 테스트를 실행하고 커버리지를 수집합니다. 테스트 코드를 실행합니다.",
+      command: "go test -mod=readonly -count=1 -covermode=set -coverprofile=<자동 생성> ./...",
+    },
+  ];
+  const campaignForTarget = target => (state.qualityCampaigns || []).find(item =>
+    item.spec?.projectId === target?.projectID && item.spec?.repositoryId === target?.repositoryID && item.spec?.worktreeId === target?.worktreeID);
+  const qualityTargetTechnicalDetails = target => `<details class="target-detail"><summary>정확한 대상과 기술 정보</summary><dl class="detail-grid"><div><dt>프로젝트 ID</dt><dd><code>${escapeHTML(target?.projectID || "기록 없음")}</code></dd></div><div><dt>저장소 ID</dt><dd><code>${escapeHTML(target?.repositoryID || "기록 없음")}</code></dd></div><div><dt>Worktree ID</dt><dd><code>${escapeHTML(target?.worktreeID || "기록 없음")}</code></dd></div><div class="wide"><dt>경로</dt><dd><code>${escapeHTML(target?.repositoryPath || "기록 없음")}</code></dd></div><div><dt>브랜치</dt><dd>${escapeHTML(target?.branch || "기록 없음")}</dd></div><div><dt>HEAD</dt><dd><code>${escapeHTML(target?.head || "확인 전")}</code></dd></div></dl></details>`;
+  const qualitySetupStatusLabel = value => qualitySetupStatusLabels[value] || "상태 미상";
+  const qualitySetupStatusTone = value => value === "existing_configuration" ? "positive" : value === "unsupported" ? "neutral" : "attention";
+  const qualitySetupLanguageLabel = value => qualitySetupLanguageLabels[value] || value || "언어 미상";
+  const qualitySetupList = value => Array.isArray(value) ? value.filter(Boolean).map(item => String(item)) : [];
+  const qualitySetupPreviewText = value => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return value;
+    if (typeof value === "object") return [value.label, value.path, value.command, value.reason].filter(Boolean).join(" · ");
+    return String(value);
+  };
+  const qualitySetupEvidence = (target, data) => ({
+    targetValue: target?.value || "",
+    head: String(data?.head || target?.head || ""),
+    digest: String(data?.digest || target?.digest || ""),
+  });
+  const qualitySetupEvidenceKnown = (target, data) => {
+    const evidence = qualitySetupEvidence(target, data);
+    return Boolean(data && (evidence.head || evidence.digest));
+  };
+  const qualitySetupEvidenceChanged = (target, before, after) => {
+    if (!qualitySetupEvidenceKnown(target, before) || !qualitySetupEvidenceKnown(target, after)) return false;
+    const previous = qualitySetupEvidence(target, before);
+    const next = qualitySetupEvidence(target, after);
+    return previous.head !== next.head || previous.digest !== next.digest;
+  };
+  const qualitySetupPreferenceStorageKey = "dev-control-room.quality-setup-preferences";
+  const qualitySetupPreferenceKey = (target, data) => JSON.stringify(qualitySetupEvidence(target, data));
+  let qualitySetupPreferences = null;
+  const readQualitySetupPreferences = () => {
+    if (qualitySetupPreferences) return qualitySetupPreferences;
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(qualitySetupPreferenceStorageKey) || "{}");
+      qualitySetupPreferences = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      qualitySetupPreferences = {};
+    }
+    return qualitySetupPreferences;
+  };
+  const qualitySetupPreferenceForTarget = (target, data) => {
+    const preferences = readQualitySetupPreferences();
+    const evidence = qualitySetupEvidence(target, data);
+    const exact = preferences[qualitySetupPreferenceKey(target, data)];
+    if (qualitySetupEvidenceKnown(target, data) && exact && exact.targetValue === evidence.targetValue && exact.head === evidence.head && exact.digest === evidence.digest) {
+      return { mode: exact.mode === "manual" ? "manual" : "auto", languages: qualitySetupList(exact.languages), reset: false, pending: false };
+    }
+    // A first request has no server evidence yet. Do not mistake the target's
+    // incomplete metadata for a changed repository and erase a saved preference.
+    if (!qualitySetupEvidenceKnown(target, data)) return { mode: "auto", languages: [], reset: false, pending: true };
+    const previous = Object.values(preferences).find(item => item?.targetValue === evidence.targetValue);
+    return { mode: "auto", languages: [], reset: Boolean(previous), pending: false };
+  };
+  const saveQualitySetupPreference = (target, data, preference) => {
+    const preferences = readQualitySetupPreferences();
+    const key = qualitySetupPreferenceKey(target, data);
+    Object.keys(preferences).forEach(itemKey => {
+      if (itemKey !== key && preferences[itemKey]?.targetValue === target.value) delete preferences[itemKey];
+    });
+    preferences[key] = {
+      ...qualitySetupEvidence(target, data),
+      mode: preference?.mode === "manual" ? "manual" : "auto",
+      languages: qualitySetupList(preference?.languages),
+    };
+    try {
+      window.localStorage.setItem(qualitySetupPreferenceStorageKey, JSON.stringify(preferences));
+    } catch (_) { /* preference remains available for this page when storage is unavailable */ }
+  };
+  const qualitySetupPath = (target, preference) => {
+    const query = new URLSearchParams({ projectId: target.projectID, repositoryId: target.repositoryID, worktreeId: target.worktreeID });
+    if (preference?.mode === "manual" && qualitySetupList(preference.languages).length) query.set("languages", qualitySetupList(preference.languages).join(","));
+    return `/api/quality/setup?${query.toString()}`;
+  };
+  const qualitySetupDetectedLanguages = data => qualitySetupList(data?.detectedLanguages);
+  const qualitySetupHasDetectedGo = data => qualitySetupDetectedLanguages(data).includes("go");
+  const qualitySetupComponentLanguages = component => qualitySetupList(component?.languages);
+  const qualitySetupCheckLanguages = { ruff: ["python"], pytest: ["python"], eslint: ["javascript", "typescript"], vitest: ["javascript", "typescript"], "go-test": ["go"] };
+  const qualitySetupCheckIsRelevant = (check, component, preference) => preference?.mode !== "manual" ||
+    (qualitySetupCheckLanguages[check?.id] || (String(check?.id || "").startsWith("script:") ? ["javascript", "typescript"] : qualitySetupComponentLanguages(component))).some(language => qualitySetupList(preference.languages).includes(language));
+  const qualitySetupHasRunnableGo = (data, preference) => qualitySetupHasDetectedGo(data) &&
+    (preference?.mode !== "manual" || qualitySetupList(preference.languages).includes("go")) &&
+    (Array.isArray(data?.components) ? data.components : []).some(component => {
+    const path = String(component?.path || "");
+    return (path === "." || path === "") && qualitySetupComponentLanguages(component).includes("go");
+  });
+  const qualitySetupCheckLabels = { ruff: "Python 코드 검사 · Ruff", pytest: "Python 테스트 · pytest", eslint: "코드 검사 · ESLint", vitest: "테스트 · Vitest", "go-test": "Go 구성" };
+  const qualitySetupCheckLabel = check => {
+    const id = String(check?.id || "");
+    if (/^script:[a-zA-Z0-9:_-]+$/.test(id)) return `${id.slice(7)} 스크립트`;
+    return qualitySetupCheckLabels[id] || "검사 준비";
+  };
+  const qualitySetupCheckReason = check => {
+    if (check?.id === "go-test") return "Go 구성을 확인했습니다. 현재 Go 실행은 저장소 최상위 폴더만 지원합니다.";
+    return ({
+      existing_configuration: "기존 설정을 찾았습니다. 실행 환경은 아직 확인하지 않았습니다.",
+      setup_needed: "확인한 범위에서 설정을 찾지 못했습니다. 준비 방법을 확인하세요.",
+      ambiguous: "설정을 확정하지 못했습니다. 구성 파일과 패키지 관리자 정보를 확인하세요.",
+      unsupported: "현재 버전에서 이 검사 준비를 지원하지 않습니다.",
+    })[check?.status] || "검사 준비 상태를 확인하지 못했습니다.";
+  };
+  const qualitySetupWarningText = value => {
+    const warning = String(value || "");
+    const fixed = {
+      "excluded child directories were not inspected": ".git·의존성·빌드 결과 폴더는 기본 확인 범위에서 제외합니다.",
+      "directory entry limit reached (2000)": "폴더 항목 2,000개까지 확인해 나머지는 읽지 못했습니다.",
+      "maximum inspection depth reached (3)": "하위 폴더 3단계까지만 확인했습니다.",
+      "eligible file limit reached (64)": "구성 파일 64개까지 확인해 나머지는 읽지 못했습니다.",
+      "inspection canceled": "구성 확인이 중단되었습니다.",
+      "inspection canceled or interrupted": "구성 확인이 중단되어 일부만 읽었습니다.",
+    };
+    if (Object.hasOwn(fixed, warning)) return fixed[warning];
+    const prefixes = [
+      ["unreadable or unsafe directory: ", "폴더를 읽지 못했거나 경로 상태가 바뀌었습니다"],
+      ["directory listing incomplete: ", "폴더 목록을 일부만 읽었습니다"],
+      ["skipped symlink: ", "연결된 파일·폴더는 따라가지 않았습니다"],
+      ["skipped special file: ", "일반 파일이 아닌 항목은 읽지 않았습니다"],
+      ["unreadable or unsafe evidence: ", "구성 파일을 읽지 못했거나 경로 상태가 바뀌었습니다"],
+      ["evidence exceeds 128 KiB or changed while reading: ", "파일이 128 KiB를 넘거나 읽는 중 바뀌어 전체를 확인하지 못했습니다"],
+      ["conflicting package manager evidence: ", "여러 패키지 관리자 정보가 있어 사용할 도구를 확정하지 못했습니다"],
+      ["unsupported or malformed TOML; declaration detection limited: ", "TOML 형식을 전부 해석하지 못해 일부 설정만 확인했습니다"],
+      ["unsupported or malformed TOML: ", "TOML 형식을 전부 해석하지 못했습니다"],
+      ["unsupported dependency declaration: ", "의존성 선언 일부를 해석하지 못했습니다"],
+      ["dynamic project metadata is not resolved: ", "실행해야 알 수 있는 프로젝트 정보는 확인하지 않았습니다"],
+      ["unsupported requirements syntax; references are not followed: ", "의존성 선언 일부는 읽지 못했으며 다른 파일 참조는 따라가지 않았습니다"],
+      ["unsupported JSONC or malformed JSON: ", "JSON 형식을 전부 해석하지 못했습니다"],
+      ["malformed JSON: ", "JSON 형식을 해석하지 못했습니다"],
+      ["malformed JSON or unsupported package metadata: ", "패키지 설정 형식을 전부 해석하지 못했습니다"],
+      ["unsupported declared package manager: ", "선언된 패키지 관리자는 현재 준비 안내에서 지원하지 않습니다"],
+      ["unsupported eslintConfig metadata: ", "ESLint 설정 형식을 해석하지 못했습니다"],
+      ["unsupported or malformed setup.cfg; detection limited: ", "setup.cfg 형식을 전부 해석하지 못해 일부 설정만 확인했습니다"],
+    ];
+    const match = prefixes.find(([prefix]) => warning.startsWith(prefix));
+    return match ? `${match[1]} · ${warning.slice(match[0].length)}` : "일부 구성 정보를 확인하지 못했습니다. 구성 파일을 확인한 뒤 다시 불러오세요.";
+  };
+  const qualitySetupErrorText = error => {
+    if (error?.status === 404) return "구성 확인 기능 또는 선택한 저장소를 찾지 못했습니다. 서비스와 대상 등록 상태를 확인하세요.";
+    if (error?.status === 400) return "대상이나 언어 선택을 확인한 뒤 다시 불러오세요.";
+    return "선택한 저장소의 구성을 읽지 못했습니다. 연결과 저장소 상태를 확인한 뒤 다시 불러오세요.";
+  };
+  const qualitySetupCheckPreview = check => {
+    const command = String(check?.commandPreview || "").trim();
+    const setup = qualitySetupList(check?.setupPreview).map(qualitySetupPreviewText).filter(Boolean);
+    return `${command ? `<div class="wide"><dt>확인할 명령 미리보기</dt><dd><code>${escapeHTML(command)}</code></dd></div>` : ""}${setup.length ? `<div class="wide"><dt>준비 미리보기</dt><dd><ul>${setup.map(item => `<li>${escapeHTML(item)}</li>`).join("")}</ul></dd></div>` : ""}`;
+  };
+  const renderQualitySetupCheck = check => {
+    const goCheck = check?.id === "go-test";
+    const status = String(check?.status || "");
+    const preview = qualitySetupCheckPreview(check);
+    return `<article class="list-item quality-check-card"><div class="list-item-header"><h4>${escapeHTML(qualitySetupCheckLabel(check))}</h4>${stateText(goCheck ? "구성만 확인" : qualitySetupStatusLabel(status), goCheck ? "neutral" : qualitySetupStatusTone(status))}</div><p>${escapeHTML(qualitySetupCheckReason(check))}</p>${preview ? `<details><summary>준비 방법과 명령 보기</summary><dl class="detail-grid">${preview}</dl></details>` : ""}</article>`;
+  };
+  const renderQualitySetupComponent = (component, preference, showGoActions = false) => {
+    const languages = qualitySetupComponentLanguages(component);
+    const frameworks = qualitySetupList(component?.frameworks);
+    const evidence = Array.isArray(component?.evidence) ? component.evidence : [];
+    const rootGo = showGoActions && ["", "."].includes(component?.path || "") && languages.includes("go");
+    const checks = (Array.isArray(component?.checks) ? component.checks : [])
+      .filter(check => qualitySetupCheckIsRelevant(check, component, preference))
+      .filter(check => !(rootGo && check?.id === "go-test"));
+    const summary = [languages.map(qualitySetupLanguageLabel).join(" · "), frameworks.join(" · "), component?.packageManager].filter(Boolean).join(" · ");
+    const evidenceKinds = { manifest: "프로젝트 설정", configuration: "도구 설정", lockfile: "의존성 잠금 파일" };
+    const name = component?.path && component.path !== "." ? component.path : "저장소 최상위 폴더";
+    return `<article class="list-item quality-component-card"><div class="list-item-header"><div><h3>${escapeHTML(name)}</h3><p class="meta">${escapeHTML(summary || "관찰된 구성 정보")}</p></div><span class="state-text state-neutral">관찰됨</span></div>${checks.length ? `<div class="item-list">${checks.map(renderQualitySetupCheck).join("")}</div>` : `<p class="meta">${rootGo ? "Go 검사는 아래 실행 영역에서 확인하세요." : "선택한 언어의 검사 준비 항목은 없습니다. 구성과 근거는 계속 표시합니다."}</p>`}<details><summary>확인한 근거 보기</summary>${evidence.length ? `<ul>${evidence.map(item => `<li><code>${escapeHTML(item?.path || "경로 미상")}</code> · ${escapeHTML(evidenceKinds[item?.kind] || "구성 근거")}</li>`).join("")}</ul>` : '<p class="meta">확인된 근거가 없습니다.</p>'}</details></article>`;
+  };
+  const renderQualitySetup = (target, setup) => {
+    const container = document.getElementById("quality-setup");
+    if (!container) return;
+    const data = setup?.data;
+    const preference = qualitySetupPreferenceForTarget(target, data);
+    const mode = preference.reset ? "auto" : preference.mode;
+    const detectedLanguages = qualitySetupDetectedLanguages(data);
+    const languageChoices = [...new Set([...qualitySetupLanguages, ...detectedLanguages])];
+    const checkedLanguages = mode === "manual" ? preference.languages : detectedLanguages;
+    const languageOptions = languageChoices.map(language => `<label><input type="checkbox" name="quality-language" data-quality-language="${escapeHTML(language)}" ${checkedLanguages.includes(language) ? "checked" : ""} ${mode === "auto" ? "disabled" : ""}><span>${escapeHTML(qualitySetupLanguageLabel(language))}</span></label>`).join("");
+    const loading = setup?.status === "loading";
+    const error = setup?.status === "error";
+    const partial = Boolean(data?.partial);
+    const warnings = [...new Set(qualitySetupList(data?.warnings).map(qualitySetupWarningText))];
+    const components = Array.isArray(data?.components) ? data.components : [];
+    const showGoActions = setup?.status === "ready" && qualitySetupHasRunnableGo(data, { mode, languages: checkedLanguages });
+    const scopeDetails = data ? `<details class="quality-setup-scope"><summary>확인 범위와 참고 사항</summary><p class="meta">선택한 저장소의 알려진 구성 파일만 읽습니다. 제외된 폴더와 읽기 제한은 아래에 표시합니다.</p>${warnings.length ? `<ul>${warnings.map(warning => `<li>${escapeHTML(warning)}</li>`).join("")}</ul>` : '<p class="meta">별도 참고 사항이 없습니다.</p>'}</details>` : "";
+    const setupState = loading
+      ? '<div class="loading"><strong>저장소 구성을 읽는 중입니다…</strong><span>선택한 저장소의 구성 근거를 읽습니다.</span></div>'
+      : error
+        ? `<div class="surface-error" role="alert"><strong>구성 확인을 불러오지 못했습니다.</strong><span>${escapeHTML(setup?.error || "연결과 저장소 상태를 확인한 뒤 다시 불러오세요.")}</span><button class="button small" type="button" data-quality-setup-retry>다시 확인</button></div>`
+        : !data
+          ? '<div class="empty-state"><strong>구성 확인을 시작하세요.</strong><span>자동 감지 결과와 확인한 근거가 이곳에 표시됩니다.</span></div>'
+          : `${partial ? '<p class="meta" role="status">일부 범위만 확인했습니다. 제외된 파일이나 제한은 ‘확인 범위와 참고 사항’에서 확인하세요.</p>' : ""}${components.length ? `<div class="item-list">${components.map(component => renderQualitySetupComponent(component, { mode, languages: checkedLanguages }, showGoActions)).join("")}</div>` : '<div class="empty-state"><strong>감지된 구성 요소가 없습니다.</strong><span>선택한 저장소와 구성 파일 위치를 확인하세요. 언어 선택은 표시할 검사 범위만 바꾸며 설정 파일을 만들지 않습니다.</span></div>'}${scopeDetails}`;
+    const resetTip = setup?.preferenceReset || preference.reset ? '<p class="quality-setup-reset-tip" role="status">HEAD 또는 구성 근거가 바뀌어 언어 선택을 자동 감지로 초기화했습니다.</p>' : "";
+    const status = !data || loading || error ? "" : partial ? stateText("부분 결과", "attention") : components.length ? stateText(`구성 ${components.length}개 확인`, "neutral") : stateText("감지된 구성 없음", "neutral");
+    const blocked = loading || !data || ["loading", "offline", "error"].includes(state.service.status);
+    container.innerHTML = `<section class="quality-setup-panel" aria-labelledby="quality-setup-title"><header class="section-heading"><div><span class="eyebrow">구성 확인</span><h3 id="quality-setup-title">언어와 구성 요소를 확인하세요.</h3><p class="meta">감지 결과가 다르면 언어를 직접 선택하세요. 선택하지 않은 구성도 목록에 남습니다. 구성 확인됨은 실행 완료를 뜻하지 않습니다.</p></div>${status}</header><fieldset class="quality-language-options" ${blocked ? "disabled" : ""}><legend>표시할 검사 언어</legend><label><input type="radio" name="quality-language-mode" value="auto" data-quality-language-mode ${mode === "auto" ? "checked" : ""}>자동 감지 <span class="meta">관찰된 구성 전체</span></label><label><input type="radio" name="quality-language-mode" value="manual" data-quality-language-mode ${mode === "manual" ? "checked" : ""}>직접 선택 <span class="meta">선택한 언어의 검사 준비만 보기</span></label><div class="quality-language-checkboxes">${languageOptions}</div><button class="button small" type="button" data-quality-setup-apply>${mode === "manual" ? "선택한 검사만 보기" : "구성 다시 확인"}</button></fieldset>${resetTip}${setupState}</section>`;
+  };
+  const qualityRunInlineResult = item => {
+    const spec = item?.spec || {};
+    const id = item?.metadata?.id || "";
+    const unavailable = spec.outcome === "runner_unavailable" || String(spec.staleReason || "").includes("unavailable");
+    const tone = unavailable ? "neutral" : spec.state === "succeeded" ? "positive" : ["failed", "timed_out", "cancelled"].includes(spec.state) ? "negative" : "attention";
+    return `<article id="quality-run-result-${escapeHTML(id)}" class="quality-run-result ${rowToneClass(tone)}" tabindex="-1"><div class="quality-run-result__heading"><div><strong>${escapeHTML(assuranceTechniqueLabels[spec.technique] || spec.technique || "코드 검사")}</strong><span class="meta">${escapeHTML(formatDate(spec.startedAt))}</span></div>${stateText(unavailable ? "사용할 수 없음" : qualityRunStatusText(item), tone)}</div><p>${escapeHTML(unavailable ? qualityRunUnavailableText(item) : spec.summary || "결과 요약이 없습니다.")}</p>${spec.coverage ? `<p class="meta">커버리지 ${escapeHTML(formatImpactValue(spec.coverage.percent, "percent"))} · ${escapeHTML(formatCount(spec.coverage.coveredStatements))} / ${escapeHTML(formatCount(spec.coverage.totalStatements))} statements</p>` : ""}<details><summary>실행 명령과 근거</summary><dl class="detail-grid"><div class="wide"><dt>실행 명령</dt><dd><code>${escapeHTML([spec.command?.executable, ...(spec.command?.arguments || [])].filter(Boolean).join(" ") || "기록 없음")}</code></dd></div><div><dt>종료 코드</dt><dd>${escapeHTML(spec.exitCode ?? "기록 없음")}</dd></div><div><dt>HEAD</dt><dd><code>${escapeHTML(spec.head || "기록 없음")}</code></dd></div><div><dt>결과 ID</dt><dd><code>${escapeHTML(id || "기록 없음")}</code></dd></div></dl></details><div class="item-actions"><a class="button small" href="#assurance?run=${encode(id)}">검증 결과에서 보기</a></div></article>`;
+  };
+
+  function renderQualityWorkSurface() {
+    const section = document.getElementById("quality-work-surface");
+    if (!section) return;
+    const targetSelect = document.getElementById("quality-target");
+    const targetMeta = document.getElementById("quality-target-meta");
+    const setupContainer = document.getElementById("quality-setup");
+    const techniqueContainer = document.getElementById("quality-techniques");
+    const resultsContainer = document.getElementById("quality-run-results");
+    if (!targetSelect || !targetMeta || !setupContainer || !techniqueContainer || !resultsContainer) return;
+    const targets = targetOptions();
+    if (!state.selectedTargetValue || !targets.some(target => target.value === state.selectedTargetValue)) state.selectedTargetValue = targets[0]?.value || "";
+    targetSelect.innerHTML = targets.length
+      ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("")
+      : '<option value="">등록된 저장소가 없습니다</option>';
+    targetSelect.value = state.selectedTargetValue;
+    targetSelect.disabled = !targets.length || Boolean(state.qualityRunPending);
+    const target = selectedTarget();
+    const offline = state.service.status === "offline" || state.service.status === "error" || state.service.status === "loading";
+    if (!target) {
+      const hasProjects = (state.snapshot.projects || []).length > 0;
+      targetMeta.innerHTML = hasProjects
+        ? '<div class="empty-state"><strong>관찰된 Worktree가 없습니다.</strong><span>등록된 프로젝트의 저장소 상태를 먼저 새로 고치세요.</span><button class="button small" type="button" data-repository-refresh>저장소 상태 새로 고침</button></div>'
+        : '<div class="empty-state"><strong>검사할 저장소를 등록하세요.</strong><span>프로젝트를 등록하면 대상별 코드 검사를 시작할 수 있습니다.</span><a class="button small" href="#projects">프로젝트 등록</a></div>';
+      setupContainer.innerHTML = "";
+      techniqueContainer.innerHTML = "";
+      resultsContainer.innerHTML = "";
+      const resultsSection = resultsContainer.closest(".quality-run-results");
+      if (resultsSection) resultsSection.hidden = true;
+      return;
+    }
+    rememberTarget(target.value);
+    const runs = runsForTarget(target);
+    const latestByTechnique = new Map();
+    runs.forEach(item => { if (!latestByTechnique.has(item.spec?.technique)) latestByTechnique.set(item.spec?.technique, item); });
+    const campaign = campaignForTarget(target);
+    targetMeta.innerHTML = `<div class="quality-target-card"><div><span class="eyebrow">선택한 저장소</span><h3>${escapeHTML(target.repositoryName || target.projectName || "저장소")}</h3><p class="meta">${escapeHTML(target.branch || "브랜치 미상")}</p></div>${qualityTargetTechnicalDetails(target)}</div>`;
+    const setup = state.qualitySetup.targetValue === target.value ? state.qualitySetup : { status: "idle", targetValue: target.value, requestKey: "", data: null, error: "", preferenceReset: false };
+    renderQualitySetup(target, setup);
+    const setupData = setup.status === "ready" ? setup.data : null;
+    const setupPreference = setupData ? qualitySetupPreferenceForTarget(target, setupData) : { mode: "auto", languages: [] };
+    const goRunnable = Boolean(setupData && qualitySetupHasRunnableGo(setupData, setupPreference));
+    techniqueContainer.innerHTML = goRunnable
+      ? `<section class="quality-go-actions" aria-labelledby="quality-go-actions-title"><header class="section-heading"><div><span class="eyebrow">실행 준비</span><h3 id="quality-go-actions-title">발견된 Go 검사</h3><p class="meta">Go가 실제 근거에서 발견된 경우에만 기존 실행 버튼을 표시합니다. 구성 확인과 실행 결과는 서로 다른 사실입니다.</p></div></header>${primaryQualityTechniques.map(technique => {
+        const latest = latestByTechnique.get(technique.id);
+        const pending = state.qualityRunPending === technique.id && state.qualityRunTargetValue === target.value;
+        const disabled = offline || Boolean(state.qualityRunPending) || !campaign && state.qualityCampaignsStatus !== "ready";
+        const internal = `<details class="quality-technique-details"><summary>기술 정보</summary><p><code>${escapeHTML(technique.id)}</code> · 서버가 대상 상태를 다시 확인합니다.</p></details>`;
+        return `<article class="quality-technique-card"><div class="quality-technique-card__heading"><div><span class="eyebrow">Go 실행</span><h3>${escapeHTML(technique.label)}</h3></div>${latest ? stateText(qualityRunStatusText(latest), latest.spec?.state === "succeeded" ? "positive" : latest.spec?.state === "failed" ? "negative" : "attention") : stateText("아직 실행하지 않음", "neutral")}</div><p>${escapeHTML(technique.description)}</p><code class="quality-command">${escapeHTML(technique.command)}</code>${internal}<button class="button primary" type="button" data-quality-run="${escapeHTML(technique.id)}" ${disabled ? "disabled" : ""}>${pending ? "실행 중…" : "이 검사 실행"}</button></article>`;
+      }).join("")}</section>`
+      : "";
+    const warning = state.qualityRunError && state.qualityRunErrorTargetValue === target.value ? `<p class="quality-run-error" role="status">${escapeHTML(state.qualityRunError)}</p>` : "";
+    const resultsSection = resultsContainer.closest(".quality-run-results");
+    if (resultsSection) resultsSection.hidden = !runs.length && !warning;
+    resultsContainer.innerHTML = runs.length ? `${warning}${runs.slice(0, 6).map(qualityRunInlineResult).join("")}` : warning;
+  }
+
   function renderAssuranceBenefits() {
     const container = document.getElementById("assurance-benefits");
     if (!container) return;
@@ -1032,10 +1369,17 @@
     const domainState = String(spec.state || "");
     const tone = assuranceTone(domainState);
     const scope = assuranceScope(spec);
-    return `<article class="ledger-row assurance-record ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(domainState)}">
+    const coverage = spec.coverage
+      ? `<p class="assurance-run-coverage"><span>Go coverage</span>${escapeHTML(formatImpactValue(spec.coverage.percent, "percent"))} · ${escapeHTML(formatCount(spec.coverage.coveredStatements))} / ${escapeHTML(formatCount(spec.coverage.totalStatements))} statements</p>`
+      : "";
+    const coverageDetail = spec.coverage
+      ? `<div class="wide"><dt>Go coverage 근거</dt><dd>${escapeHTML(formatImpactValue(spec.coverage.percent, "percent"))} · ${escapeHTML(formatCount(spec.coverage.fileCount))}개 파일 · ${escapeHTML(spec.coverage.mode || "mode 미상")} · profile artifact <code>${escapeHTML(spec.coverage.profileArtifactId || "기록 없음")}</code></dd></div>`
+      : "";
+    const runID = item.metadata?.id || "";
+    return `<article id="assurance-run-${escapeHTML(runID)}" class="ledger-row assurance-record ${rowToneClass(tone)}" data-tone="${escapeHTML(tone)}" data-state="${escapeHTML(domainState)}" tabindex="-1">
       <div class="ledger-row__state">${stateText(label(domainState), tone)}</div>
       <div class="ledger-row__main"><h3>${escapeHTML(assuranceTechniqueLabels[spec.technique] || spec.technique || "Quality Run")}</h3>
-      <p>${escapeHTML(spec.summary || "결과 요약이 없습니다.")}</p>
+      <p>${escapeHTML(spec.summary || "결과 요약이 없습니다.")}</p>${coverage}
       <details><summary>실행 기준과 근거 보기</summary><dl class="detail-grid">
         <div><dt>Runner</dt><dd>${escapeHTML(spec.runner || "알 수 없음")}</dd></div>
         <div><dt>종료 코드</dt><dd>${escapeHTML(spec.exitCode ?? "기록 없음")}</dd></div>
@@ -1043,6 +1387,7 @@
         <div><dt>근거 항목</dt><dd>${escapeHTML(evidenceKeys.length ? `${evidenceKeys.length}개` : "없음")}</dd></div>
         <div><dt>artifact</dt><dd>${escapeHTML((spec.artifactIds || []).length ? `${spec.artifactIds.length}개` : "없음")}</dd></div>
         <div><dt>Agent 실행</dt><dd>${escapeHTML((spec.invocationIds || []).length ? `${spec.invocationIds.length}개` : "없음")}</dd></div>
+        ${coverageDetail}
         <div class="wide"><dt>검증 명령</dt><dd><code>${escapeHTML(command || "기록 없음")}</code></dd></div>
         <div class="wide"><dt>Config digest</dt><dd><code>${escapeHTML(spec.configDigest || "기록 없음")}</code></dd></div>
       </dl></details></div>
@@ -1519,6 +1864,12 @@
     document.getElementById("assurance-effects").innerHTML = effects.length ? `<div class="item-list">${effects.map(renderAssuranceEffect).join("")}</div>` : `<div class="empty-state"><strong>${allEffects.length ? "선택한 상태의 효과가 없습니다." : "아직 효과 기록이 없습니다."}</strong><span>검증 결과를 실제 변화와 연결하면 여기에 남습니다.</span></div>`;
     document.getElementById("assurance-invocations").innerHTML = invocations.length ? `<div class="item-list">${invocations.map(renderAssuranceInvocation).join("")}</div>` : '<div class="empty-state"><strong>아직 Agent 실행이 없습니다.</strong><span>Provider 실행 후 모델·사용량·상태를 확인합니다.</span></div>';
     document.getElementById("assurance-artifacts").innerHTML = artifacts.length ? `<div class="item-list">${artifacts.map(renderAssuranceArtifact).join("")}</div>` : '<div class="empty-state"><strong>아직 보관된 근거가 없습니다.</strong><span>검증 결과의 manifest가 생성되면 보관 상태를 확인합니다.</span></div>';
+    const focusRunID = activeRoute === "assurance" ? routeState().runID : "";
+    const focusRun = focusRunID ? document.getElementById(`assurance-run-${encode(focusRunID)}`) : null;
+    if (focusRun && state.assuranceFocusConsumed !== focusRunID) {
+      state.assuranceFocusConsumed = focusRunID;
+      window.setTimeout(() => { focusRun.scrollIntoView({ block: "start" }); focusRun.focus({ preventScroll: true }); }, 0);
+    }
   }
 
   function renderProviderStatuses(containerID, compact = false) {
@@ -1682,6 +2033,7 @@
 
   function renderWork() {
     const targets = targetOptions();
+    renderQualityWorkSurface();
     renderExternalOperations();
     const proposalHTML = state.workItems.flatMap(item => (item.proposals || []).map(proposal => proposalCard(proposal, item))).join("");
     document.getElementById("proposal-ui").innerHTML = `${state.surfaceErrors.checksets ? surfaceError(state.surfaceErrors.checksets, "work") : ""}<div class="toolbar"><select id="discovery-target" aria-label="발견 대상 Worktree">${targets.length ? targets.map(target => `<option value="${escapeHTML(target.value)}">${escapeHTML(target.label)}</option>`).join("") : '<option value="">관찰된 Worktree 없음</option>'}</select><button id="discover-worktree" class="button primary" type="button" ${targets.length ? "" : "disabled"}>기존 점검 찾기</button></div>${proposalHTML ? `<div class="item-list">${proposalHTML}</div>` : '<div class="empty-state"><strong>검토할 제안이 없습니다.</strong><span>Worktree를 선택해 기존 점검 명령을 찾아보세요.</span></div>'}`;
@@ -1827,7 +2179,25 @@
       : '<div class="empty-state"><strong>아직 활동 기록이 없습니다.</strong><span>점검이나 등록 변경을 실행하면 감사 기록이 남습니다.</span></div>';
   }
 
+  function renderServiceRecovery() {
+    const banner = document.getElementById("service-recovery");
+    if (!banner) return;
+    const service = state.service || { status: "loading", message: "로컬 서비스에 연결하는 중입니다…", error: "" };
+    banner.hidden = service.status === "ready";
+    banner.className = `service-recovery service-recovery--${escapeHTML(service.status || "loading")}`;
+    if (service.status === "loading") {
+      banner.innerHTML = '<strong>로컬 서비스에 연결하는 중입니다.</strong><span>저장된 화면은 유지하고 새 요청은 잠시 막습니다.</span>';
+      return;
+    }
+    if (service.status === "offline" || service.status === "error") {
+      banner.innerHTML = `<strong>오프라인 — 새 상태와 코드 검사를 요청할 수 없습니다.</strong><span>마지막으로 불러온 결과만 표시합니다. 연결을 확인한 뒤 다시 시도하세요.</span><button class="button small" type="button" data-service-refresh>다시 연결</button>`;
+      return;
+    }
+    banner.innerHTML = `<strong>일부 데이터를 새로 읽지 못했습니다.</strong><span>이 화면의 값은 마지막으로 불러온 기록일 수 있습니다. ${escapeHTML(service.error || "연결을 확인한 뒤 다시 시도하세요.")}</span><button class="button small" type="button" data-service-refresh>다시 연결</button>`;
+  }
+
   function renderAll() {
+    renderServiceRecovery();
     renderHome();
     renderGuide();
     renderProjects();
@@ -1940,6 +2310,195 @@
       state.assuranceMeasurement = { status: "error", data: previous, error: error.message || "잠시 후 다시 시도하세요." };
     }
     renderAssuranceDashboard();
+  }
+
+  let loadingQualityCampaigns = false;
+  async function loadQualityCampaigns(force) {
+    if (loadingQualityCampaigns || (!force && state.qualityCampaignsStatus === "ready")) return;
+    loadingQualityCampaigns = true;
+    state.qualityCampaignsStatus = "loading";
+    state.qualityCampaignsError = "";
+    renderQualityWorkSurface();
+    try {
+      const campaigns = await request("/api/assurance/campaigns");
+      state.qualityCampaigns = Array.isArray(campaigns) ? campaigns : [];
+      state.qualityCampaignsStatus = "ready";
+    } catch (error) {
+      state.qualityCampaignsStatus = "error";
+      state.qualityCampaignsError = error.message || "코드 검사 설정을 불러오지 못했습니다.";
+      if (state.service.status === "ready") state.service = { status: "degraded", message: "코드 검사 설정을 새로 읽지 못했습니다.", error: state.qualityCampaignsError };
+    } finally {
+      loadingQualityCampaigns = false;
+      renderQualityWorkSurface();
+    }
+  }
+
+  async function refreshQualityResultData() {
+    const [campaignResult, runsResult] = await Promise.allSettled([
+      request("/api/assurance/campaigns"),
+      request("/api/assurance/runs"),
+    ]);
+    if (campaignResult.status === "fulfilled") {
+      state.qualityCampaigns = Array.isArray(campaignResult.value) ? campaignResult.value : [];
+      state.qualityCampaignsStatus = "ready";
+      state.qualityCampaignsError = "";
+    } else {
+      state.qualityCampaignsStatus = "error";
+      state.qualityCampaignsError = campaignResult.reason?.message || "코드 검사 설정을 불러오지 못했습니다.";
+      if (state.service.status === "ready") state.service = { status: "degraded", message: "코드 검사 설정을 새로 읽지 못했습니다.", error: state.qualityCampaignsError };
+    }
+    if (runsResult.status === "fulfilled") state.assuranceRuns = Array.isArray(runsResult.value) ? runsResult.value : [];
+    else if (state.service.status === "ready") state.service = { status: "degraded", message: "일부 결과를 새로 읽지 못했습니다.", error: runsResult.reason?.message || "" };
+    renderQualityWorkSurface();
+    renderHome();
+    renderAssuranceDashboard();
+    return { campaignResult, runsResult };
+  }
+
+  const qualityCampaignRequests = new Map();
+  const serviceBlocksMutation = () => ["loading", "offline", "error"].includes(state.service.status);
+  async function ensureQualityCampaign(target) {
+    const existing = campaignForTarget(target);
+    if (existing) return existing;
+    const key = target.value;
+    if (!qualityCampaignRequests.has(key)) {
+      qualityCampaignRequests.set(key, request("/api/assurance/campaigns", {
+        method: "POST",
+        headers: mutationHeaders(),
+        body: JSON.stringify({
+          projectId: target.projectID,
+          repositoryId: target.repositoryID,
+          worktreeId: target.worktreeID,
+          name: `${target.projectName} · ${target.repositoryName} 코드 검사`,
+        }),
+      }).then(campaign => {
+        state.qualityCampaigns = [...(state.qualityCampaigns || []), campaign];
+        state.qualityCampaignsStatus = "ready";
+        return campaign;
+      }).finally(() => qualityCampaignRequests.delete(key)));
+    }
+    return qualityCampaignRequests.get(key);
+  }
+
+  async function runQualityTechnique(techniqueID) {
+    const technique = primaryQualityTechniques.find(item => item.id === techniqueID);
+    const target = selectedTarget();
+    if (!technique || !target) return;
+    if (state.qualityRunPending) return;
+    if (serviceBlocksMutation()) {
+      state.qualityRunError = "오프라인 상태에서는 새 코드 검사를 실행할 수 없습니다. 연결을 확인한 뒤 결과를 새로 고치세요.";
+      state.qualityRunErrorTargetValue = target.value;
+      renderQualityWorkSurface();
+      return;
+    }
+    state.qualityRunPending = techniqueID;
+    state.qualityRunTargetValue = target.value;
+    state.qualityRunError = "";
+    state.qualityRunErrorTargetValue = "";
+    renderQualityWorkSurface();
+    const previousTechniqueIDs = new Set(runsForTarget(target)
+      .filter(item => item.spec?.technique === techniqueID)
+      .map(item => item.metadata?.id)
+      .filter(Boolean));
+    let persistedResult = null;
+    try {
+      const campaign = await ensureQualityCampaign(target);
+      persistedResult = await request("/api/assurance/runs", {
+        method: "POST",
+        headers: mutationHeaders(),
+        body: JSON.stringify({ campaignId: campaign.metadata?.id, technique: techniqueID }),
+      });
+      await refreshQualityResultData();
+      const resultID = persistedResult?.metadata?.id || "";
+      state.qualityRunError = "";
+      showNotice(`${technique.label} 실행 결과를 작업에 표시했습니다.`);
+      if (resultID) {
+        const result = document.getElementById(`quality-run-result-${encode(resultID)}`);
+        result?.scrollIntoView({ block: "nearest" });
+      }
+    } catch (error) {
+      // RunQuality persists unavailable/failed runs before returning an error.
+      // Only GET is retried here; an unknown POST outcome is never submitted twice.
+      await refreshQualityResultData();
+      const latest = runsForTarget(target).find(item => item.spec?.technique === techniqueID && !previousTechniqueIDs.has(item.metadata?.id));
+      if (latest && latest.metadata?.id) {
+        state.qualityRunError = `요청 결과: ${qualityRunStatusText(latest)} · ${latest.spec?.summary || qualityRunUnavailableText(latest)}`;
+      } else {
+        state.qualityRunError = `점검 요청 상태를 확인하지 못했습니다. 결과를 새로 고친 뒤 다시 시도하세요. (${error.message || "연결 오류"})`;
+      }
+      state.qualityRunErrorTargetValue = target.value;
+      showNotice("점검 요청 후 저장된 결과를 새로 확인했습니다.", true);
+    } finally {
+      state.qualityRunPending = "";
+      state.qualityRunTargetValue = "";
+      renderQualityWorkSurface();
+      renderHome();
+    }
+  }
+
+  let qualitySetupRequestSequence = 0;
+  async function loadQualitySetupForTarget(target, force = false) {
+    if (!target) {
+      qualitySetupRequestSequence += 1;
+      state.qualitySetup = { status: "idle", targetValue: "", requestKey: "", data: null, error: "", preferenceReset: false };
+      renderQualityWorkSurface();
+      return;
+    }
+    if (!state.selectedTargetValue) rememberTarget(target.value);
+    const previousData = state.qualitySetup.targetValue === target.value ? state.qualitySetup.data : null;
+    const preference = qualitySetupPreferenceForTarget(target, previousData);
+    const requestKey = qualitySetupPath(target, preference);
+    if (!force && state.qualitySetup.status === "ready" && state.qualitySetup.targetValue === target.value && state.qualitySetup.requestKey === requestKey) return;
+    const sequence = ++qualitySetupRequestSequence;
+    state.qualitySetup = { status: "loading", targetValue: target.value, requestKey, data: previousData, error: "", preferenceReset: preference.reset };
+    renderQualityWorkSurface();
+    try {
+      let currentRequestKey = requestKey;
+      let currentPreference = preference;
+      let preferenceReset = false;
+      let autoRefetched = false;
+      let manualRefetched = false;
+      let observedData = previousData;
+      while (true) {
+        const data = await request(currentRequestKey);
+        if (sequence !== qualitySetupRequestSequence || state.selectedTargetValue !== target.value) return;
+        if (!data || typeof data !== "object") throw new Error("구성 확인 응답이 비어 있습니다.");
+        const evidenceChanged = qualitySetupEvidenceChanged(target, observedData, data);
+        const nextPreference = qualitySetupPreferenceForTarget(target, data);
+        const manualResponseNeedsFreshAutoData = currentPreference.mode === "manual" && !currentPreference.pending && !autoRefetched && (evidenceChanged || nextPreference.reset);
+        if (manualResponseNeedsFreshAutoData) {
+          autoRefetched = true;
+          preferenceReset = true;
+          currentPreference = { mode: "auto", languages: [], reset: false, pending: false };
+          currentRequestKey = qualitySetupPath(target, currentPreference);
+          observedData = data;
+          state.qualitySetup = { status: "loading", targetValue: target.value, requestKey: currentRequestKey, data: null, error: "", preferenceReset: true };
+          renderQualityWorkSurface();
+          continue;
+        }
+        preferenceReset = preferenceReset || preference.reset || evidenceChanged || nextPreference.reset;
+        if (!preferenceReset && !manualRefetched && currentPreference.pending && nextPreference.mode === "manual" && nextPreference.languages.length) {
+          manualRefetched = true;
+          currentPreference = nextPreference;
+          currentRequestKey = qualitySetupPath(target, currentPreference);
+          observedData = data;
+          continue;
+        }
+        state.qualitySetup = { status: "ready", targetValue: target.value, requestKey: currentRequestKey, data, error: "", preferenceReset };
+        if (preferenceReset) saveQualitySetupPreference(target, data, { mode: "auto", languages: [] });
+        break;
+      }
+    } catch (error) {
+      if (sequence !== qualitySetupRequestSequence || state.selectedTargetValue !== target.value) return;
+      state.qualitySetup = { status: "error", targetValue: target.value, requestKey, data: null, error: qualitySetupErrorText(error), preferenceReset: false };
+    } finally {
+      if (sequence === qualitySetupRequestSequence) renderQualityWorkSurface();
+    }
+  }
+  async function loadQualitySetupForSelectedTarget(force = false) {
+    const target = selectedTarget();
+    if (target && !state.selectedTargetValue) rememberTarget(target.value);
+    return loadQualitySetupForTarget(target, force);
   }
 
   let loadingQualityHome = false;
@@ -2128,7 +2687,10 @@
   }
 
   async function loadRouteData(route, force) {
-    if (route === "work") await loadWorkData(force);
+    if (route === "work") {
+      await loadWorkData(force);
+      await loadQualitySetupForSelectedTarget(force);
+    }
     if (route === "diagnostics") await loadDiagnosticsData(force);
     if (route === "home") await loadQualityObjective(routeState().objectiveID, force);
   }
@@ -2167,38 +2729,92 @@
     if (refreshing) return;
     refreshing = true;
     try {
-      const [snapshot, registryProjects, findings, events, environment, providerStatuses, assuranceDashboard, assuranceRuns, assuranceInvocations, assuranceArtifacts, assuranceEffects] = await Promise.all([
-        request("/api/state"),
-        request("/api/projects"),
-        request("/api/findings"),
-        request("/api/events"),
-        request("/api/environment"),
-        request("/api/assurance/providers"),
-        request(assuranceDashboardPath()),
-        request("/api/assurance/runs"),
-        request("/api/assurance/invocations"),
-        request("/api/assurance/artifacts"),
-        request("/api/assurance/effects"),
-      ]);
-      state.snapshot = snapshot;
-      state.registryProjects = registryProjects || [];
-      state.findings = findings || [];
-      state.events = events || [];
-      state.environment = environment;
-      state.providerStatuses = providerStatuses || [];
-      state.assuranceDashboard = assuranceDashboard || state.assuranceDashboard;
-      state.assuranceRuns = assuranceRuns || [];
-      state.assuranceInvocations = assuranceInvocations || [];
-      state.assuranceArtifacts = assuranceArtifacts || [];
-      state.assuranceEffects = assuranceEffects || [];
+      const requests = [
+        ["snapshot", request("/api/state")],
+        ["registryProjects", request("/api/projects")],
+        ["findings", request("/api/findings")],
+        ["events", request("/api/events")],
+        ["environment", request("/api/environment")],
+        ["providerStatuses", request("/api/assurance/providers")],
+        ["assuranceDashboard", request(assuranceDashboardPath())],
+        ["assuranceRuns", request("/api/assurance/runs")],
+        ["assuranceInvocations", request("/api/assurance/invocations")],
+        ["assuranceArtifacts", request("/api/assurance/artifacts")],
+        ["assuranceEffects", request("/api/assurance/effects")],
+      ];
+      const results = await Promise.all(requests.map(([, promise]) => promise.then(value => ({ status: "fulfilled", value }), reason => ({ status: "rejected", reason }))));
+      const failed = results.filter(result => result.status === "rejected");
+      const succeeded = results.length - failed.length;
+      requests.forEach(([key], index) => {
+        if (results[index].status !== "fulfilled") return;
+        const value = results[index].value;
+        if (key === "snapshot") state.snapshot = value || { projects: [] };
+        if (key === "registryProjects") state.registryProjects = value || [];
+        if (key === "findings") state.findings = value || [];
+        if (key === "events") state.events = value || [];
+        if (key === "environment") state.environment = value || state.environment;
+        if (key === "providerStatuses") state.providerStatuses = value || [];
+        if (key === "assuranceDashboard") state.assuranceDashboard = value || state.assuranceDashboard;
+        if (key === "assuranceRuns") state.assuranceRuns = value || [];
+        if (key === "assuranceInvocations") state.assuranceInvocations = value || [];
+        if (key === "assuranceArtifacts") state.assuranceArtifacts = value || [];
+        if (key === "assuranceEffects") state.assuranceEffects = value || [];
+      });
+      const firstFailure = failed[0]?.reason;
+      state.service = failed.length === 0
+        ? { status: "ready", message: "로컬 서비스에 연결되었습니다.", error: "" }
+        : succeeded === 0
+          ? { status: "offline", message: "로컬 서비스에 연결할 수 없습니다.", error: firstFailure?.message || "연결 실패" }
+          : { status: "degraded", message: "일부 데이터를 새로 읽지 못했습니다.", error: firstFailure?.message || "일부 요청 실패" };
+      if (succeeded > 0) state.lastSuccessfulRefreshAt = new Date().toISOString();
       initialized = true;
       await loadRouteData(currentRoute(), true);
       renderAll();
-      await Promise.all([loadQualityHome(), loadAssuranceProductData(), loadAssuranceMeasurementData()]);
+      await Promise.all([loadQualityCampaigns(true), loadAssuranceProductData(), loadAssuranceMeasurementData()]);
+      renderServiceRecovery();
     } catch (error) {
-      showNotice(`로컬 서비스에서 상태를 불러오지 못했습니다. ${error.message}`, true);
+      state.service = { status: "offline", message: "로컬 서비스에 연결할 수 없습니다.", error: error.message || "연결 실패" };
+      renderServiceRecovery();
     } finally {
       refreshing = false;
+    }
+  }
+
+  let repositoryRefreshPending = false;
+  const waitForRepositoryRefresh = delay => new Promise(resolve => window.setTimeout(resolve, delay));
+  const hasObservedTarget = projectID => targetOptions().some(target => !projectID || target.projectID === projectID);
+  async function queueRepositoryStateRefresh(button, projectID = "") {
+    if (repositoryRefreshPending) return false;
+    repositoryRefreshPending = true;
+    const scanMarkerBeforeRequest = String(state.snapshot.generated_at || "");
+    const originalLabel = button?.textContent || "저장소 상태 새로 고침";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "새로 고치는 중…";
+    }
+    try {
+      await request("/api/scan", { method: "POST", headers: mutationHeaders() });
+      let observed = false;
+      for (const delay of [150, 300, 600, 1000, 1500]) {
+        await waitForRepositoryRefresh(delay);
+        await refreshAll();
+        const scanMarker = String(state.snapshot.generated_at || "");
+        observed = hasObservedTarget(projectID) && scanMarker !== "" && scanMarker !== scanMarkerBeforeRequest;
+        if (observed) break;
+      }
+      showNotice(observed
+        ? "저장소 상태를 새로 고쳤습니다."
+        : "저장소 상태 갱신을 요청했습니다. 아직 완료를 확인하지 못했습니다. 잠시 후 다시 새로 고치세요.", !observed);
+      return observed;
+    } catch (error) {
+      showNotice(error.message, true);
+      return false;
+    } finally {
+      repositoryRefreshPending = false;
+      if (button && button.isConnected) {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
     }
   }
 
@@ -2407,6 +3023,35 @@
       } finally {
         button.disabled = false;
       }
+      return;
+    }
+    if (button.dataset.qualitySetupRetry !== undefined) {
+      button.disabled = true;
+      await loadQualitySetupForSelectedTarget(true);
+      return;
+    }
+    if (button.dataset.qualitySetupApply !== undefined) {
+      const target = selectedTarget();
+      if (!target) return;
+      const mode = document.querySelector('input[data-quality-language-mode]:checked')?.value === "manual" ? "manual" : "auto";
+      const languages = [...document.querySelectorAll("#quality-setup [data-quality-language]:checked")].map(input => input.dataset.qualityLanguage).filter(Boolean);
+      if (mode === "manual" && !languages.length) {
+        showNotice("직접 선택에서는 언어를 하나 이상 고르세요.", true);
+        return;
+      }
+      saveQualitySetupPreference(target, state.qualitySetup.data, { mode, languages });
+      button.disabled = true;
+      await loadQualitySetupForTarget(target, true);
+      return;
+    }
+    if (button.dataset.qualityRun !== undefined) {
+      await runQualityTechnique(button.dataset.qualityRun);
+      return;
+    }
+    if (button.dataset.serviceRefresh !== undefined) {
+      button.disabled = true;
+      await refreshAll();
+      button.disabled = false;
       return;
     }
     if (button.dataset.qualityObjectiveRetry !== undefined) {
@@ -3027,19 +3672,14 @@
   });
 
   document.getElementById("scan").addEventListener("click", async event => {
-    const button = event.currentTarget;
-    button.disabled = true;
-    button.textContent = "점검 중…";
-    try {
-      await request("/api/scan", { method: "POST", headers: mutationHeaders() });
-      showNotice("프로젝트 점검을 완료했습니다.");
-      await refreshAll();
-    } catch (error) {
-      showNotice(error.message, true);
-    } finally {
-      button.disabled = false;
-      button.textContent = "지금 점검";
-    }
+    await queueRepositoryStateRefresh(event.currentTarget);
+  });
+
+  document.addEventListener("click", event => {
+    const button = event.target.closest?.("[data-repository-refresh]");
+    if (!button) return;
+    event.preventDefault();
+    void queueRepositoryStateRefresh(button);
   });
 
   document.getElementById("env-doctor").addEventListener("click", async event => {
@@ -3235,8 +3875,8 @@
       candidates.textContent = "폴더를 선택하면 아래의 Git 저장소를 읽기 전용으로 찾습니다.";
       setRegisterPanelOpen(false);
       registerOpener = null;
-      showNotice("프로젝트를 등록했습니다.");
-      await refreshAll();
+      showNotice("프로젝트를 등록했습니다. 저장소 상태를 새로 고치는 중입니다…");
+      await queueRepositoryStateRefresh(null, project.metadata.id);
     } catch (error) {
       showNotice(error.message, true);
     } finally {
@@ -3273,6 +3913,38 @@
   });
 
   document.addEventListener("change", event => {
+    if (["home-target", "quality-target"].includes(event.target.id)) {
+      rememberTarget(event.target.value);
+      state.qualityRunError = "";
+      if (event.target.id === "quality-target") {
+        qualitySetupRequestSequence += 1;
+        state.qualitySetup = { status: "idle", targetValue: event.target.value, requestKey: "", data: null, error: "", preferenceReset: false };
+      }
+      if (event.target.id === "quality-target" && activeRoute === "work") history.replaceState(null, "", `#work?target=${encode(event.target.value)}`);
+      renderHome();
+      renderQualityWorkSurface();
+      if (event.target.id === "quality-target") void loadQualitySetupForTarget(selectedTarget(), true);
+    }
+    if (event.target.matches("input[data-quality-language-mode]")) {
+      const target = selectedTarget();
+      if (!target) return;
+      const preference = qualitySetupPreferenceForTarget(target, state.qualitySetup.data);
+      saveQualitySetupPreference(target, state.qualitySetup.data, { mode: event.target.value === "manual" ? "manual" : "auto", languages: event.target.value === "manual" ? preference.languages : [] });
+      state.qualitySetup.preferenceReset = false;
+      const mode = event.target.value;
+      renderQualityWorkSurface();
+      document.querySelector(`#quality-setup [data-quality-language-mode][value="${CSS.escape(mode)}"]`)?.focus({ preventScroll: true });
+    }
+    if (event.target.matches("input[data-quality-language]")) {
+      const target = selectedTarget();
+      if (!target) return;
+      const languages = [...document.querySelectorAll("#quality-setup [data-quality-language]:checked")].map(input => input.dataset.qualityLanguage).filter(Boolean);
+      saveQualitySetupPreference(target, state.qualitySetup.data, { mode: "manual", languages });
+      state.qualitySetup.preferenceReset = false;
+      const language = event.target.dataset.qualityLanguage;
+      renderQualityWorkSurface();
+      document.querySelector(`#quality-setup [data-quality-language="${CSS.escape(language)}"]`)?.focus({ preventScroll: true });
+    }
     if (event.target.id === "finding-severity") {
       state.findingFilters.severity = event.target.value;
       renderProjects();
