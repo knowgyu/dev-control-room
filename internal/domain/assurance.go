@@ -856,7 +856,18 @@ func (a ActionPlan) UnattendedApprovalRequest() UnattendedApprovalRequest {
 func validateActionPlanApprovalScope(spec ActionPlanSpec) error {
 	if spec.ApprovalScopeID == "" {
 		if spec.ApprovalScopeDigest != "" || spec.ProviderProfile != "" || len(spec.Techniques) > 0 || len(spec.ToolSetup) > 0 || spec.ToolVersion != "" || spec.ToolConfigDigest != "" || spec.ArgumentSchemaDigest != "" || len(spec.WritablePaths) > 0 || spec.NetworkPolicy != "" || spec.DiskLimitBytes != 0 || !spec.ScopeDeadline.IsZero() || len(spec.ProhibitedOperations) > 0 || spec.ScopeMatch || len(spec.ScopeMatchReasons) > 0 || !spec.ScopeCheckedAt.IsZero() {
-			return errors.New("action plan contains an unbound approval scope contract")
+			if spec.ActionType != QualityToolInstallPythonAction && spec.ActionType != QualityToolInstallNodeAction {
+				return errors.New("action plan contains an unbound approval scope contract")
+			}
+			if strings.TrimSpace(spec.ToolVersion) == "" || len(spec.WritablePaths) == 0 {
+				return errors.New("quality tool install must bind version and writable paths")
+			}
+			for _, path := range spec.WritablePaths {
+				if _, err := normalizeApprovalPath(path); err != nil {
+					return errors.New("quality tool install writable path is invalid")
+				}
+			}
+			return nil
 		}
 		return nil
 	}

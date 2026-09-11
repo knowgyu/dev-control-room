@@ -107,7 +107,8 @@ func TestActionUIApprovalCeremonyUsesOnlyNativePrompt(t *testing.T) {
 	request.Header.Set("X-Control-Room-Token", service.mutationToken)
 	recorder := httptest.NewRecorder()
 	service.Handler().ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || prompt.request.Digest == "" || prompt.request.Worktree != "primary" || prompt.request.Executable == "" || prompt.request.ExpiresAt.Before(time.Now().UTC()) || strings.Contains(prompt.request.Plan, "secret-value") {
+	var decisionEnvelope contract.Envelope[action.HumanDecisionResult]
+	if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &decisionEnvelope) != nil || decisionEnvelope.Data == nil || decisionEnvelope.Data.Decision != action.HumanDecisionGrant || prompt.request.Digest == "" || prompt.request.Worktree != "primary" || prompt.request.Executable == "" || prompt.request.ExpiresAt.Before(time.Now().UTC()) || strings.Contains(prompt.request.Plan, "secret-value") {
 		t.Fatalf("UI ceremony = %d %s; prompt = %#v", recorder.Code, recorder.Body.String(), prompt.request)
 	}
 	status, err := service.ActionStatus(context.Background(), plan.Metadata.ID)
@@ -141,6 +142,41 @@ func TestActionUIApprovalCeremonyRequiresMutationToken(t *testing.T) {
 	service.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("unprotected UI ceremony = %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestActionUIApprovalCeremonyReturnsRejectAndCancelDecisions(t *testing.T) {
+	for _, decision := range []action.HumanDecision{action.HumanDecisionReject, action.HumanDecisionCancel} {
+		t.Run(string(decision), func(t *testing.T) {
+			service, project := actionAdapterFixture(t)
+			broker, err := action.New(service.store, nil, &fakeApprovalPrompt{decision: decision})
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.broker = broker
+			plan, err := service.PlanAction(context.Background(), ActionPlanInput{ID: "plan-ui-" + string(decision), Name: "Decision", ProjectID: project.Metadata.ID, RepositoryID: "repo-1", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc123"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodPost, "/ui/actions/plans/"+plan.Metadata.ID+"/approval", nil)
+			request.Header.Set("X-Control-Room-Token", service.mutationToken)
+			recorder := httptest.NewRecorder()
+			service.Handler().ServeHTTP(recorder, request)
+			var envelope contract.Envelope[action.HumanDecisionResult]
+			if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &envelope) != nil || envelope.Data == nil || envelope.Data.Decision != decision {
+				t.Fatalf("decision response = %d %s", recorder.Code, recorder.Body.String())
+			}
+			status, err := service.ActionStatus(context.Background(), plan.Metadata.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision == action.HumanDecisionReject && (len(status.Approvals) != 1 || status.Approvals[0].Spec.Status != domain.ApprovalRejected) {
+				t.Fatalf("rejected approval status = %#v", status)
+			}
+			if decision == action.HumanDecisionCancel && len(status.Approvals) != 0 {
+				t.Fatalf("cancelled approval persisted = %#v", status.Approvals)
+			}
+		})
 	}
 }
 

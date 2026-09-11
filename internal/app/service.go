@@ -74,6 +74,14 @@ type QueryService interface {
 	QualitySetup(context.Context, string, string, string, []string) (qualitysetup.Report, error)
 	QualityCampaigns(context.Context) ([]domain.QualityCampaign, error)
 	QualityRuns(context.Context) ([]domain.QualityRun, error)
+	InspectionPlans(context.Context) ([]InspectionPlanView, error)
+	InspectionPlan(context.Context, string) (InspectionPlanView, error)
+	LatestInspectionRun(context.Context, InspectionRunQueryInput) (InspectionRunView, error)
+	QualityImprovementProposals(context.Context) ([]domain.QualityImprovementProposal, error)
+	QualityImprovementProposal(context.Context, string) (domain.QualityImprovementProposal, error)
+	RepositoryQualityScores(context.Context) ([]domain.RepositoryQualityScore, error)
+	RepositoryQualityScore(context.Context, string) (domain.RepositoryQualityScore, error)
+	CompareRepositoryQualityScores(context.Context, QualityScoreComparisonInput) (domain.QualityComparison, error)
 	AgentInvocations(context.Context) ([]domain.AgentInvocation, error)
 	PRCIBaselines(context.Context) ([]domain.PRCIBaseline, error)
 	AssuranceArtifacts(context.Context) ([]domain.Artifact, error)
@@ -162,6 +170,14 @@ type CommandService interface {
 	CreateQualityCampaign(context.Context, QualityCampaignInput) (domain.QualityCampaign, error)
 	ImportMeasurementRun(context.Context, measurement.Run) (MeasurementRunSummary, error)
 	RunQuality(context.Context, QualityRunInput) (domain.QualityRun, error)
+	GenerateInspectionPlan(context.Context, InspectionPlanGenerateInput) (InspectionPlanView, error)
+	ReviewInspectionPlan(context.Context, string, InspectionPlanReviewInput) (InspectionPlanView, error)
+	RunInspectionPlan(context.Context, string, InspectionPlanRunInput) (InspectionRunView, error)
+	GenerateQualityImprovementProposal(context.Context, QualityImprovementProposalGenerateInput) (domain.QualityImprovementProposal, error)
+	ReviewQualityImprovementProposal(context.Context, string, QualityImprovementProposalReviewInput) (domain.QualityImprovementProposal, error)
+	ApplyQualityImprovementProposal(context.Context, string, QualityImprovementProposalApplyInput) (QualityImprovementApplyView, error)
+	PlanQualityToolInstall(context.Context, QualityToolInstallPlanInput) (QualityToolInstallPreview, error)
+	PlanQualityToolInstallAction(context.Context, QualityToolInstallPlanInput) (QualityToolInstallActionPlan, error)
 	RunAgentInvocation(context.Context, AgentInvocationInput) (domain.AgentInvocation, error)
 	RetryAgentInvocation(context.Context, string, string) (domain.AgentInvocation, error)
 	SaveAssuranceArtifact(context.Context, ArtifactInput) (domain.Artifact, error)
@@ -280,6 +296,9 @@ type CleanupPlanInput struct {
 }
 
 func (a *App) PlanAction(ctx context.Context, input ActionPlanInput) (domain.ActionPlan, error) {
+	if isQualityToolInstallActionType(input.ActionType) {
+		return domain.ActionPlan{}, contract.InvalidInput("quality tool installs require the dedicated preview and plan service")
+	}
 	plan, err := a.broker.Plan(ctx, action.PlanRequest{ID: input.ID, Name: input.Name, ProjectID: input.ProjectID, RepositoryID: input.RepositoryID, WorktreeID: input.WorktreeID, ActionType: input.ActionType, Inputs: input.Inputs, RequestedBy: domain.Actor{Kind: domain.ActorSystem, ID: "adapter"}, ApprovalScopeID: input.ApprovalScopeID, ProviderProfile: input.ProviderProfile, Techniques: input.Techniques, ToolSetup: input.ToolSetup, ToolVersion: input.ToolVersion, ToolConfigDigest: input.ToolConfigDigest, ArgumentSchemaDigest: input.ArgumentSchemaDigest, WritablePaths: input.WritablePaths, NetworkPolicy: input.NetworkPolicy, DiskLimitBytes: input.DiskLimitBytes, ScopeDeadline: input.ScopeDeadline, ProhibitedOperations: input.ProhibitedOperations})
 	return plan, classifyActionError(err)
 }

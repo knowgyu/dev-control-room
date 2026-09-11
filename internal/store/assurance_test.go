@@ -46,6 +46,116 @@ func TestAssuranceLifecyclePersistsAdditiveObjectsAndRejectsDuplicateActiveSessi
 	}
 }
 
+func TestInspectionPlanUsesGenericAssuranceCAS(t *testing.T) {
+	persistence := newInspectionPlanStore(t)
+	plan := inspectionStorePlan()
+	if err := persistence.SaveInspectionPlan(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := persistence.GetInspectionPlan(context.Background(), plan.Metadata.ID)
+	if err != nil || loaded.Spec.Digest == "" {
+		t.Fatalf("loaded plan = %#v, err = %v", loaded, err)
+	}
+	loaded.Spec.Revision = 2
+	loaded.Spec.State = domain.InspectionPlanStateReviewed
+	if err := persistence.UpdateInspectionPlanRevisionCAS(context.Background(), domain.InspectionPlanKind, plan.Metadata.ID, 1, loaded); err != nil {
+		t.Fatal(err)
+	}
+	if err := persistence.UpdateAssuranceRevision(context.Background(), domain.InspectionPlanKind, plan.Metadata.ID, 3, domain.InspectionPlanStateApproved, time.Now().UTC(), loaded); !errors.Is(err, ErrInspectionPlanRequiresCAS) {
+		t.Fatalf("generic update error = %v", err)
+	}
+}
+
+func TestApplyQualityImprovementProposalCASRollsBackPlanOnStaleProposal(t *testing.T) {
+	persistence := newInspectionPlanStore(t)
+	ctx := context.Background()
+	plan := inspectionStorePlan()
+	if err := persistence.SaveInspectionPlan(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	storedPlan, err := persistence.GetInspectionPlan(ctx, plan.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	proposal := domain.QualityImprovementProposal{
+		TypeMeta: TypeMetaForTest(domain.QualityImprovementProposalKind),
+		Metadata: domain.ObjectMeta{ID: "proposal-atomic", Name: "Atomic proposal"},
+		Spec: domain.QualityImprovementProposalSpec{
+			ProjectID: storedPlan.Spec.ProjectID, RepositoryID: storedPlan.Spec.RepositoryID, WorktreeID: storedPlan.Spec.WorktreeID,
+			PlanID: storedPlan.Metadata.ID, BaseScoreID: "score-1", BaseScoreDigest: storeInspectionDigest('a'),
+			BasePlanRevision: storedPlan.Spec.Revision, BasePlanDigest: storedPlan.Spec.Digest, Head: storedPlan.Spec.Head,
+			ConfigDigest: storedPlan.Spec.ConfigDigest, EvidenceDigest: storedPlan.Spec.EvidenceDigest, ToolDigest: storedPlan.Spec.ToolDigest,
+			Changes:         []domain.QualityImprovementChange{{Action: domain.QualityImprovementActionAddCheck, ComponentID: "component-api", CheckID: domain.InspectionCheckGoTestRace, Reason: domain.QualityImprovementReasonFindingObserved}},
+			RationaleDigest: storeInspectionDigest('b'), RationaleCode: domain.QualityImprovementReasonFindingObserved,
+			Source: domain.InspectionGenerationDeterministic, State: domain.QualityImprovementStateProposed, Revision: 1, CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	if err := persistence.SaveQualityImprovementProposal(ctx, proposal); err != nil {
+		t.Fatal(err)
+	}
+	nextPlan := storedPlan
+	nextPlan.Spec.State = domain.InspectionPlanStateReviewed
+	nextPlan.Spec.Revision = 2
+	nextPlan.Spec.UpdatedAt = now.Add(time.Second)
+	nextProposal := proposal
+	nextProposal.Spec.State = domain.QualityImprovementStateReviewed
+	nextProposal.Spec.Revision = 2
+	reviewedAt := now.Add(time.Second)
+	nextProposal.Spec.ReviewedAt = &reviewedAt
+	nextProposal.Spec.UpdatedAt = reviewedAt
+	err = persistence.ApplyQualityImprovementProposalCAS(ctx, storedPlan.Metadata.ID, 1, nextPlan, proposal.Metadata.ID, 99, nextProposal)
+	if !errors.Is(err, ErrQualityImprovementRevisionStale) {
+		t.Fatalf("atomic stale proposal error = %v", err)
+	}
+	unchangedPlan, err := persistence.GetInspectionPlan(ctx, storedPlan.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchangedProposal, err := persistence.GetQualityImprovementProposal(ctx, proposal.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchangedPlan.Spec.Revision != 1 || unchangedPlan.Spec.State != domain.InspectionPlanStateProposed {
+		t.Fatalf("plan changed despite atomic rollback = %#v", unchangedPlan.Spec)
+	}
+	if unchangedProposal.Spec.Revision != 1 || unchangedProposal.Spec.State != domain.QualityImprovementStateProposed {
+		t.Fatalf("proposal changed despite atomic rollback = %#v", unchangedProposal.Spec)
+	}
+}
+
+func newInspectionPlanStore(t *testing.T) *Store {
+	t.Helper()
+	db := openTestDatabase(t, "inspection-plan")
+	persistence, err := New(db, masking.New(nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := t.TempDir()
+	project := domain.NewProject("project-1", "Project", []domain.Repository{domain.NewRepository("repo-1", "Repo", path)})
+	if err := persistence.SaveProject(context.Background(), project); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := persistence.ReplaceWorktrees(context.Background(), "project-1", "repo-1", []domain.Worktree{{TypeMeta: TypeMetaForTest(domain.WorktreeKind), Metadata: domain.ObjectMeta{ID: "primary", Name: "primary"}, Spec: domain.WorktreeSpec{ProjectID: "project-1", RepositoryID: "repo-1", CanonicalPath: path, PathFingerprint: "sha256:path", Trust: domain.WorktreeTrustVerifiedReadOnly, Primary: true, Head: "head-1", LastObserved: now}}}, true); err != nil {
+		t.Fatal(err)
+	}
+	return persistence
+}
+
+func inspectionStorePlan() domain.InspectionPlan {
+	plan := domain.InspectionPlan{TypeMeta: TypeMetaForTest(domain.InspectionPlanKind), Metadata: domain.ObjectMeta{ID: "inspection-1", Name: "Inspection"}, Spec: domain.InspectionPlanSpec{ProjectID: "project-1", RepositoryID: "repo-1", WorktreeID: "primary", Branch: "main", Head: "head-1", BaselineDigest: storeInspectionDigest('a'), ConfigDigest: storeInspectionDigest('b'), EvidenceDigest: storeInspectionDigest('d'), ToolDigest: storeInspectionDigest('c'), Components: []domain.InspectionComponent{{ID: "component-api"}}, Checks: []domain.InspectionCheck{{ID: domain.InspectionCheckRuff, ComponentID: "component-api", AdapterID: "adapter.ruff.v1", ParserID: "parser.ruff.v1"}}, State: domain.InspectionPlanStateProposed, Revision: 1, Version: domain.InspectionPlanVersion}}
+	return plan
+}
+
+func storeInspectionDigest(char byte) string {
+	value := make([]byte, 64)
+	for index := range value {
+		value[index] = char
+	}
+	return "sha256:" + string(value)
+}
+
 func TestStartAgentInvocationRollsBackQueuedClaimOnRunningTransitionFailure(t *testing.T) {
 	db := openTestDatabase(t, "assurance-invocation-start")
 	persistence, err := New(db, masking.New(nil, nil))

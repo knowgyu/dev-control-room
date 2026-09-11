@@ -609,6 +609,11 @@ const (
 	PolicyApprovalRequired = "approval_required"
 )
 
+const (
+	QualityToolInstallPythonAction = "quality.tool.install.python"
+	QualityToolInstallNodeAction   = "quality.tool.install.node"
+)
+
 type ActionPlan struct {
 	TypeMeta `json:",inline"`
 	Metadata ObjectMeta     `json:"metadata"`
@@ -786,14 +791,16 @@ type ActionDefinition struct {
 }
 
 var actionDefinitions = map[string]ActionDefinition{
-	"repository.refresh":         {ActionType: "repository.refresh", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, Execution: ActionExecution{Executable: "git", Arguments: []string{"fetch", "--prune"}, TimeoutSeconds: 60, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	"repository.sync":            {ActionType: "repository.sync", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, Execution: ActionExecution{Executable: "git", Arguments: []string{"pull", "--ff-only", "--prune"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	"release.production":         {ActionType: "release.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"commit"}, Execution: ActionExecution{Executable: "devroom-release-production", Arguments: []string{"--commit", "{commit}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	"cleanup.destructive":        {ActionType: "cleanup.destructive", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"candidate_id", "candidate_digest"}, Execution: ActionExecution{Executable: "devroom-cleanup-destructive", Arguments: []string{"--candidate", "{candidate_id}", "--digest", "{candidate_digest}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	"powershell.runbook":         {ActionType: "powershell.runbook", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"script", "arguments", "environment", "timeout"}, Execution: ActionExecution{Executable: "pwsh", TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	"external.jenkins.group":     {ActionType: "external.jenkins.group", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest"}, Execution: ActionExecution{Executable: "devroom-external-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	"release.jenkins.stage":      {ActionType: "release.jenkins.stage", Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest", "environment", "expected_revision"}, Execution: ActionExecution{Executable: "devroom-release-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}", "--environment", "{environment}", "--expected-revision", "{expected_revision}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	"release.jenkins.production": {ActionType: "release.jenkins.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest", "environment", "expected_revision"}, Execution: ActionExecution{Executable: "devroom-release-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}", "--environment", "{environment}", "--expected-revision", "{expected_revision}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"repository.refresh":           {ActionType: "repository.refresh", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, Execution: ActionExecution{Executable: "git", Arguments: []string{"fetch", "--prune"}, TimeoutSeconds: 60, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"repository.sync":              {ActionType: "repository.sync", Risk: RiskSafeLocal, PolicyDecision: PolicyAllowed, Execution: ActionExecution{Executable: "git", Arguments: []string{"pull", "--ff-only", "--prune"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"release.production":           {ActionType: "release.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"commit"}, Execution: ActionExecution{Executable: "devroom-release-production", Arguments: []string{"--commit", "{commit}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"cleanup.destructive":          {ActionType: "cleanup.destructive", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"candidate_id", "candidate_digest"}, Execution: ActionExecution{Executable: "devroom-cleanup-destructive", Arguments: []string{"--candidate", "{candidate_id}", "--digest", "{candidate_digest}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"powershell.runbook":           {ActionType: "powershell.runbook", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"script", "arguments", "environment", "timeout"}, Execution: ActionExecution{Executable: "pwsh", TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"external.jenkins.group":       {ActionType: "external.jenkins.group", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest"}, Execution: ActionExecution{Executable: "devroom-external-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"release.jenkins.stage":        {ActionType: "release.jenkins.stage", Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest", "environment", "expected_revision"}, Execution: ActionExecution{Executable: "devroom-release-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}", "--environment", "{environment}", "--expected-revision", "{expected_revision}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	"release.jenkins.production":   {ActionType: "release.jenkins.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest", "environment", "expected_revision"}, Execution: ActionExecution{Executable: "devroom-release-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}", "--environment", "{environment}", "--expected-revision", "{expected_revision}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	QualityToolInstallPythonAction: {ActionType: QualityToolInstallPythonAction, Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"package", "version"}, Execution: ActionExecution{Executable: "python.exe", Arguments: []string{"-m", "pip", "install", "--disable-pip-version-check", "--no-input", "{package}=={version}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	QualityToolInstallNodeAction:   {ActionType: QualityToolInstallNodeAction, Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"package", "version"}, Execution: ActionExecution{Executable: "npm.exe", Arguments: []string{"install", "--save-dev", "--ignore-scripts", "--no-audit", "--no-fund", "{package}@{version}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 }
 
 var (
@@ -1266,7 +1273,7 @@ func (a ActionPlan) Validate() error {
 	if !ok || a.Spec.Risk != definition.Risk || a.Spec.PolicyDecision != definition.PolicyDecision || a.Spec.ApprovalRequired != definition.ApprovalRequired {
 		return errors.New("action plan does not match a reviewed action definition")
 	}
-	if len(a.Spec.Inputs) != len(definition.Inputs) {
+	if !reviewedActionInputs(a.Spec.ActionType, a.Spec.Inputs, definition.Inputs) {
 		return errors.New("action plan inputs do not match its reviewed definition")
 	}
 	for _, name := range definition.Inputs {
@@ -1276,6 +1283,11 @@ func (a ActionPlan) Validate() error {
 	}
 	if err := validateActionPlanApprovalScope(a.Spec); err != nil {
 		return err
+	}
+	if a.Spec.ActionType == QualityToolInstallPythonAction || a.Spec.ActionType == QualityToolInstallNodeAction {
+		if err := validateQualityInstallScopeBinding(a.Spec); err != nil {
+			return err
+		}
 	}
 	execution, err := definition.ExecutionFor(a.Spec.Inputs)
 	if err != nil || !reflect.DeepEqual(a.Spec.Execution, execution) || !validExecutionContext(a.Spec.ExecutionContext) || a.Spec.ExecutionContext.ProjectID != a.Spec.ProjectID || a.Spec.ExecutionContext.RepositoryID != a.Spec.RepositoryID || a.Spec.ExecutionContext.WorktreeID != a.Spec.WorktreeID || !sameEvidenceContracts(a.Spec.Prechecks, definition.Prechecks) || !sameEvidenceContracts(a.Spec.Postchecks, definition.Postchecks) {
@@ -1314,6 +1326,9 @@ func validActionRunStatus(status ActionRunStatus) bool {
 }
 
 func (d ActionDefinition) ExecutionFor(inputs map[string]string) (ActionExecution, error) {
+	if d.ActionType == QualityToolInstallPythonAction || d.ActionType == QualityToolInstallNodeAction {
+		return qualityToolInstallExecution(d.ActionType, inputs)
+	}
 	if d.ActionType == "powershell.runbook" {
 		script := strings.TrimSpace(inputs["script"])
 		if script == "" || strings.ContainsRune(script, '\x00') {
@@ -1359,6 +1374,150 @@ func (d ActionDefinition) ExecutionFor(inputs map[string]string) (ActionExecutio
 		return ActionExecution{}, errors.New("action execution contract is invalid")
 	}
 	return execution, nil
+}
+
+var qualityToolInstallVersionPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?$`)
+
+func qualityToolInstallExecution(actionType string, inputs map[string]string) (ActionExecution, error) {
+	if !reviewedActionInputs(actionType, inputs, []string{"package", "version"}) {
+		return ActionExecution{}, errors.New("quality tool install inputs are not reviewed")
+	}
+	packageName := strings.TrimSpace(inputs["package"])
+	version := strings.TrimSpace(inputs["version"])
+	if !qualityToolInstallPackage(actionType, packageName) || !qualityToolInstallVersionPattern.MatchString(version) || strings.ContainsAny(version, "\r\n") {
+		return ActionExecution{}, errors.New("quality tool install package or version is invalid")
+	}
+	if actionType == QualityToolInstallPythonAction {
+		executable := strings.TrimSpace(inputs["executable"])
+		if executable == "" {
+			executable = "python.exe"
+		}
+		if !validQualityInstallExecutable(executable, "python.exe") {
+			return ActionExecution{}, errors.New("quality tool install Python executable is invalid")
+		}
+		return ActionExecution{Executable: executable, Arguments: []string{"-m", "pip", "install", "--disable-pip-version-check", "--no-input", packageName + "==" + version}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, nil
+	}
+	executable := strings.TrimSpace(inputs["executable"])
+	if executable == "" {
+		executable = "npm.exe"
+		if strings.TrimSpace(inputs["npmCliPath"]) != "" {
+			executable = "node.exe"
+		}
+	}
+	if executable != "npm.exe" && !validQualityInstallExecutable(executable, "node.exe") {
+		return ActionExecution{}, errors.New("quality tool install Node executable is invalid")
+	}
+	npmCLIPath := strings.TrimSpace(inputs["npmCliPath"])
+	arguments := []string{"install", "--save-dev", "--ignore-scripts", "--no-audit", "--no-fund", packageName + "@" + version}
+	if npmCLIPath != "" {
+		if !validQualityInstallScriptPath(npmCLIPath) {
+			return ActionExecution{}, errors.New("quality tool install npm-cli.js path is invalid")
+		}
+		arguments = append([]string{npmCLIPath}, arguments...)
+	}
+	return ActionExecution{Executable: executable, Arguments: arguments, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, nil
+}
+
+func reviewedActionInputs(actionType string, inputs map[string]string, required []string) bool {
+	if len(inputs) < len(required) {
+		return false
+	}
+	allowed := make(map[string]struct{}, len(required)+5)
+	for _, name := range required {
+		allowed[name] = struct{}{}
+		if strings.TrimSpace(inputs[name]) == "" {
+			return false
+		}
+	}
+	if actionType == QualityToolInstallPythonAction || actionType == QualityToolInstallNodeAction {
+		for _, name := range []string{"executable", "affectedFiles", "environmentScope", "toolState"} {
+			allowed[name] = struct{}{}
+		}
+		if actionType == QualityToolInstallNodeAction {
+			allowed["npmCliPath"] = struct{}{}
+		}
+	}
+	for name, value := range inputs {
+		if _, ok := allowed[name]; !ok || strings.ContainsRune(value, '\x00') || strings.ContainsAny(value, "\r\n") {
+			return false
+		}
+	}
+	return true
+}
+
+func validQualityInstallExecutable(value, base string) bool {
+	if value == base {
+		return true
+	}
+	return filepath.IsAbs(value) && strings.EqualFold(filepath.Ext(value), ".exe") && !strings.ContainsAny(value, "\"';&|<>\r\n")
+}
+
+func validQualityInstallScriptPath(value string) bool {
+	return filepath.IsAbs(value) && strings.EqualFold(filepath.Ext(value), ".js") && !strings.ContainsAny(value, "\"';&|<>\r\n")
+}
+
+func validateQualityInstallScopeBinding(spec ActionPlanSpec) error {
+	raw := strings.TrimSpace(spec.Inputs["affectedFiles"])
+	if raw == "" || strings.TrimSpace(spec.Inputs["executable"]) == "" || strings.TrimSpace(spec.Inputs["environmentScope"]) == "" || strings.TrimSpace(spec.ToolVersion) == "" || !planDigestPattern.MatchString(spec.ToolConfigDigest) {
+		return errors.New("quality tool install must bind command, environment, version, and tool digest")
+	}
+	var affected []string
+	if err := json.Unmarshal([]byte(raw), &affected); err != nil || len(affected) == 0 || len(affected) != len(spec.WritablePaths) {
+		return errors.New("quality tool install affected files are not bound to writable paths")
+	}
+	if spec.Inputs["environmentScope"] != "project" && spec.Inputs["environmentScope"] != "global" {
+		return errors.New("quality tool install environment scope is invalid")
+	}
+	expectedVersion := strings.TrimSpace(spec.Inputs["package"]) + "@" + strings.TrimSpace(spec.Inputs["version"])
+	if strings.TrimSpace(spec.ToolVersion) != expectedVersion {
+		return errors.New("quality tool install version is not bound to the reviewed package")
+	}
+	if !filepath.IsAbs(strings.TrimSpace(spec.Inputs["executable"])) || !strings.EqualFold(filepath.Ext(strings.TrimSpace(spec.Inputs["executable"])), ".exe") {
+		return errors.New("quality tool install executable must be an absolute native executable")
+	}
+	if spec.ActionType == QualityToolInstallNodeAction {
+		if !filepath.IsAbs(strings.TrimSpace(spec.Inputs["npmCliPath"])) || !strings.EqualFold(filepath.Ext(strings.TrimSpace(spec.Inputs["npmCliPath"])), ".js") {
+			return errors.New("quality tool install Node plan must bind an absolute npm-cli.js path")
+		}
+	}
+	root, err := normalizeApprovalPath(spec.ExecutionContext.CanonicalPath)
+	if err != nil {
+		return errors.New("quality tool install execution root is invalid")
+	}
+	seen := make(map[string]struct{}, len(affected))
+	for index, file := range affected {
+		if strings.TrimSpace(file) != file || file == "" || filepath.IsAbs(file) || filepath.VolumeName(file) != "" || strings.ContainsAny(file, "\x00\r\n") {
+			return errors.New("quality tool install affected file is unsafe")
+		}
+		clean := filepath.Clean(filepath.FromSlash(file))
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return errors.New("quality tool install affected file escapes the worktree")
+		}
+		if _, ok := seen[clean]; ok {
+			return errors.New("quality tool install affected files contain a duplicate")
+		}
+		seen[clean] = struct{}{}
+		writable, err := normalizeApprovalPath(spec.WritablePaths[index])
+		if err != nil {
+			return errors.New("quality tool install writable path is invalid")
+		}
+		expected, err := normalizeApprovalPath(filepath.Join(root, clean))
+		if err != nil || !approvalPathContains(expected, writable) || !approvalPathContains(writable, expected) {
+			return errors.New("quality tool install affected file is not bound to its writable path")
+		}
+	}
+	return nil
+}
+
+func qualityToolInstallPackage(actionType, packageName string) bool {
+	switch actionType {
+	case QualityToolInstallPythonAction:
+		return packageName == "ruff" || packageName == "pytest"
+	case QualityToolInstallNodeAction:
+		return packageName == "eslint" || packageName == "vitest"
+	default:
+		return false
+	}
 }
 
 func ExecutionContextForWorktree(worktree Worktree) (WorktreeExecutionContext, error) {

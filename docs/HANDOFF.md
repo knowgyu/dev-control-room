@@ -1,8 +1,26 @@
 # Current state and implementation handoff
 
-Updated: 2026-09-10
+Updated: 2026-09-11
 
-## Active: v0.17.0 M1 project-oriented setup release candidate
+## Active: v0.18.0 repository-quality release candidate
+
+Status: **RELEASE CANDIDATE — NOT PUBLISHED**
+
+The current worktree adds repository-scoped inspection plans, supported
+Python/Node/Go runners, deterministic quality scores, evidence-bound
+comparisons, reviewable enum-only self-improvement proposals, and server-owned
+tool-install Action Plans. Python project environments are preferred; global
+installation requires explicit opt-in and human approval. Linux and arm64 are
+not release targets.
+
+P1/P2 hardening includes atomic plan/proposal CAS application, stale-tool
+digests, project-interpreter execution, exact installer paths, writable-scope
+binding, and approval rejection/cancellation tests. See
+[`VERIFICATION_v0.18.0.md`](VERIFICATION_v0.18.0.md). The release target is one
+Windows amd64 ZIP plus `SHA256SUMS`; package, tag, and publication follow only
+after the recorded source checks pass.
+
+## Historical: v0.17.0 M1 project-oriented setup release candidate
 
 Status: **RELEASE CANDIDATE — NOT PUBLISHED**
 

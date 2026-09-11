@@ -1,8 +1,8 @@
-# Dev Control Room 0.17.0
+# Dev Control Room 0.18.0
 
 Download the Windows amd64 package from [GitHub Releases](https://github.com/knowgyu/dev-control-room/releases).
-Version 0.17.0 adds project-oriented setup guidance. Python/FastAPI and Vue
-inspection is read-only; actual checks remain available for root Go modules.
+Version 0.18.0 adds repository-scoped quality inspection plans, deterministic
+quality scores, and reviewable self-improvement proposals for supported tools.
 
 Windows 11용 로컬 우선 개발 제어실입니다. 등록한 프로젝트만 관찰하고,
 근거가 있는 점검과 Action을 계획·승인·실행합니다. 서비스는 loopback에만
@@ -78,14 +78,14 @@ ZIP과 SHA-256 목록을 만듭니다. 실제 Jenkins, production, Scheduler, �
 작업은 패키징에 포함되지 않습니다.
 
 ```powershell
-pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.17.0
+pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.18.0
 ```
 
-이 명령은 `docs/RELEASE_NOTES_v0.17.0.md`와
-`docs/VERIFICATION_v0.17.0.md`가 모두 있을 때 패키지를 만듭니다. v0.17.0
+이 명령은 `docs/RELEASE_NOTES_v0.18.0.md`와
+`docs/VERIFICATION_v0.18.0.md`가 모두 있을 때 패키지를 만듭니다. v0.18.0
 패키지의 해시는 배포 파일에 포함된 `SHA256SUMS`로 확인합니다.
 정확한 지원 범위와 검증 결과는
-[`docs/VERIFICATION_v0.17.0.md`](docs/VERIFICATION_v0.17.0.md)에서 확인합니다.
+[`docs/VERIFICATION_v0.18.0.md`](docs/VERIFICATION_v0.18.0.md)에서 확인합니다.
 
 검증까지 포함한 후보 확인은 다음 명령을 먼저 실행합니다.
 
@@ -103,10 +103,10 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
   `.out` profile을 사용합니다. profile은 구조화된 Quality Run 근거로 요약하며,
   HEAD·runner 설정 digest·artifact가 일치하지 않거나 확인되지 않으면
   `inconclusive` 또는 `not improved`로 닫힙니다.
-- 품질 도구 화면은 고정된 검토 목록에 대해 PATH를 읽기 전용으로 탐색합니다.
-  후보를 실행하거나 버전·설치·신뢰 상태를 추정하지 않으며, 선택되지 않은
-  Worktree/test target도 대신 결정하지 않습니다.
-- 홈 개선 큐, Quality Objective 상세, 품질 도구 진단, 검증 화면의 빈 상태와
+- 품질 검사 화면은 저장소 설정·실행기·패키지 상태를 확인해 적용 가능한 검사
+  계획을 제안합니다. 계획·명령·버전·쓰기 범위는 서버가 고정하고, 실행과 설치는
+  사람이 승인한 전용 Action Plan을 통해서만 진행됩니다.
+- 홈 개선 큐, Quality Objective 상세, 품질 도구 진단, 저장소 품질 검사, 검증 화면의 빈 상태와
   retry/오류/예시 표현을 정리했습니다. 예시 화면은 저장·비용·효과 집계에
   포함되지 않는 읽기 전용 표시입니다.
 - 이번 문서는 0.15.0 사용성 개선 범위와 경계를 설명하며, 실제 final gate
@@ -189,6 +189,8 @@ pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full
 - [현재 상태와 handoff](docs/HANDOFF.md)
 - [dogfood 측정 계약과 절차](docs/DOGFOOD_MEASUREMENT.md)
 - [실제 측정 대시보드 workflow](docs/MEASUREMENT_DASHBOARD.md)
+- [v0.18.0 릴리즈 노트](docs/RELEASE_NOTES_v0.18.0.md)
+- [v0.18.0 검증 기록](docs/VERIFICATION_v0.18.0.md)
 - [v0.17.0 릴리즈 노트](docs/RELEASE_NOTES_v0.17.0.md)
 - [v0.17.0 검증 기록](docs/VERIFICATION_v0.17.0.md)
 - [v0.16.0 릴리즈 노트](docs/RELEASE_NOTES_v0.16.0.md)

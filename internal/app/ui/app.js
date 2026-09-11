@@ -34,6 +34,16 @@
     assuranceTraceError: "",
     qualityHome: { status: "loading", data: null, error: "" },
     qualityTools: { status: "loading", data: null, error: "" },
+    qualityInspection: {
+      status: "idle", error: "", plans: [], scores: [], selectedPlanID: "", selectedPlan: null, lastRun: null,
+      comparison: { status: "idle", data: null, error: "", beforeID: "", afterID: "" },
+      aiEnabled: false,
+      proposals: [], proposalStatus: "idle", proposalError: "", selectedProposalID: "", selectedProposal: null,
+      proposalMutation: { kind: "", status: "idle", error: "" },
+      toolPreview: { status: "idle", data: null, error: "", input: null },
+      toolActionPlan: { status: "idle", data: null, error: "", approvalStatus: "idle", executionStatus: "idle" },
+      mutation: { kind: "", status: "idle", error: "" },
+    },
     homeChecks: { status: "loading", items: [], error: "" },
     service: { status: "loading", message: "로컬 서비스에 연결하는 중입니다…", error: "" },
     lastSuccessfulRefreshAt: "",
@@ -136,7 +146,7 @@
       place: "작업",
       control: "대상 선택 → 자동 감지 → 언어 선택(필요시) → 근거 보기",
       done: "구성 상태·근거·준비 안내를 확인함",
-      bullets: ["Python/FastAPI와 Vue는 설정과 준비 방법까지만 안내합니다.", "저장소 최상위 폴더에 Go 구성이 있으면 기존 검사를 선택해 실행할 수 있습니다.", "언어 선택은 표시 범위를 바꾸며 설정 파일을 만들지 않습니다."],
+      bullets: ["저장소별 설정과 실제 실행기를 확인해 적용 가능한 검사 계획을 만듭니다.", "Ruff·pytest·ESLint·Vitest·Go 검사는 도구와 프로젝트 근거가 확인된 경우에만 실행 대상으로 표시합니다.", "AI는 허용된 검사 후보만 제안하고, 점수·명령·승인을 결정하지 않습니다."],
       action: "작업으로 이동",
       href: "#work",
     },
@@ -1295,6 +1305,269 @@
     return `<article id="quality-run-result-${escapeHTML(id)}" class="quality-run-result ${rowToneClass(tone)}" tabindex="-1"><div class="quality-run-result__heading"><div><strong>${escapeHTML(assuranceTechniqueLabels[spec.technique] || spec.technique || "코드 검사")}</strong><span class="meta">${escapeHTML(formatDate(spec.startedAt))}</span></div>${stateText(unavailable ? "사용할 수 없음" : qualityRunStatusText(item), tone)}</div><p>${escapeHTML(unavailable ? qualityRunUnavailableText(item) : spec.summary || "결과 요약이 없습니다.")}</p>${spec.coverage ? `<p class="meta">커버리지 ${escapeHTML(formatImpactValue(spec.coverage.percent, "percent"))} · ${escapeHTML(formatCount(spec.coverage.coveredStatements))} / ${escapeHTML(formatCount(spec.coverage.totalStatements))} statements</p>` : ""}<details><summary>실행 명령과 근거</summary><dl class="detail-grid"><div class="wide"><dt>실행 명령</dt><dd><code>${escapeHTML([spec.command?.executable, ...(spec.command?.arguments || [])].filter(Boolean).join(" ") || "기록 없음")}</code></dd></div><div><dt>종료 코드</dt><dd>${escapeHTML(spec.exitCode ?? "기록 없음")}</dd></div><div><dt>HEAD</dt><dd><code>${escapeHTML(spec.head || "기록 없음")}</code></dd></div><div><dt>결과 ID</dt><dd><code>${escapeHTML(id || "기록 없음")}</code></dd></div></dl></details><div class="item-actions"><a class="button small" href="#assurance?run=${encode(id)}">검증 결과에서 보기</a></div></article>`;
   };
 
+  const qualityInspectionPlanStateLabels = {
+    proposed: "제안됨",
+    reviewed: "검토됨",
+    approved: "승인됨",
+    stale: "오래됨",
+    rejected: "거절됨",
+  };
+  const qualityImprovementStateLabels = {
+    proposed: "제안됨",
+    reviewed: "검토됨",
+    approved: "승인됨",
+    rejected: "거절됨",
+    applied: "적용됨",
+    stale: "오래됨",
+  };
+  const qualityImprovementActionLabels = {
+    add_check: "검사 추가",
+    remove_check: "검사 제외",
+    mark_runner_unavailable: "실행기 사용 불가로 표시",
+  };
+  const qualityImprovementReasonLabels = {
+    applicable_check: "적용 가능한 검사",
+    finding_observed: "확인 항목에서 제안",
+    inconclusive: "판정 보류에서 제안",
+    runner_unavailable: "실행기 사용 불가에서 제안",
+  };
+  const qualityInspectionScoreStatusLabels = {
+    fresh: "최신",
+    stale: "오래됨",
+    inconclusive: "판정 보류",
+  };
+  const qualityInspectionOutcomeLabels = {
+    clean: "문제 없음",
+    findings: "확인 항목 있음",
+    tests_failed: "검사 실패",
+    tool_error: "도구 오류",
+    runner_unavailable: "실행기 사용 불가",
+    inconclusive: "판정 보류",
+  };
+  const qualityInspectionCheckLabels = {
+    ruff: "Ruff",
+    pytest: "pytest",
+    eslint: "ESLint",
+    vitest: "Vitest",
+    "quality.go.test": "Go test",
+    "quality.go.test_race": "Go test · race",
+    "quality.go.vet": "Go vet",
+    "quality.go.mod_verify": "Go mod verify",
+    "quality.go.build": "Go build",
+    "quality.go.coverage": "Go coverage",
+    "quality.go.coverage_percent": "Go coverage %",
+    "quality.go.mutation": "변이 검사",
+    "quality.go.property": "속성 검사",
+    "quality.go.fuzz": "Fuzz 검사",
+    "quality.go.e2e": "E2E 검사",
+    "quality.go.test_coverage": "테스트 커버리지",
+  };
+  const qualityInspectionStateLabel = (value, labels, fallback = "상태 미상") => labels[value] || fallback;
+  const qualityInspectionPlanSpec = item => item?.spec || {};
+  const qualityInspectionScoreSpec = item => item?.spec || {};
+  const qualityInspectionPlanTone = value => value === "approved" ? "positive" : ["stale", "rejected"].includes(value) ? "negative" : ["proposed", "reviewed"].includes(value) ? "attention" : "neutral";
+  const qualityInspectionScoreTone = value => value === "fresh" ? "positive" : value === "stale" ? "attention" : "negative";
+  const qualityInspectionOutcomeTone = value => value === "clean" ? "positive" : ["findings", "tests_failed"].includes(value) ? "attention" : "negative";
+  const qualityInspectionScopeMatches = (item, target) => {
+    const spec = item?.spec || {};
+    return Boolean(target && spec.projectId === target.projectID && spec.repositoryId === target.repositoryID && spec.worktreeId === target.worktreeID);
+  };
+  const qualityInspectionUpdatedAt = item => Date.parse(item?.spec?.updatedAt || item?.spec?.createdAt || item?.metadata?.createdAt || "") || 0;
+  const qualityInspectionPlansForTarget = target => (state.qualityInspection?.plans || [])
+    .filter(item => qualityInspectionScopeMatches(item, target))
+    .sort((left, right) => qualityInspectionUpdatedAt(right) - qualityInspectionUpdatedAt(left));
+  const qualityInspectionScoresForTarget = target => (state.qualityInspection?.scores || [])
+    .filter(item => qualityInspectionScopeMatches(item, target))
+    .sort((left, right) => qualityInspectionUpdatedAt(right) - qualityInspectionUpdatedAt(left));
+  const qualityInspectionPlanChecks = plan => {
+    const checks = Array.isArray(plan?.spec?.checks) ? plan.spec.checks : [];
+    return checks.map(check => `<li><strong>${escapeHTML(qualityInspectionCheckLabels[check.id] || "검사 항목")}</strong><span><code>${escapeHTML(check.id || "unknown")}</code> · ${escapeHTML(check.componentId || "구성 요소 미상")}</span></li>`).join("");
+  };
+  const qualityInspectionGenerationNote = plan => {
+    const generation = plan?.generation || {};
+    if (generation.aiProposal === true) return '<p class="quality-inspection-note">AI 제안이 포함된 계획입니다. 결정적 근거와 제안 내용을 구분해 검토하세요.</p>';
+    return `<p class="quality-inspection-note">AI 제안은 연결되지 않았습니다. 현재 계획은 저장소 구성에서 결정적으로 만든 fallback이며, 자동으로 맞다고 가정하지 말고 실행 전에 검토하세요.${generation.reason ? ` <code>${escapeHTML(generation.reason)}</code>` : ""}</p>`;
+  };
+  const qualityInspectionGenerationNoteForWorkflow = (plan, workflow) => {
+    const generation = plan?.generation || {};
+    if (generation.aiProposal === true) return '<p class="quality-inspection-note">AI는 허용된 검사 항목 후보만 제안했습니다. 점수와 실행 명령을 결정하지 않으며, 사람의 검토·승인 후에만 실행할 수 있습니다.</p>';
+    if (workflow.aiEnabled === true) return '<p class="quality-inspection-note">AI 제안을 요청했지만 연결되지 않아 결정적 fallback으로 만들었습니다. 점수와 실행은 검사 계획과 사람의 승인으로 결정됩니다.</p>';
+    return qualityInspectionGenerationNote(plan);
+  };
+  const qualityInspectionAIControlHTML = workflow => `<label class="quality-inspection-ai-toggle"><input type="checkbox" data-quality-inspection-ai ${workflow.aiEnabled === true ? "checked" : ""}><span><strong>AI로 검사 항목 후보도 받아보기</strong><small>기본 꺼짐 · 후보만 제안하며 점수·실행은 결정하지 않습니다.</small></span></label>`;
+  const qualityInspectionPlanActions = (plan, workflow) => {
+    const spec = qualityInspectionPlanSpec(plan);
+    const id = plan?.metadata?.id || "";
+    const pending = workflow.mutation?.status === "submitting";
+    if (!id || !spec.revision) return "";
+    if (spec.state === "proposed") {
+      return `<button class="button small" type="button" data-quality-inspection-review="review" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>검토 완료로 표시</button><button class="button primary small" type="button" data-quality-inspection-review="approve" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>검토 후 승인</button><button class="button small" type="button" data-quality-inspection-review="reject" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>거절</button>`;
+    }
+    if (spec.state === "reviewed") {
+      return `<button class="button primary small" type="button" data-quality-inspection-review="approve" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>승인</button><button class="button small" type="button" data-quality-inspection-review="reject" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>거절</button>`;
+    }
+    if (spec.state === "approved") {
+      return `<button class="button primary small" type="button" data-quality-inspection-run data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>검사 실행</button>`;
+    }
+    return `<button class="button small" type="button" data-quality-inspection="generate" ${pending ? "disabled" : ""}>현재 상태로 새 계획 만들기</button>`;
+  };
+  const qualityInspectionPlanHTML = (plan, workflow) => {
+    if (!plan) {
+      const noApplicable = /no applicable inspection checks/i.test(workflow.mutation?.error || workflow.error || "");
+      return `<div class="empty-state quality-inspection-empty"><strong>${noApplicable ? "적용 가능한 검사 항목이 없습니다." : "아직 검사 계획이 없습니다."}</strong><span>${noApplicable ? "지원되는 언어·설정과 실제 실행기를 확인한 뒤 새로고침하세요. 실행할 수 없는 Go test fallback은 만들지 않습니다." : "선택한 Worktree의 구성과 확인 가능한 검사 항목을 읽어 계획을 만드세요."}</span><button class="button primary small" type="button" data-quality-inspection="generate" aria-label="선택한 Worktree의 검사 계획 만들기">검사 계획 만들기</button></div>`;
+    }
+    const spec = qualityInspectionPlanSpec(plan);
+    const stateValue = String(spec.state || "");
+    const status = qualityInspectionStateLabel(stateValue, qualityInspectionPlanStateLabels);
+    const tone = qualityInspectionPlanTone(stateValue);
+    return `<article class="quality-inspection-plan"><div class="quality-inspection-card-heading"><div><span class="eyebrow">검사 계획</span><h3>${escapeHTML(plan.metadata?.name || "저장소 검사 계획")}</h3><p class="meta">revision ${escapeHTML(spec.revision || "미상")} · ${escapeHTML(formatDate(spec.updatedAt || spec.createdAt))}</p></div>${stateText(status, tone)}</div>${qualityInspectionGenerationNoteForWorkflow(plan, workflow)}<ul class="quality-inspection-checks" aria-label="검사 계획에 포함된 검사">${qualityInspectionPlanChecks(plan) || "<li><span>검사 항목이 기록되지 않았습니다.</span></li>"}</ul><details><summary>Worktree와 계획 근거 보기</summary><dl class="detail-grid"><div><dt>브랜치</dt><dd>${escapeHTML(spec.branch || "확인 불가")}</dd></div><div><dt>HEAD</dt><dd><code>${escapeHTML(spec.head || "확인 불가")}</code></dd></div><div><dt>구성 digest</dt><dd><code>${escapeHTML(spec.configDigest || "기록 없음")}</code></dd></div><div><dt>근거 digest</dt><dd><code>${escapeHTML(spec.evidenceDigest || "기록 없음")}</code></dd></div><div><dt>도구 digest</dt><dd><code>${escapeHTML(spec.toolDigest || "기록 없음")}</code></dd></div><div><dt>계획 digest</dt><dd><code>${escapeHTML(spec.digest || "기록 없음")}</code></dd></div></dl></details><div class="item-actions quality-inspection-actions">${qualityInspectionPlanActions(plan, workflow)}</div>${workflow.mutation?.status === "error" ? `<p class="quality-inspection-error" role="alert">${escapeHTML(workflow.mutation.error || "계획 요청을 완료하지 못했습니다.")}</p>` : ""}</article>`;
+  };
+  const qualityInspectionScoreHTML = (score, workflow) => {
+    if (!score) return '<div class="empty-state"><strong>아직 실행된 품질 점수가 없습니다.</strong><span>승인된 계획을 실행하면 결정적 점수와 확신도가 기록됩니다.</span></div>';
+    const spec = qualityInspectionScoreSpec(score);
+    const status = qualityInspectionStateLabel(spec.status, qualityInspectionScoreStatusLabels);
+    const tone = qualityInspectionScoreTone(spec.status);
+    const components = Array.isArray(spec.components) ? spec.components : [];
+    return `<article class="quality-inspection-score"><div class="quality-inspection-card-heading"><div><span class="eyebrow">통합 품질 점수</span><h3><strong class="quality-inspection-score-value">${escapeHTML(spec.overall ?? "—")}</strong><span>/ 100</span></h3><p class="meta">${escapeHTML(formatDate(spec.updatedAt || spec.createdAt))} · score ${escapeHTML(spec.scoreVersion || "버전 미상")}</p></div><span class="quality-inspection-score-status ${toneClass(tone)}">${escapeHTML(status)}</span></div><div class="quality-inspection-score-meta"><span><strong>${escapeHTML(spec.confidence ?? "—")}%</strong> 확신도</span><span>HEAD <code>${escapeHTML(spec.head || "확인 불가")}</code></span></div>${components.length ? `<div class="quality-inspection-component-list">${components.map(component => `<div><span>${escapeHTML(qualityInspectionCheckLabels[component.checkId] || "검사 항목")}</span><strong>${escapeHTML(component.value ?? "—")}</strong><small>${escapeHTML(qualityInspectionOutcomeLabels[component.outcome] || "상태 미상")} · 확신도 ${escapeHTML(component.confidence ?? "—")}% · 확인 항목 ${escapeHTML(component.findingCount ?? 0)}건</small></div>`).join("")}</div>` : ""}${spec.status === "stale" ? '<p class="quality-inspection-note">현재 Worktree 또는 검사 근거가 바뀌어 최신 점수로 볼 수 없습니다. 새 계획을 만들어 다시 확인하세요.</p>' : spec.status === "inconclusive" ? '<p class="quality-inspection-note">실행기나 결과 근거가 충분하지 않아 점수를 확정하지 않았습니다.</p>' : ""}</article>`;
+  };
+  const qualityInspectionComparisonReason = value => ({
+    scope_mismatch: "서로 다른 프로젝트·저장소·Worktree라 비교할 수 없습니다.",
+    score_version_mismatch: "점수 버전이 달라 비교할 수 없습니다.",
+    score_is_not_fresh: "비교 대상 중 최신 상태가 아닌 점수가 있습니다.",
+  }[value] || "비교에 필요한 근거가 충분하지 않습니다.");
+  const qualityInspectionComparisonHTML = workflow => {
+    const scores = qualityInspectionScoresForTarget(selectedTarget());
+    if (scores.length < 2) return '<div class="empty-state"><strong>비교할 점수가 아직 부족합니다.</strong><span>같은 Worktree에서 검사 계획을 두 번 이상 실행하면 전후 점수를 비교할 수 있습니다.</span></div>';
+    const comparison = workflow.comparison || {};
+    const defaultAfter = scores[0]?.metadata?.id || "";
+    const defaultBefore = scores[1]?.metadata?.id || "";
+    const beforeID = comparison.beforeID && scores.some(item => item.metadata?.id === comparison.beforeID) ? comparison.beforeID : defaultBefore;
+    const afterID = comparison.afterID && scores.some(item => item.metadata?.id === comparison.afterID) ? comparison.afterID : defaultAfter;
+    const result = comparison.data;
+    const resultMarkup = comparison.status === "loading"
+      ? '<p class="quality-inspection-loading" role="status">전후 점수를 비교하는 중입니다…</p>'
+      : comparison.status === "error"
+        ? `<p class="quality-inspection-error" role="alert">${escapeHTML(comparison.error || "비교 결과를 불러오지 못했습니다.")}</p>`
+        : result
+          ? `<div class="quality-inspection-comparison-result"><span class="quality-inspection-score-status ${result.status === "comparable" ? "state-positive" : "state-warning"}">${escapeHTML(result.status === "comparable" ? "비교 가능" : "비교 불가")}</span>${result.status === "comparable" ? `<strong>${escapeHTML(result.beforeOverall)} → ${escapeHTML(result.afterOverall)} <em>${Number(result.delta) > 0 ? "+" : ""}${escapeHTML(result.delta)}</em></strong><span>점수 변화 · ${Number(result.delta) > 0 ? "개선" : Number(result.delta) < 0 ? "하락" : "변화 없음"}</span>` : `<span>${escapeHTML(qualityInspectionComparisonReason(result.reason))}</span>`}</div>`
+          : "";
+    return `<div class="quality-inspection-comparison"><div class="quality-inspection-comparison-controls"><label><span>이전 점수</span><select data-quality-inspection-before>${scores.map(item => `<option value="${escapeHTML(item.metadata?.id || "")}" ${item.metadata?.id === beforeID ? "selected" : ""}>${escapeHTML(formatDate(item.spec?.createdAt || item.spec?.updatedAt))} · ${escapeHTML(item.spec?.overall ?? "—")}점</option>`).join("")}</select></label><label><span>이후 점수</span><select data-quality-inspection-after>${scores.map(item => `<option value="${escapeHTML(item.metadata?.id || "")}" ${item.metadata?.id === afterID ? "selected" : ""}>${escapeHTML(formatDate(item.spec?.createdAt || item.spec?.updatedAt))} · ${escapeHTML(item.spec?.overall ?? "—")}점</option>`).join("")}</select></label><button class="button small" type="button" data-quality-inspection-compare ${beforeID === afterID || comparison.status === "loading" ? "disabled" : ""}>전후 비교</button></div>${resultMarkup}</div>`;
+  };
+  const qualityInspectionLastRunArtifactID = run => run?.resultArtifactId || run?.resultArtifactID || run?.resultArtifact || "";
+  const qualityImprovementScopeMatches = (item, target) => qualityInspectionScopeMatches(item, target);
+  const qualityInspectionProposalActions = (proposal, workflow) => {
+    const spec = proposal?.spec || {};
+    const id = proposal?.metadata?.id || "";
+    const pending = workflow.proposalMutation?.status === "submitting";
+    if (!id || !spec.revision) return "";
+    if (spec.state === "proposed") return `<button class="button small" type="button" data-quality-inspection-proposal-review="review" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>검토 완료로 표시</button><button class="button primary small" type="button" data-quality-inspection-proposal-review="approve" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>검토 후 승인</button><button class="button small" type="button" data-quality-inspection-proposal-review="reject" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>거절</button>`;
+    if (spec.state === "reviewed") return `<button class="button primary small" type="button" data-quality-inspection-proposal-review="approve" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>승인</button><button class="button small" type="button" data-quality-inspection-proposal-review="reject" data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>거절</button>`;
+    if (spec.state === "approved") return `<button class="button primary small" type="button" data-quality-inspection-proposal-apply data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>승인한 변경 적용</button>`;
+    return "";
+  };
+  const qualityInspectionProposalHTML = (workflow, run, plan) => {
+    const proposal = workflow.selectedProposal;
+    const artifactID = qualityInspectionLastRunArtifactID(run);
+    const planID = plan?.metadata?.id || run?.plan?.metadata?.id || workflow.selectedPlanID || "";
+    const proposalError = workflow.proposalStatus === "error" ? `<p class="quality-inspection-note">개선 제안 API를 사용할 수 없어 이 화면에서는 제안을 읽지 못했습니다. 현재 계획과 검사 결과는 그대로 보존됩니다.</p>` : "";
+    if (!proposal) {
+      const action = artifactID && planID
+        ? `<button class="button primary small" type="button" data-quality-inspection-proposal="generate" ${workflow.proposalMutation?.status === "submitting" ? "disabled" : ""}>최근 실행 결과로 개선 제안 만들기</button>`
+        : "";
+      return `<div class="empty-state quality-inspection-proposal-empty"><strong>아직 검토할 개선 제안이 없습니다.</strong><span>${artifactID ? "최근 실행 결과에서 검사 집합을 조정할 후보를 만들 수 있습니다." : "승인된 계획을 실행하면 결과 artifact를 바탕으로 enum 검사 집합 제안을 만들 수 있습니다."}</span>${action}${proposalError}</div>`;
+    }
+    const spec = proposal.spec || {};
+    const status = qualityInspectionStateLabel(spec.state, qualityImprovementStateLabels);
+    const tone = spec.state === "approved" || spec.state === "applied" ? "positive" : ["rejected", "stale"].includes(spec.state) ? "negative" : "attention";
+    const changes = Array.isArray(spec.changes) ? spec.changes : [];
+    const changeMarkup = changes.length
+      ? `<ul class="quality-inspection-changes" aria-label="검사 집합 변경 제안">${changes.map(change => `<li><div><strong>${escapeHTML(qualityImprovementActionLabels[change.action] || "검사 집합 변경")}</strong><span>${escapeHTML(qualityInspectionCheckLabels[change.checkId] || "검사 항목")}</span></div><small>${escapeHTML(change.componentId || "구성 요소 미상")} · ${escapeHTML(qualityImprovementReasonLabels[change.reason] || "제안 근거 미상")}</small></li>`).join("")}</ul>`
+      : '<p class="meta">변경 항목이 기록되지 않았습니다.</p>';
+    const appliedNote = spec.state === "applied" ? '<p class="quality-inspection-note">변경을 적용했습니다. 새 검사 계획은 다시 <strong>제안됨</strong> 상태가 되었으므로, 내용을 검토하고 승인한 뒤 다시 실행해야 합니다.</p>' : "";
+    return `<article class="quality-inspection-proposal"><div class="quality-inspection-card-heading"><div><span class="eyebrow">개선 제안</span><h3>${escapeHTML(proposal.metadata?.name || "검사 집합 개선 제안")}</h3><p class="meta">revision ${escapeHTML(spec.revision || "미상")} · ${escapeHTML(formatDate(spec.updatedAt || spec.createdAt))}</p></div>${stateText(status, tone)}</div><p class="quality-inspection-note">점수와 실행 명령을 바꾸지 않고, 서버가 허용한 enum 검사 집합 변경만 제안합니다. 사람의 승인 전에는 적용하지 않습니다.</p><div class="quality-inspection-rationale"><span>rationaleCode</span><strong>${escapeHTML(spec.rationaleCode || "기록 없음")}</strong><small>${escapeHTML(qualityImprovementReasonLabels[spec.rationaleCode] || "제안 근거 미상")}</small></div>${changeMarkup}<details><summary>제안의 연결 근거 보기</summary><dl class="detail-grid"><div><dt>대상 계획</dt><dd><code>${escapeHTML(spec.planId || "기록 없음")}</code></dd></div><div><dt>기준 점수</dt><dd><code>${escapeHTML(spec.baseScoreId || "기록 없음")}</code></dd></div><div><dt>기준 계획 revision</dt><dd>${escapeHTML(spec.basePlanRevision || "기록 없음")}</dd></div><div><dt>HEAD</dt><dd><code>${escapeHTML(spec.head || "기록 없음")}</code></dd></div></dl></details><div class="item-actions quality-inspection-actions">${qualityInspectionProposalActions(proposal, workflow)}</div>${appliedNote}${workflow.proposalMutation?.status === "error" ? `<p class="quality-inspection-error" role="alert">${escapeHTML(workflow.proposalMutation.error || "개선 제안 요청을 완료하지 못했습니다.")}</p>` : ""}</article>`;
+  };
+  const qualityToolInstallActionPlan = data => data?.plan || data?.actionPlan || (data?.metadata?.id ? data : null);
+  const qualityToolInstallActionPlanID = data => qualityToolInstallActionPlan(data)?.metadata?.id || data?.planId || data?.actionPlanId || "";
+  const qualityToolInstallCommand = data => {
+    const plan = qualityToolInstallActionPlan(data);
+    const execution = plan?.spec?.execution || data?.execution || data?.action?.command || {};
+    return [execution.executable, ...(execution.arguments || [])].filter(Boolean).join(" ");
+  };
+  const qualityInspectionToolActionPlanHTML = workflow => {
+    const actionPlan = workflow.toolActionPlan || {};
+    if (actionPlan.status === "loading") return '<div class="quality-inspection-action-plan"><p class="quality-inspection-loading" role="status">설치 승인 계획을 확인하는 중입니다…</p></div>';
+    if (actionPlan.status === "error") return `<div class="quality-inspection-action-plan"><span class="state-text state-warning">미리보기 전용</span><p>설치 전용 Action Plan endpoint가 없거나 응답하지 않아 승인·실행 단계로 넘어가지 않았습니다. 도구 설치 완료로 표시하지 않습니다.</p><small>${escapeHTML(actionPlan.error || "Action Plan을 만들지 못했습니다.")}</small></div>`;
+    if (actionPlan.status !== "ready" || !actionPlan.data) return "";
+    const plan = qualityToolInstallActionPlan(actionPlan.data);
+    const id = qualityToolInstallActionPlanID(actionPlan.data);
+    if (!plan || !id) return '<div class="quality-inspection-action-plan"><span class="state-text state-warning">미리보기 전용</span><p>설치 계획 응답에 승인 가능한 plan ID가 없어 실행 단계로 넘어가지 않았습니다.</p></div>';
+    const spec = plan.spec || {};
+    const approvalRequired = spec.approvalRequired ?? actionPlan.data.approvalRequired ?? true;
+    const approved = actionPlan.approvalStatus === "approved";
+    const rejected = actionPlan.approvalStatus === "rejected";
+    const cancelled = actionPlan.approvalStatus === "cancelled";
+    const executed = actionPlan.executionStatus === "executed";
+    const pending = actionPlan.approvalStatus === "loading" || actionPlan.executionStatus === "loading";
+    const approvalText = approved ? "사람 승인됨" : rejected ? "사람이 거절함" : cancelled ? "승인이 취소됨" : approvalRequired ? "사람 승인 필요" : "승인 불필요";
+    const controls = executed
+      ? '<p class="meta">설치 Action 실행을 요청했습니다. 실제 완료 여부는 Action 결과에서 확인하세요.</p>'
+      : approved || !approvalRequired
+        ? `<button class="button primary small" type="button" data-quality-tool-install-execute data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>설치 Action 실행</button>`
+        : `<button class="button primary small" type="button" data-quality-tool-install-approval data-id="${escapeHTML(id)}" ${pending ? "disabled" : ""}>사람 승인 열기</button>`;
+    const nextAction = rejected ? "거절되어 실행할 수 없습니다. 필요하면 사람 승인 절차를 다시 열어 결정하세요." : cancelled ? "승인이 취소되어 실행하지 않았습니다. 다시 승인 절차를 시작할 수 있습니다." : "";
+    const error = actionPlan.error ? `<p class="quality-inspection-error" role="alert">${escapeHTML(actionPlan.error)}</p>` : "";
+    return `<div class="quality-inspection-action-plan"><div class="quality-inspection-action-plan-heading"><div><span class="eyebrow">설치 전용 Action Plan</span><strong>${escapeHTML(plan.metadata?.name || "품질 도구 설치")}</strong><small>plan <code>${escapeHTML(id)}</code></small></div>${stateText(approvalText, approved ? "positive" : rejected || cancelled ? "negative" : "attention")}</div><dl class="detail-grid"><div><dt>고정 command</dt><dd><code>${escapeHTML(qualityToolInstallCommand(actionPlan.data) || "기록 없음")}</code></dd></div><div><dt>승인 필요</dt><dd>${approvalRequired ? "예 · 사람 승인 후 실행" : "아니오"}</dd></div><div><dt>Action type</dt><dd><code>${escapeHTML(spec.actionType || actionPlan.data.actionType || "quality.tool.install")}</code></dd></div><div><dt>설치 범위</dt><dd>${escapeHTML(actionPlan.data.preview?.action?.environmentScope || actionPlan.data.preview?.environmentScope || "서버가 확인한 범위")}</dd></div><div class="wide"><dt>쓰기 범위</dt><dd>${escapeHTML((spec.writablePaths || actionPlan.data.preview?.action?.writablePaths || []).join(", ") || "기록 없음")}</dd></div></dl>${nextAction ? `<p class="quality-inspection-note">${escapeHTML(nextAction)}</p>` : ""}${error}<div class="item-actions">${controls}</div></div>`;
+  };
+  const qualityInspectionToolPreviewHTML = workflow => {
+    const preview = workflow.toolPreview || {};
+    const action = preview.data?.action;
+    const command = action?.command ? [action.command.executable, ...(action.command.arguments || [])].filter(Boolean).join(" ") : "";
+    const output = preview.status === "loading"
+      ? '<p class="quality-inspection-loading" role="status">설치 계획 미리보기를 만드는 중입니다…</p>'
+      : preview.status === "error"
+        ? `<p class="quality-inspection-error" role="alert">${escapeHTML(preview.error || "설치 계획 미리보기를 만들지 못했습니다.")}</p>`
+        : preview.status === "ready" && preview.data
+          ? preview.data.available && action
+            ? `<div class="quality-inspection-preview-result"><span class="state-text state-warning">승인 필요</span><strong>설치 실행은 하지 않았습니다.</strong><p>${escapeHTML(action.package || "품질 도구")} ${escapeHTML(action.version || "버전 미상")}을 선택한 Worktree에 설치하는 명령만 미리 봅니다.</p><code>${escapeHTML(command || "명령 미상")}</code><small>설치 범위: ${escapeHTML(action.environmentScope || "서버 확인 필요")} · 영향 파일: ${escapeHTML((action.affectedFiles || []).join(", ") || "기록 없음")}</small></div>`
+            : `<div class="quality-inspection-preview-result"><span class="state-text state-warning">미리보기 불가</span><p>${escapeHTML(preview.data.reason || "현재 환경에서는 승인 가능한 설치 계획을 만들 수 없습니다.")}</p></div>`
+          : "";
+    return `<details class="quality-inspection-install"><summary><span><strong>품질 도구 설치 미리 보기</strong><small>설치하지 않고 승인 전 명령만 확인</small></span><span class="summary-action">미리 보기</span></summary><div class="quality-inspection-install-body"><p class="meta">정확한 버전과 영향을 받는 파일을 입력하면 서버가 미리보기와 설치 전용 Action Plan을 확인합니다. 이 화면은 endpoint가 제공할 때만 승인·실행으로 이어집니다.</p><form data-quality-tool-install-preview class="quality-inspection-install-form"><label><span>도구</span><select name="kind"><option value="python.ruff">Python · Ruff</option><option value="python.pytest">Python · pytest</option><option value="node.eslint">Node · ESLint</option><option value="node.vitest">Node · Vitest</option></select></label><label><span>정확한 버전</span><input name="version" autocomplete="off" placeholder="예: 0.6.9" required></label><label class="wide"><span>영향 파일</span><input name="affectedFiles" autocomplete="off" placeholder="예: pyproject.toml, package.json" required></label><label class="wide"><input type="checkbox" name="allowGlobal" value="on"><span>프로젝트 venv가 없을 때 전역 설치 허용 — 사람 승인 필수</span></label><button class="button small" type="submit" ${preview.status === "loading" ? "disabled" : ""}>미리보기 확인</button></form>${output}${qualityInspectionToolActionPlanHTML(workflow)}</div></details>`;
+  };
+  function renderQualityInspectionWorkflow() {
+    const targetContainer = document.getElementById("quality-inspection-target");
+    const contentContainer = document.getElementById("quality-inspection-content");
+    if (!targetContainer || !contentContainer) return;
+    const workflow = state.qualityInspection || { status: "idle", plans: [], scores: [], selectedPlanID: "", selectedPlan: null, lastRun: null, comparison: { status: "idle" }, toolPreview: { status: "idle" }, toolActionPlan: { status: "idle" }, mutation: { status: "idle" } };
+    const targets = targetOptions();
+    if (!state.selectedTargetValue || !targets.some(target => target.value === state.selectedTargetValue)) state.selectedTargetValue = targets[0]?.value || "";
+    const target = selectedTarget();
+    targetContainer.innerHTML = target
+      ? `<div class="quality-inspection-target-controls"><label for="quality-inspection-target"><span>검사할 등록 Worktree</span><select id="quality-inspection-target" aria-label="저장소 품질 검사 Worktree">${targets.map(item => `<option value="${escapeHTML(item.value)}" ${item.value === target.value ? "selected" : ""}>${escapeHTML(item.label)}</option>`).join("")}</select></label><div class="target-detail"><div><span>경로</span><code>${escapeHTML(target.repositoryPath || "경로 확인 불가")}</code></div><div><span>브랜치</span><strong>${escapeHTML(target.branch || "확인 불가")}</strong></div><div><span>HEAD</span><code>${escapeHTML(target.head || "확인 불가")}</code></div></div></div>`
+      : '<div class="empty-state"><strong>선택된 Worktree가 없습니다.</strong><span>현재 등록된 프로젝트에서 검사할 저장소와 Worktree를 먼저 관찰하세요.</span><a class="button small" href="#projects">프로젝트에서 등록하기</a></div>';
+    contentContainer.setAttribute("aria-busy", String(workflow.status === "loading" || workflow.mutation?.status === "submitting"));
+    if (!target) {
+      contentContainer.innerHTML = '<div class="quality-inspection-no-target"><strong>검사 흐름을 시작할 수 없습니다.</strong><span>등록된 Worktree가 생기면 계획 생성·검토·실행을 사용할 수 있습니다.</span></div>';
+      return;
+    }
+    if (workflow.status === "loading") {
+      contentContainer.innerHTML = '<div class="quality-inspection-loading" role="status"><strong>검사 계획과 점수를 불러오는 중입니다…</strong><span>현재 Worktree에 연결된 기록을 확인합니다.</span></div>';
+      return;
+    }
+    if (workflow.status === "error" && !workflow.plans?.length && !workflow.scores?.length) {
+      contentContainer.innerHTML = `<div class="quality-inspection-error" role="alert"><strong>저장소 품질 기록을 불러오지 못했습니다.</strong><span>${escapeHTML(workflow.error || "서버 버전과 연결 상태를 확인한 뒤 다시 시도하세요.")}</span><button class="button small" type="button" data-quality-inspection-refresh>다시 시도</button></div>`;
+      return;
+    }
+    const plans = qualityInspectionPlansForTarget(target);
+    const selected = workflow.selectedPlan && qualityInspectionScopeMatches(workflow.selectedPlan, target)
+      ? workflow.selectedPlan
+      : plans.find(item => item.metadata?.id === workflow.selectedPlanID) || plans[0] || null;
+    if (selected && selected.metadata?.id !== workflow.selectedPlanID) workflow.selectedPlanID = selected.metadata.id;
+    const scores = qualityInspectionScoresForTarget(target);
+    const score = scores[0] || null;
+    const run = workflow.lastRun && qualityInspectionScopeMatches(workflow.lastRun.score, target) ? workflow.lastRun : null;
+    contentContainer.innerHTML = `<div class="quality-inspection-grid"><section aria-labelledby="quality-inspection-plan-title"><header class="section-heading"><div><h3 id="quality-inspection-plan-title">1. 계획을 만들고 검토합니다</h3><p class="meta">계획의 검사 항목과 HEAD를 읽은 뒤 검토·승인해야 실행할 수 있습니다.</p></div>${plans.length ? `<span class="meta">계획 ${escapeHTML(formatCount(plans.length))}개</span>` : ""}</header>${qualityInspectionAIControlHTML(workflow)}${qualityInspectionPlanHTML(selected, workflow)}</section><section aria-labelledby="quality-inspection-score-title"><header class="section-heading"><div><h3 id="quality-inspection-score-title">2. 결과와 점수를 확인합니다</h3><p class="meta">실행 결과를 통합한 결정적 점수입니다. AI가 점수나 실행을 결정하지 않습니다.</p></div></header>${qualityInspectionScoreHTML(score, workflow)}${run ? `<div class="quality-inspection-run-result"><strong>최근 실행 결과</strong>${run.results?.length ? `<ul>${run.results.map(result => `<li><span>${escapeHTML(qualityInspectionCheckLabels[result.checkId] || "검사 항목")}</span>${stateText(qualityInspectionOutcomeLabels[result.outcome] || "판정 보류", qualityInspectionOutcomeTone(result.outcome))}</li>`).join("")}</ul>` : "<p class=\"meta\">실행 결과 항목이 없습니다.</p>"}${qualityInspectionLastRunArtifactID(run) ? '<button class="button small" type="button" data-quality-inspection-proposal="generate">최근 결과로 개선 제안 만들기</button>' : ""}</div>` : ""}</section></div><section class="quality-inspection-section" aria-labelledby="quality-inspection-proposal-title"><header class="section-heading"><div><h3 id="quality-inspection-proposal-title">3. 개선 제안을 검토하고 적용합니다</h3><p class="meta">최근 실행 결과에서 허용된 enum 검사 집합 변경만 제안합니다. 사람이 승인한 뒤에만 적용됩니다.</p></div></header>${qualityInspectionProposalHTML(workflow, run, selected)}</section><section class="quality-inspection-section" aria-labelledby="quality-inspection-compare-title"><header class="section-heading"><div><h3 id="quality-inspection-compare-title">4. 전후를 비교합니다</h3><p class="meta">같은 프로젝트·저장소·Worktree의 점수만 비교하고, 조건이 맞지 않으면 비교 불가로 표시합니다.</p></div></header>${qualityInspectionComparisonHTML(workflow)}</section>${qualityInspectionToolPreviewHTML(workflow)}${workflow.status === "ready" && workflow.error ? `<p class="quality-inspection-note" role="status">일부 기록만 새로 읽었습니다. ${escapeHTML(workflow.error)}</p>` : ""}`;
+  }
+
   function renderQualityWorkSurface() {
     const section = document.getElementById("quality-work-surface");
     if (!section) return;
@@ -1810,6 +2083,7 @@
       return;
     }
     renderAssuranceDemo(false);
+    renderQualityInspectionWorkflow();
     renderAssuranceMeasurementDashboard();
     const dashboard = state.assuranceDashboard || {};
     const runs = state.assuranceRuns || [];
@@ -2300,6 +2574,428 @@
     renderAssuranceDashboard();
   }
 
+  let loadingQualityInspection = false;
+  const ensureQualityInspectionState = () => {
+    if (!state.qualityInspection) state.qualityInspection = {};
+    const workflow = state.qualityInspection;
+    if (!Array.isArray(workflow.plans)) workflow.plans = [];
+    if (!Array.isArray(workflow.scores)) workflow.scores = [];
+    if (!Array.isArray(workflow.proposals)) workflow.proposals = [];
+    if (typeof workflow.aiEnabled !== "boolean") workflow.aiEnabled = false;
+    workflow.comparison ||= { status: "idle", data: null, error: "", beforeID: "", afterID: "" };
+    workflow.toolPreview ||= { status: "idle", data: null, error: "", input: null };
+    workflow.toolActionPlan ||= { status: "idle", data: null, error: "", approvalStatus: "idle", executionStatus: "idle" };
+    workflow.mutation ||= { kind: "", status: "idle", error: "" };
+    workflow.proposalMutation ||= { kind: "", status: "idle", error: "" };
+    workflow.proposalStatus ||= "idle";
+    workflow.proposalError ||= "";
+    return workflow;
+  };
+  const qualityInspectionScopeInput = target => target ? ({ projectId: target.projectID, repositoryId: target.repositoryID, worktreeId: target.worktreeID }) : null;
+  const qualityInspectionReplacePlan = plan => {
+    const workflow = ensureQualityInspectionState();
+    const id = plan?.metadata?.id || "";
+    if (!id) return;
+    workflow.plans = [...workflow.plans.filter(item => item?.metadata?.id !== id), plan];
+    workflow.selectedPlanID = id;
+    workflow.selectedPlan = plan;
+  };
+  const qualityInspectionReplaceProposal = proposal => {
+    const workflow = ensureQualityInspectionState();
+    const id = proposal?.metadata?.id || "";
+    if (!id) return;
+    workflow.proposals = [...workflow.proposals.filter(item => item?.metadata?.id !== id), proposal];
+    workflow.selectedProposalID = id;
+    workflow.selectedProposal = proposal;
+  };
+  async function loadQualityInspectionPlan(id, render = true) {
+    if (!id) return null;
+    const plan = await request(`/api/quality/inspection-plans/${encode(id)}`);
+    qualityInspectionReplacePlan(plan);
+    if (render) renderAssuranceDashboard();
+    return plan;
+  }
+  async function loadQualityInspectionProposal(id, render = true) {
+    if (!id) return null;
+    const proposal = await request(`/api/quality/improvement-proposals/${encode(id)}`);
+    qualityInspectionReplaceProposal(proposal);
+    if (render) renderAssuranceDashboard();
+    return proposal;
+  }
+  async function loadQualityInspectionProposals(render = false) {
+    const workflow = ensureQualityInspectionState();
+    const target = selectedTarget();
+    workflow.proposalStatus = "loading";
+    workflow.proposalError = "";
+    try {
+      const items = await request("/api/quality/improvement-proposals");
+      workflow.proposals = Array.isArray(items) ? items : [];
+      const selected = workflow.selectedProposalID
+        ? workflow.proposals.find(item => item?.metadata?.id === workflow.selectedProposalID)
+        : workflow.proposals
+          .filter(item => qualityImprovementScopeMatches(item, target))
+          .sort((left, right) => qualityInspectionUpdatedAt(right) - qualityInspectionUpdatedAt(left))[0];
+      workflow.selectedProposalID = selected?.metadata?.id || "";
+      workflow.selectedProposal = selected || null;
+      if (selected?.metadata?.id) {
+        try { await loadQualityInspectionProposal(selected.metadata.id, false); } catch (error) { workflow.proposalError = error.message || "선택한 개선 제안 상세를 불러오지 못했습니다."; }
+      }
+      workflow.proposalStatus = "ready";
+    } catch (error) {
+      workflow.proposalStatus = "error";
+      workflow.proposalError = error.message || "개선 제안 목록을 불러오지 못했습니다.";
+    }
+    if (render) renderAssuranceDashboard();
+  }
+  async function loadQualityInspectionData(force = false) {
+    const workflow = ensureQualityInspectionState();
+    if (loadingQualityInspection || (!force && workflow.status === "ready")) return;
+    loadingQualityInspection = true;
+    const previous = { ...workflow };
+    workflow.status = "loading";
+    workflow.error = "";
+    renderAssuranceDashboard();
+    try {
+		const target = selectedTarget();
+		const latestRunPath = target ? `/api/quality/inspection-runs/latest?projectId=${encode(target.projectID)}&repositoryId=${encode(target.repositoryID)}&worktreeId=${encode(target.worktreeID)}` : "";
+		const [plansResult, scoresResult, latestRunResult] = await Promise.allSettled([
+        request("/api/quality/inspection-plans"),
+        request("/api/quality/scores"),
+			latestRunPath ? request(latestRunPath) : Promise.resolve(null),
+      ]);
+      const errors = [];
+      if (plansResult.status === "fulfilled") workflow.plans = Array.isArray(plansResult.value) ? plansResult.value : [];
+      else errors.push(plansResult.reason?.message || "검사 계획");
+      if (scoresResult.status === "fulfilled") workflow.scores = Array.isArray(scoresResult.value) ? scoresResult.value : [];
+      else errors.push(scoresResult.reason?.message || "품질 점수");
+		if (latestRunResult.status === "fulfilled" && latestRunResult.value) {
+			workflow.lastRun = latestRunResult.value;
+			if (latestRunResult.value.score?.metadata?.id && !workflow.scores.some(item => item?.metadata?.id === latestRunResult.value.score.metadata.id)) workflow.scores = [...workflow.scores, latestRunResult.value.score];
+			if (latestRunResult.value.plan?.metadata?.id && !workflow.plans.some(item => item?.metadata?.id === latestRunResult.value.plan.metadata.id)) workflow.plans = [...workflow.plans, latestRunResult.value.plan];
+		} else if (latestRunResult.status === "rejected" && latestRunResult.reason?.status !== 404) {
+			errors.push(latestRunResult.reason?.message || "최근 검사 결과");
+		}
+      if (plansResult.status === "rejected" && scoresResult.status === "rejected") {
+        workflow.status = "error";
+        workflow.error = errors.join(" · ");
+        return;
+      }
+      workflow.status = "ready";
+      workflow.error = errors.length ? "계획 또는 점수 중 일부 기록을 새로 읽지 못했습니다." : "";
+		const plan = workflow.lastRun?.plan?.metadata?.id
+			? workflow.plans.find(item => item?.metadata?.id === workflow.lastRun.plan.metadata.id) || workflow.lastRun.plan
+			: qualityInspectionPlansForTarget(target)[0] || null;
+      workflow.selectedPlanID = plan?.metadata?.id || "";
+      workflow.selectedPlan = plan;
+      if (plan?.metadata?.id) {
+        try {
+          await loadQualityInspectionPlan(plan.metadata.id, false);
+        } catch (error) {
+          workflow.error = workflow.error || `선택한 계획 상세를 불러오지 못했습니다. ${error.message || "다시 시도하세요."}`;
+        }
+      }
+      await loadQualityInspectionProposals(false);
+    } catch (error) {
+      workflow.status = "error";
+      workflow.error = error.message || "검사 계획과 점수를 불러오지 못했습니다.";
+      if (previous.status === "ready") {
+        workflow.plans = previous.plans || [];
+        workflow.scores = previous.scores || [];
+      }
+    } finally {
+      loadingQualityInspection = false;
+      renderAssuranceDashboard();
+    }
+  }
+  const qualityInspectionMutation = (kind, status, error = "") => {
+    ensureQualityInspectionState().mutation = { kind, status, error };
+    renderAssuranceDashboard();
+  };
+  async function generateQualityInspectionPlan() {
+    const target = selectedTarget();
+    if (!target) return null;
+    const workflow = ensureQualityInspectionState();
+    if (serviceBlocksMutation()) {
+      qualityInspectionMutation("generate", "error", "연결이 끊긴 상태에서는 새 검사 계획을 만들 수 없습니다.");
+      return null;
+    }
+    workflow.aiEnabled = document.querySelector("[data-quality-inspection-ai]")?.checked ?? workflow.aiEnabled === true;
+    qualityInspectionMutation("generate", "submitting");
+    try {
+      const body = { ...qualityInspectionScopeInput(target) };
+      if (workflow.aiEnabled === true) body.ai = { enabled: true, provider: "codex", profileId: "codex", requestedModel: "" };
+      const plan = await request("/api/quality/inspection-plans/generate", { method: "POST", headers: mutationHeaders(), body: JSON.stringify(body) });
+      qualityInspectionReplacePlan(plan);
+      await loadQualityInspectionPlan(plan?.metadata?.id, false);
+      qualityInspectionMutation("", "idle");
+      showNotice(plan?.generation?.aiProposal === true ? "AI가 제안한 검사 항목을 포함한 계획을 불러왔습니다. 내용을 검토하세요." : workflow.aiEnabled ? "AI 제안에 연결되지 않아 결정적 fallback 계획을 불러왔습니다. 내용을 검토하세요." : "결정적으로 만든 검사 계획을 불러왔습니다. 내용을 검토하세요.");
+      return plan;
+    } catch (error) {
+      qualityInspectionMutation("generate", "error", error.message || "검사 계획을 만들지 못했습니다.");
+      return null;
+    } finally {
+      renderAssuranceDashboard();
+    }
+  }
+  async function reviewQualityInspectionPlan(decision, button) {
+    const workflow = ensureQualityInspectionState();
+    const plan = workflow.selectedPlan;
+    const id = button?.dataset.id || plan?.metadata?.id || "";
+    const spec = qualityInspectionPlanSpec(plan);
+    const expectedRevision = Number(spec.revision);
+    if (!id || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      qualityInspectionMutation("review", "error", "최신 검사 계획을 불러온 뒤 다시 시도하세요.");
+      return;
+    }
+    qualityInspectionMutation("review", "submitting");
+    try {
+      const updated = await request(`/api/quality/inspection-plans/${encode(id)}/review`, {
+        method: "POST", headers: mutationHeaders(), body: JSON.stringify({ expectedRevision, decision }),
+      });
+      qualityInspectionReplacePlan(updated);
+      await loadQualityInspectionPlan(id, false);
+      qualityInspectionMutation("", "idle");
+      showNotice(decision === "reject" ? "검사 계획을 거절했습니다." : decision === "review" ? "검사 계획을 검토 완료로 표시했습니다." : "검사 계획을 승인했습니다.");
+    } catch (error) {
+      qualityInspectionMutation("review", "error", error.message || "검사 계획 상태를 바꾸지 못했습니다.");
+    }
+    renderAssuranceDashboard();
+  }
+  async function runQualityInspectionPlan(button) {
+    const workflow = ensureQualityInspectionState();
+    const plan = workflow.selectedPlan;
+    const id = button?.dataset.id || plan?.metadata?.id || "";
+    const expectedRevision = Number(plan?.spec?.revision);
+    if (!id || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      qualityInspectionMutation("run", "error", "최신 승인 계획을 불러온 뒤 다시 시도하세요.");
+      return;
+    }
+    qualityInspectionMutation("run", "submitting");
+    try {
+      const result = await request(`/api/quality/inspection-plans/${encode(id)}/run`, {
+        method: "POST", headers: mutationHeaders(), body: JSON.stringify({ expectedRevision }),
+      });
+      workflow.lastRun = result || null;
+      if (result?.plan) qualityInspectionReplacePlan({ ...result.plan, generation: plan.generation });
+      if (result?.score?.metadata?.id) workflow.scores = [...workflow.scores.filter(item => item.metadata?.id !== result.score.metadata.id), result.score];
+      if (result?.score?.metadata?.id) {
+        try {
+          const score = await request(`/api/quality/scores/${encode(result.score.metadata.id)}`);
+          workflow.scores = [...workflow.scores.filter(item => item.metadata?.id !== score.metadata?.id), score];
+        } catch (_) { /* the run response already contains the score */ }
+      }
+      await loadQualityInspectionPlan(id, false);
+      qualityInspectionMutation("", "idle");
+      showNotice("검사 결과와 결정적 품질 점수를 기록했습니다.");
+    } catch (error) {
+      qualityInspectionMutation("run", "error", error.message || "검사를 실행하지 못했습니다. 실행기 상태를 확인하세요.");
+    }
+    renderAssuranceDashboard();
+  }
+  async function compareQualityInspectionScores() {
+    const workflow = ensureQualityInspectionState();
+    const beforeID = document.querySelector("[data-quality-inspection-before]")?.value || workflow.comparison.beforeID || "";
+    const afterID = document.querySelector("[data-quality-inspection-after]")?.value || workflow.comparison.afterID || "";
+    workflow.comparison = { status: "loading", data: null, error: "", beforeID, afterID };
+    renderAssuranceDashboard();
+    if (!beforeID || !afterID || beforeID === afterID) {
+      workflow.comparison = { status: "error", data: null, error: "서로 다른 이전·이후 점수를 선택하세요.", beforeID, afterID };
+      renderAssuranceDashboard();
+      return;
+    }
+    try {
+      const [before, after] = await Promise.all([
+        request(`/api/quality/scores/${encode(beforeID)}`),
+        request(`/api/quality/scores/${encode(afterID)}`),
+      ]);
+      const comparison = await request(`/api/quality/comparisons?beforeId=${encode(before?.metadata?.id || beforeID)}&afterId=${encode(after?.metadata?.id || afterID)}`);
+      workflow.comparison = { status: "ready", data: comparison, error: "", beforeID, afterID };
+    } catch (error) {
+      workflow.comparison = { status: "error", data: null, error: error.message || "비교 결과를 불러오지 못했습니다.", beforeID, afterID };
+    }
+    renderAssuranceDashboard();
+  }
+  const qualityInspectionProposalMutation = (kind, status, error = "") => {
+    ensureQualityInspectionState().proposalMutation = { kind, status, error };
+    renderAssuranceDashboard();
+  };
+  async function generateQualityImprovementProposal() {
+    const workflow = ensureQualityInspectionState();
+    const run = workflow.lastRun;
+    const plan = run?.plan || workflow.selectedPlan;
+    const planID = plan?.metadata?.id || workflow.selectedPlanID || "";
+    const resultArtifactID = qualityInspectionLastRunArtifactID(run);
+    if (!planID || !resultArtifactID) {
+      qualityInspectionProposalMutation("generate", "error", "최근 실행 결과 artifact와 검사 계획이 있어야 개선 제안을 만들 수 있습니다.");
+      return null;
+    }
+    if (serviceBlocksMutation()) {
+      qualityInspectionProposalMutation("generate", "error", "연결이 끊긴 상태에서는 개선 제안을 만들 수 없습니다.");
+      return null;
+    }
+    qualityInspectionProposalMutation("generate", "submitting");
+    try {
+      const proposal = await request("/api/quality/improvement-proposals/generate", {
+        method: "POST", headers: mutationHeaders(), body: JSON.stringify({ planId: planID, resultArtifactId: resultArtifactID }),
+      });
+      qualityInspectionReplaceProposal(proposal);
+      await loadQualityInspectionProposal(proposal?.metadata?.id, false);
+      workflow.proposalStatus = "ready";
+      qualityInspectionProposalMutation("", "idle");
+      showNotice("최근 실행 결과에서 개선 제안을 만들었습니다. enum 변경을 검토하세요.");
+      return proposal;
+    } catch (error) {
+      qualityInspectionProposalMutation("generate", "error", error.message || "개선 제안을 만들지 못했습니다.");
+      return null;
+    } finally {
+      renderAssuranceDashboard();
+    }
+  }
+  async function reviewQualityImprovementProposal(decision, button) {
+    const workflow = ensureQualityInspectionState();
+    const proposal = workflow.selectedProposal;
+    const id = button?.dataset.id || proposal?.metadata?.id || "";
+    const expectedRevision = Number(proposal?.spec?.revision);
+    if (!id || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      qualityInspectionProposalMutation("review", "error", "최신 개선 제안을 불러온 뒤 다시 시도하세요.");
+      return;
+    }
+    qualityInspectionProposalMutation("review", "submitting");
+    try {
+      const updated = await request(`/api/quality/improvement-proposals/${encode(id)}/review`, {
+        method: "POST", headers: mutationHeaders(), body: JSON.stringify({ expectedRevision, decision }),
+      });
+      qualityInspectionReplaceProposal(updated);
+      await loadQualityInspectionProposal(id, false);
+      qualityInspectionProposalMutation("", "idle");
+      showNotice(decision === "reject" ? "개선 제안을 거절했습니다." : decision === "review" ? "개선 제안을 검토 완료로 표시했습니다." : "개선 제안을 승인했습니다.");
+    } catch (error) {
+      qualityInspectionProposalMutation("review", "error", error.message || "개선 제안 상태를 바꾸지 못했습니다.");
+    }
+    renderAssuranceDashboard();
+  }
+  async function applyQualityImprovementProposal(button) {
+    const workflow = ensureQualityInspectionState();
+    const proposal = workflow.selectedProposal;
+    const id = button?.dataset.id || proposal?.metadata?.id || "";
+    const expectedRevision = Number(proposal?.spec?.revision);
+    if (!id || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      qualityInspectionProposalMutation("apply", "error", "최신 승인된 개선 제안을 불러온 뒤 다시 시도하세요.");
+      return;
+    }
+    qualityInspectionProposalMutation("apply", "submitting");
+    try {
+      const result = await request(`/api/quality/improvement-proposals/${encode(id)}/apply`, {
+        method: "POST", headers: mutationHeaders(), body: JSON.stringify({ expectedRevision }),
+      });
+      const updatedProposal = result?.proposal || result;
+      if (updatedProposal?.metadata?.id) qualityInspectionReplaceProposal(updatedProposal);
+      if (result?.plan) {
+        qualityInspectionReplacePlan(result.plan);
+        await loadQualityInspectionPlan(result.plan?.metadata?.id, false);
+      }
+      await loadQualityInspectionProposal(id, false);
+      qualityInspectionProposalMutation("", "idle");
+      showNotice("승인한 enum 변경을 적용했습니다. 새 검사 계획은 다시 검토·승인해야 합니다.");
+    } catch (error) {
+      qualityInspectionProposalMutation("apply", "error", error.message || "개선 제안을 적용하지 못했습니다.");
+    }
+    renderAssuranceDashboard();
+  }
+  async function requestQualityToolInstallActionPlan(input) {
+    const workflow = ensureQualityInspectionState();
+    workflow.toolActionPlan = { status: "loading", data: null, error: "", approvalStatus: "idle", executionStatus: "idle" };
+    renderAssuranceDashboard();
+    try {
+      const data = await request("/api/quality/tool-installs/action-plan", {
+        method: "POST", headers: mutationHeaders(), body: JSON.stringify(input),
+      });
+      workflow.toolActionPlan = { status: "ready", data, error: "", approvalStatus: "idle", executionStatus: "idle" };
+      return data;
+    } catch (error) {
+      workflow.toolActionPlan = { status: "error", data: null, error: error.message || "설치 전용 Action Plan을 만들지 못했습니다.", approvalStatus: "idle", executionStatus: "idle" };
+      return null;
+    } finally {
+      renderAssuranceDashboard();
+    }
+  }
+  async function approveQualityToolInstallActionPlan(button) {
+    const workflow = ensureQualityInspectionState();
+    const id = button?.dataset.id || qualityToolInstallActionPlanID(workflow.toolActionPlan?.data);
+    if (!id) return;
+	workflow.toolActionPlan.approvalStatus = "loading";
+    workflow.toolActionPlan.error = "";
+    renderAssuranceDashboard();
+	try {
+		const response = await request(`/ui/actions/plans/${encode(id)}/approval`, { method: "POST", headers: mutationHeaders(), body: "" });
+		const decision = response?.decision;
+		if (decision === "granted") {
+			workflow.toolActionPlan.approvalStatus = "approved";
+			showNotice("설치 Action Plan의 사람 승인을 기록했습니다. 실행 전 고정 command를 다시 확인하세요.");
+		} else if (decision === "rejected" || decision === "cancelled") {
+			workflow.toolActionPlan.approvalStatus = decision;
+			workflow.toolActionPlan.error = decision === "rejected" ? "사람이 승인을 거절했습니다." : "사람이 승인 절차를 취소했습니다.";
+		} else {
+			workflow.toolActionPlan.approvalStatus = "idle";
+			workflow.toolActionPlan.error = "승인 endpoint가 유효한 decision을 반환하지 않았습니다. 실행하지 않습니다.";
+		}
+	} catch (error) {
+      workflow.toolActionPlan.approvalStatus = "idle";
+      workflow.toolActionPlan.error = error.message || "설치 Action Plan을 승인하지 못했습니다.";
+    }
+    renderAssuranceDashboard();
+  }
+  async function executeQualityToolInstallActionPlan(button) {
+	const workflow = ensureQualityInspectionState();
+	const id = button?.dataset.id || qualityToolInstallActionPlanID(workflow.toolActionPlan?.data);
+	if (!id) return;
+	if (workflow.toolActionPlan?.approvalStatus !== "approved") {
+		workflow.toolActionPlan.error = "사람 승인 결과가 granted일 때만 설치 Action을 실행할 수 있습니다.";
+		renderAssuranceDashboard();
+		return;
+	}
+    workflow.toolActionPlan.executionStatus = "loading";
+    workflow.toolActionPlan.error = "";
+    renderAssuranceDashboard();
+    try {
+      const result = await request(`/api/actions/plans/${encode(id)}/execute`, {
+        method: "POST", headers: mutationHeaders(), body: JSON.stringify({ holder: "ui", idempotencyKey: `quality-tool-install-${Date.now()}` }),
+      });
+      workflow.toolActionPlan.executionStatus = "executed";
+      workflow.toolActionPlan.executionResult = result || null;
+      showNotice("설치 Action을 실행 요청했습니다. 실제 완료 여부는 Action 결과에서 확인하세요.");
+    } catch (error) {
+      workflow.toolActionPlan.executionStatus = "idle";
+      workflow.toolActionPlan.error = error.message || "설치 Action을 실행하지 못했습니다.";
+    }
+    renderAssuranceDashboard();
+  }
+  async function requestQualityToolInstallPreview(form) {
+    const workflow = ensureQualityInspectionState();
+    const target = selectedTarget();
+    const values = Object.fromEntries(new FormData(form).entries());
+    const affectedFiles = String(values.affectedFiles || "").split(/[\n,]/).map(value => value.trim()).filter(Boolean);
+    if (!target || !String(values.version || "").trim() || !affectedFiles.length) {
+      workflow.toolPreview = { status: "error", data: null, error: "Worktree, 정확한 버전, 영향을 받는 파일을 모두 입력하세요." };
+      renderAssuranceDashboard();
+      return;
+    }
+	const input = { ...qualityInspectionScopeInput(target), kind: values.kind, version: String(values.version).trim(), affectedFiles, allowGlobal: values.allowGlobal === "on" };
+    workflow.toolPreview = { status: "loading", data: null, error: "", input };
+    workflow.toolActionPlan = { status: "idle", data: null, error: "", approvalStatus: "idle", executionStatus: "idle" };
+    renderAssuranceDashboard();
+    try {
+      const data = await request("/api/quality/tool-installs/plan", {
+        method: "POST", headers: mutationHeaders(), body: JSON.stringify(input),
+      });
+      workflow.toolPreview = { status: "ready", data, error: "", input };
+      if (data?.available && data?.action) await requestQualityToolInstallActionPlan(input);
+    } catch (error) {
+      workflow.toolPreview = { status: "error", data: null, error: error.message || "설치 계획 미리보기를 만들지 못했습니다.", input };
+    }
+    renderAssuranceDashboard();
+  }
+
   async function loadAssuranceMeasurementData() {
     const previous = state.assuranceMeasurement?.data || null;
     state.assuranceMeasurement = { status: "loading", data: previous, error: "" };
@@ -2591,8 +3287,13 @@
     if (!(form instanceof HTMLFormElement)) return;
     const isDecision = form.matches("[data-quality-objective-decision]");
     const isRevalidation = form.matches("[data-quality-objective-revalidation]");
-    if (!isDecision && !isRevalidation) return;
+    const isToolPreview = form.matches("[data-quality-tool-install-preview]");
+    if (!isDecision && !isRevalidation && !isToolPreview) return;
     event.preventDefault();
+    if (isToolPreview) {
+      await requestQualityToolInstallPreview(form);
+      return;
+    }
     const detail = state.qualityObjective;
     const id = detail.selectedID;
     const spec = qualityObjectiveSpec(detail.data);
@@ -2692,6 +3393,7 @@
       await loadQualitySetupForSelectedTarget(force);
     }
     if (route === "diagnostics") await loadDiagnosticsData(force);
+    if (route === "assurance") await loadQualityInspectionData(force);
     if (route === "home") await loadQualityObjective(routeState().objectiveID, force);
   }
 
@@ -3042,6 +3744,48 @@
       saveQualitySetupPreference(target, state.qualitySetup.data, { mode, languages });
       button.disabled = true;
       await loadQualitySetupForTarget(target, true);
+      return;
+    }
+    if (button.id === "quality-inspection-refresh") {
+      button.disabled = true;
+      await loadQualityInspectionData(true);
+      button.disabled = false;
+      return;
+    }
+    if (button.dataset.qualityInspection === "generate") {
+      await generateQualityInspectionPlan();
+      return;
+    }
+    if (button.dataset.qualityInspectionReview !== undefined) {
+      await reviewQualityInspectionPlan(button.dataset.qualityInspectionReview, button);
+      return;
+    }
+    if (button.dataset.qualityInspectionRun !== undefined) {
+      await runQualityInspectionPlan(button);
+      return;
+    }
+    if (button.dataset.qualityInspectionProposal === "generate") {
+      await generateQualityImprovementProposal();
+      return;
+    }
+    if (button.dataset.qualityInspectionProposalReview !== undefined) {
+      await reviewQualityImprovementProposal(button.dataset.qualityInspectionProposalReview, button);
+      return;
+    }
+    if (button.dataset.qualityInspectionProposalApply !== undefined) {
+      await applyQualityImprovementProposal(button);
+      return;
+    }
+    if (button.dataset.qualityToolInstallApproval !== undefined) {
+      await approveQualityToolInstallActionPlan(button);
+      return;
+    }
+    if (button.dataset.qualityToolInstallExecute !== undefined) {
+      await executeQualityToolInstallActionPlan(button);
+      return;
+    }
+    if (button.dataset.qualityInspectionCompare !== undefined) {
+      await compareQualityInspectionScores();
       return;
     }
     if (button.dataset.qualityRun !== undefined) {
@@ -3924,6 +4668,32 @@
       renderHome();
       renderQualityWorkSurface();
       if (event.target.id === "quality-target") void loadQualitySetupForTarget(selectedTarget(), true);
+    }
+    if (event.target.id === "quality-inspection-target") {
+      rememberTarget(event.target.value);
+      const workflow = ensureQualityInspectionState();
+      workflow.selectedPlanID = "";
+      workflow.selectedPlan = null;
+      workflow.lastRun = null;
+      workflow.comparison = { status: "idle", data: null, error: "", beforeID: "", afterID: "" };
+      workflow.selectedProposalID = "";
+      workflow.selectedProposal = null;
+      workflow.proposals = [];
+      workflow.proposalStatus = "idle";
+      workflow.proposalError = "";
+      workflow.toolPreview = { status: "idle", data: null, error: "", input: null };
+      workflow.toolActionPlan = { status: "idle", data: null, error: "", approvalStatus: "idle", executionStatus: "idle" };
+      renderAssuranceDashboard();
+      if (activeRoute === "assurance" && workflow.status === "ready") {
+        const plan = qualityInspectionPlansForTarget(selectedTarget())[0] || null;
+        if (plan?.metadata?.id) void loadQualityInspectionPlan(plan.metadata.id);
+        void loadQualityInspectionProposals(true);
+      }
+    }
+    if (event.target.matches("input[data-quality-inspection-ai]")) {
+      ensureQualityInspectionState().aiEnabled = event.target.checked === true;
+      renderAssuranceDashboard();
+      document.querySelector("input[data-quality-inspection-ai]")?.focus({ preventScroll: true });
     }
     if (event.target.matches("input[data-quality-language-mode]")) {
       const target = selectedTarget();

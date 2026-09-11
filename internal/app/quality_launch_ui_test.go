@@ -137,7 +137,7 @@ func TestEmbeddedUIWorkCodeCheckDoesNotRetryUnknownPOSTOutcome(t *testing.T) {
 	}
 }
 
-func TestEmbeddedUIQualitySetupUsesReadOnlyTargetContract(t *testing.T) {
+func TestEmbeddedUIQualitySetupUsesReviewedTargetContract(t *testing.T) {
 	service, err := New(t.TempDir(), "127.0.0.1:38471")
 	if err != nil {
 		t.Fatal(err)
@@ -153,12 +153,12 @@ func TestEmbeddedUIQualitySetupUsesReadOnlyTargetContract(t *testing.T) {
 		"언어와 구성 요소를 확인하세요.",
 		"감지 결과가 다르면 언어를 직접 선택하세요.",
 		"선택하지 않은 구성도 목록에 남습니다.",
-		"도구를 설치하거나 실행하지 않습니다.",
+		"검사 실행과 도구 설치는 사람이 검토·승인한 계획을 통해서만 진행됩니다.",
 		"구성 확인",
-		"현재 버전은 준비 방법까지 안내합니다. Python·Vue 검사 실행은 아직 지원하지 않습니다.",
+		"저장소별 설정과 실제 실행기를 확인해 적용 가능한 검사 계획을 만듭니다.",
 	} {
 		if !strings.Contains(html+javascript, value) {
-			t.Errorf("M1 quality setup UI missing %q", value)
+			t.Errorf("reviewed quality setup UI missing %q", value)
 		}
 	}
 	for _, value := range []string{
@@ -176,7 +176,7 @@ func TestEmbeddedUIQualitySetupUsesReadOnlyTargetContract(t *testing.T) {
 		"ambiguous",
 	} {
 		if !strings.Contains(javascript, value) {
-			t.Errorf("M1 quality setup contract missing %q", value)
+			t.Errorf("quality setup contract missing %q", value)
 		}
 	}
 	if got := strings.Count(javascript, `request(currentRequestKey)`); got != 1 {

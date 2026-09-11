@@ -15,10 +15,17 @@ import (
 )
 
 var (
-	ErrQualityObjectiveNotFound      = errors.New("quality objective is missing")
-	ErrQualityObjectiveKindMismatch  = errors.New("quality objective kind mismatch")
-	ErrQualityObjectiveRevisionStale = errors.New("quality objective revision is stale")
-	ErrQualityObjectiveRequiresCAS   = errors.New("quality objective updates require UpdateQualityObjectiveRevisionCAS")
+	ErrQualityObjectiveNotFound        = errors.New("quality objective is missing")
+	ErrQualityObjectiveKindMismatch    = errors.New("quality objective kind mismatch")
+	ErrQualityObjectiveRevisionStale   = errors.New("quality objective revision is stale")
+	ErrQualityObjectiveRequiresCAS     = errors.New("quality objective updates require UpdateQualityObjectiveRevisionCAS")
+	ErrInspectionPlanNotFound          = errors.New("inspection plan is missing")
+	ErrInspectionPlanKindMismatch      = errors.New("inspection plan kind mismatch")
+	ErrInspectionPlanRevisionStale     = errors.New("inspection plan revision is stale")
+	ErrInspectionPlanRequiresCAS       = errors.New("inspection plan updates require UpdateInspectionPlanRevisionCAS")
+	ErrQualityImprovementNotFound      = errors.New("quality improvement proposal is missing")
+	ErrQualityImprovementKindMismatch  = errors.New("quality improvement proposal kind mismatch")
+	ErrQualityImprovementRevisionStale = errors.New("quality improvement proposal revision is stale")
 )
 
 type assuranceExecutor interface {
@@ -470,6 +477,37 @@ func (s *Store) SaveQualityCampaign(ctx context.Context, item domain.QualityCamp
 	return s.saveAssurance(ctx, domain.QualityCampaignKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, 1, item.Spec.CreatedAt, item.Spec.UpdatedAt, item, item.Validate())
 }
 
+func (s *Store) SaveInspectionPlan(ctx context.Context, item domain.InspectionPlan) error {
+	digest, err := item.Digest()
+	if err != nil {
+		return err
+	}
+	item.Spec.Digest = digest
+	createdAt, updatedAt := item.Spec.CreatedAt, item.Spec.UpdatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	if updatedAt.IsZero() {
+		updatedAt = createdAt
+	}
+	return s.saveAssurance(ctx, domain.InspectionPlanKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, item.Spec.Revision, createdAt, updatedAt, item, item.Validate())
+}
+
+func (s *Store) SaveQualityImprovementProposal(ctx context.Context, item domain.QualityImprovementProposal) error {
+	return s.saveAssurance(ctx, domain.QualityImprovementProposalKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, item.Spec.Revision, item.Spec.CreatedAt, item.Spec.UpdatedAt, item, item.Validate())
+}
+
+func (s *Store) SaveRepositoryQualityScore(ctx context.Context, item domain.RepositoryQualityScore) error {
+	createdAt, updatedAt := item.Spec.CreatedAt, item.Spec.UpdatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	if updatedAt.IsZero() {
+		updatedAt = createdAt
+	}
+	return s.saveAssurance(ctx, domain.RepositoryQualityScoreKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.Status, item.Spec.Revision, createdAt, updatedAt, item, item.Validate())
+}
+
 func (s *Store) SaveQualityObjective(ctx context.Context, item domain.QualityObjective) error {
 	return s.saveAssurance(ctx, domain.QualityObjectiveKind, item.Metadata.ID, item.Spec.ProjectID, item.Spec.RepositoryID, item.Spec.WorktreeID, item.Spec.State, item.Spec.Revision, item.Spec.CreatedAt, item.Spec.UpdatedAt, item, item.Validate())
 }
@@ -773,7 +811,128 @@ func (s *Store) UpdateAssuranceRevision(ctx context.Context, kind, id string, re
 	if kind == domain.QualityObjectiveKind {
 		return ErrQualityObjectiveRequiresCAS
 	}
+	if kind == domain.InspectionPlanKind {
+		return ErrInspectionPlanRequiresCAS
+	}
 	return s.updateAssuranceRevisionWithExecutor(ctx, s.db, kind, id, revision, state, updatedAt, value)
+}
+
+func (s *Store) UpdateInspectionPlanRevisionCAS(ctx context.Context, kind, id string, expectedRevision int, item domain.InspectionPlan) error {
+	return s.updateInspectionPlanRevisionCASWithExecutor(ctx, s.db, kind, id, expectedRevision, item)
+}
+
+func (s *Store) updateInspectionPlanRevisionCASWithExecutor(ctx context.Context, executor assuranceExecutor, kind, id string, expectedRevision int, item domain.InspectionPlan) error {
+	if kind != domain.InspectionPlanKind || item.TypeMeta.Kind != domain.InspectionPlanKind {
+		return ErrInspectionPlanKindMismatch
+	}
+	if id == "" || item.Metadata.ID != id || expectedRevision < 1 || item.Spec.Revision != expectedRevision+1 {
+		return ErrInspectionPlanRevisionStale
+	}
+	digest, err := item.Digest()
+	if err != nil {
+		return err
+	}
+	item.Spec.Digest = digest
+	if err := item.Validate(); err != nil {
+		return err
+	}
+	updatedAt := item.Spec.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	object, err := s.maskedJSON(item)
+	if err != nil {
+		return err
+	}
+	digest, err = assuranceJSONDigest(object)
+	if err != nil {
+		return err
+	}
+	result, err := executor.ExecContext(ctx, `UPDATE assurance_objects SET state = ?, revision = revision + 1, digest = ?, updated_at = ?, object_json = ? WHERE kind = ? AND id = ? AND revision = ?`, item.Spec.State, digest, updatedAt.UTC().Format(timeFormat), object, kind, id, expectedRevision)
+	if err != nil {
+		return err
+	}
+	if count, _ := result.RowsAffected(); count == 1 {
+		return nil
+	}
+	var storedKind string
+	var storedRevision int
+	if err := executor.QueryRowContext(ctx, `SELECT kind, revision FROM assurance_objects WHERE id = ?`, id).Scan(&storedKind, &storedRevision); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrInspectionPlanNotFound
+		}
+		return err
+	}
+	if storedKind != domain.InspectionPlanKind {
+		return ErrInspectionPlanKindMismatch
+	}
+	return fmt.Errorf("%w: expected revision %d, stored revision %d", ErrInspectionPlanRevisionStale, expectedRevision, storedRevision)
+}
+
+func (s *Store) UpdateQualityImprovementProposalRevisionCAS(ctx context.Context, kind, id string, expectedRevision int, item domain.QualityImprovementProposal) error {
+	return s.updateQualityImprovementProposalRevisionCASWithExecutor(ctx, s.db, kind, id, expectedRevision, item)
+}
+
+func (s *Store) updateQualityImprovementProposalRevisionCASWithExecutor(ctx context.Context, executor assuranceExecutor, kind, id string, expectedRevision int, item domain.QualityImprovementProposal) error {
+	if kind != domain.QualityImprovementProposalKind || item.TypeMeta.Kind != domain.QualityImprovementProposalKind {
+		return ErrQualityImprovementKindMismatch
+	}
+	if strings.TrimSpace(id) == "" || item.Metadata.ID != id || expectedRevision < 1 || item.Spec.Revision != expectedRevision+1 {
+		return ErrQualityImprovementRevisionStale
+	}
+	if err := item.Validate(); err != nil {
+		return err
+	}
+	object, err := s.maskedJSON(item)
+	if err != nil {
+		return err
+	}
+	digest, err := assuranceJSONDigest(object)
+	if err != nil {
+		return err
+	}
+	result, err := executor.ExecContext(ctx, `UPDATE assurance_objects SET state = ?, revision = revision + 1, digest = ?, updated_at = ?, object_json = ? WHERE kind = ? AND id = ? AND revision = ?`, item.Spec.State, digest, item.Spec.UpdatedAt.UTC().Format(timeFormat), object, kind, id, expectedRevision)
+	if err != nil {
+		return err
+	}
+	if count, _ := result.RowsAffected(); count == 1 {
+		return nil
+	}
+	var storedKind string
+	var storedRevision int
+	if err := executor.QueryRowContext(ctx, `SELECT kind, revision FROM assurance_objects WHERE id = ?`, id).Scan(&storedKind, &storedRevision); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrQualityImprovementNotFound
+		}
+		return err
+	}
+	if storedKind != domain.QualityImprovementProposalKind {
+		return ErrQualityImprovementKindMismatch
+	}
+	return fmt.Errorf("%w: expected revision %d, stored revision %d", ErrQualityImprovementRevisionStale, expectedRevision, storedRevision)
+}
+
+// ApplyQualityImprovementProposalCAS commits the plan revision and the
+// proposal lifecycle transition as one compare-and-swap transaction. A stale
+// proposal or plan therefore rolls back the other write as well.
+func (s *Store) ApplyQualityImprovementProposalCAS(
+	ctx context.Context,
+	planID string,
+	planExpectedRevision int,
+	nextPlan domain.InspectionPlan,
+	proposalID string,
+	proposalExpectedRevision int,
+	nextProposal domain.QualityImprovementProposal,
+) error {
+	return s.withAssuranceTransaction(ctx, "quality improvement apply", func(executor assuranceExecutor) error {
+		if err := s.updateInspectionPlanRevisionCASWithExecutor(ctx, executor, domain.InspectionPlanKind, planID, planExpectedRevision, nextPlan); err != nil {
+			return err
+		}
+		if err := s.updateQualityImprovementProposalRevisionCASWithExecutor(ctx, executor, domain.QualityImprovementProposalKind, proposalID, proposalExpectedRevision, nextProposal); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func (s *Store) updateAssuranceRevisionWithExecutor(
@@ -962,6 +1121,87 @@ func (s *Store) GetQualityObjective(ctx context.Context, id string) (domain.Qual
 	return item, nil
 }
 
+func (s *Store) GetInspectionPlan(ctx context.Context, id string) (domain.InspectionPlan, error) {
+	var item domain.InspectionPlan
+	if err := s.GetAssurance(ctx, domain.InspectionPlanKind, id, &item); err != nil {
+		return domain.InspectionPlan{}, err
+	}
+	if err := item.Validate(); err != nil {
+		return domain.InspectionPlan{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) GetQualityImprovementProposal(ctx context.Context, id string) (domain.QualityImprovementProposal, error) {
+	var item domain.QualityImprovementProposal
+	if err := s.GetAssurance(ctx, domain.QualityImprovementProposalKind, id, &item); err != nil {
+		return domain.QualityImprovementProposal{}, err
+	}
+	if err := item.Validate(); err != nil {
+		return domain.QualityImprovementProposal{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) GetRepositoryQualityScore(ctx context.Context, id string) (domain.RepositoryQualityScore, error) {
+	var item domain.RepositoryQualityScore
+	if err := s.GetAssurance(ctx, domain.RepositoryQualityScoreKind, id, &item); err != nil {
+		return domain.RepositoryQualityScore{}, err
+	}
+	if err := item.Validate(); err != nil {
+		return domain.RepositoryQualityScore{}, err
+	}
+	return item, nil
+}
+
+func (s *Store) ListInspectionPlans(ctx context.Context) ([]domain.InspectionPlan, error) {
+	items := []domain.InspectionPlan{}
+	err := s.ListAssurance(ctx, domain.InspectionPlanKind, func(data []byte) error {
+		var item domain.InspectionPlan
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
+
+func (s *Store) ListQualityImprovementProposals(ctx context.Context) ([]domain.QualityImprovementProposal, error) {
+	items := []domain.QualityImprovementProposal{}
+	err := s.ListAssurance(ctx, domain.QualityImprovementProposalKind, func(data []byte) error {
+		var item domain.QualityImprovementProposal
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
+
+func (s *Store) ListRepositoryQualityScores(ctx context.Context) ([]domain.RepositoryQualityScore, error) {
+	items := []domain.RepositoryQualityScore{}
+	err := s.ListAssurance(ctx, domain.RepositoryQualityScoreKind, func(data []byte) error {
+		var item domain.RepositoryQualityScore
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
+
 func (s *Store) ListQualityObjectives(ctx context.Context) ([]domain.QualityObjective, error) {
 	items := []domain.QualityObjective{}
 	err := s.ListAssurance(ctx, domain.QualityObjectiveKind, func(data []byte) error {
@@ -1022,6 +1262,31 @@ func (s *Store) ListArtifacts(ctx context.Context) ([]domain.Artifact, error) {
 			return err
 		}
 		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
+
+// ListArtifactsBySourceType returns the newest immutable artifact manifests
+// for one server-owned source type. Callers still bind the decoded artifact to
+// its parent object before using its content.
+func (s *Store) ListArtifactsBySourceType(ctx context.Context, sourceType string) ([]domain.Artifact, error) {
+	sourceType = strings.TrimSpace(sourceType)
+	if sourceType == "" {
+		return nil, errors.New("artifact source type is required")
+	}
+	items := []domain.Artifact{}
+	err := s.ListAssurance(ctx, domain.ArtifactKind, func(data []byte) error {
+		var item domain.Artifact
+		if err := json.Unmarshal(data, &item); err != nil {
+			return err
+		}
+		if item.Spec.SourceType == sourceType {
+			if err := item.Validate(); err != nil {
+				return err
+			}
+			items = append(items, item)
+		}
 		return nil
 	})
 	return items, err

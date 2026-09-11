@@ -1336,6 +1336,188 @@ func newHTTPHandler(service ApplicationService, listen, mutationToken string) ht
 		}
 		writeEnvelope(response, http.StatusOK, contract.Success(item))
 	})
+	mux.HandleFunc("GET /api/quality/inspection-plans", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.InspectionPlans(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/quality/inspection-plans/{planID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.InspectionPlan(request.Context(), request.PathValue("planID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("GET /api/quality/inspection-runs/latest", func(response http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query()
+		item, err := service.LatestInspectionRun(request.Context(), InspectionRunQueryInput{ProjectID: query.Get("projectId"), RepositoryID: query.Get("repositoryId"), WorktreeID: query.Get("worktreeId")})
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("POST /api/quality/inspection-plans/generate", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input InspectionPlanGenerateInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.GenerateInspectionPlan(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/quality/inspection-plans/{planID}/review", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input InspectionPlanReviewInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.ReviewInspectionPlan(request.Context(), request.PathValue("planID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/quality/inspection-plans/{planID}/run", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input InspectionPlanRunInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.RunInspectionPlan(request.Context(), request.PathValue("planID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("GET /api/quality/improvement-proposals", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.QualityImprovementProposals(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/quality/improvement-proposals/{proposalID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.QualityImprovementProposal(request.Context(), request.PathValue("proposalID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("POST /api/quality/improvement-proposals/generate", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input QualityImprovementProposalGenerateInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.GenerateQualityImprovementProposal(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/quality/improvement-proposals/{proposalID}/review", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input QualityImprovementProposalReviewInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.ReviewQualityImprovementProposal(request.Context(), request.PathValue("proposalID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/quality/improvement-proposals/{proposalID}/apply", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input QualityImprovementProposalApplyInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.ApplyQualityImprovementProposal(request.Context(), request.PathValue("proposalID"), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("GET /api/quality/scores", func(response http.ResponseWriter, request *http.Request) {
+		items, err := service.RepositoryQualityScores(request.Context())
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(items))
+	})
+	mux.HandleFunc("GET /api/quality/scores/{scoreID}", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.RepositoryQualityScore(request.Context(), request.PathValue("scoreID"))
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("POST /api/quality/comparisons", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input QualityScoreComparisonInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.CompareRepositoryQualityScores(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("GET /api/quality/comparisons", func(response http.ResponseWriter, request *http.Request) {
+		item, err := service.CompareRepositoryQualityScores(request.Context(), QualityScoreComparisonInput{BeforeID: request.URL.Query().Get("beforeId"), AfterID: request.URL.Query().Get("afterId")})
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	})
+	mux.HandleFunc("POST /api/quality/tool-installs/plan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input QualityToolInstallPlanInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.PlanQualityToolInstall(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusOK, contract.Success(item))
+	}))
+	mux.HandleFunc("POST /api/quality/tool-installs/action-plan", protected(mutationToken, listen, func(response http.ResponseWriter, request *http.Request) {
+		var input QualityToolInstallPlanInput
+		if err := decodeBody(response, request, &input); err != nil {
+			writeServiceError(response, contract.InvalidInput("invalid JSON body"))
+			return
+		}
+		item, err := service.PlanQualityToolInstallAction(request.Context(), input)
+		if err != nil {
+			writeServiceError(response, err)
+			return
+		}
+		writeEnvelope(response, http.StatusCreated, contract.Success(item))
+	}))
 	mux.HandleFunc("GET /api/quality/objectives", func(response http.ResponseWriter, request *http.Request) {
 		items, err := service.QualityObjectives(request.Context())
 		if err != nil {
