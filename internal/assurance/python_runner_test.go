@@ -113,6 +113,32 @@ func TestPythonRunnerKeepsLaunchErrorsAsToolErrors(t *testing.T) {
 	}
 }
 
+func TestPythonRunnerRejectsUnexpectedNonzeroExitWithParseableOutput(t *testing.T) {
+	root := adapterFixtureRoot(t)
+	python := adapterExecutable(t, root, "python.exe")
+	var processErr error
+	runner := PythonQualityRunner{
+		Capability: availableWindows11,
+		Process:    &helperQualityProcess{kind: "ruff", exitCode: 2, processErr: &processErr},
+	}
+	result := runner.RunRuff(context.Background(), QualityAdapterRequest{WorktreeRoot: root, InterpreterPath: python})
+	assertExpectedProcessExitCode(t, processErr, 2)
+	if result.Outcome != QualityOutcomeToolError || len(result.Findings) != 0 || result.ExitCode != 2 {
+		t.Fatalf("unexpected Ruff exit result = %#v", result)
+	}
+
+	processErr = nil
+	pytestRunner := PythonQualityRunner{
+		Capability: availableWindows11,
+		Process:    &helperQualityProcess{kind: "pytest", exitCode: 2, processErr: &processErr},
+	}
+	pytestResult := pytestRunner.RunPytest(context.Background(), QualityAdapterRequest{WorktreeRoot: root, InterpreterPath: python})
+	assertExpectedProcessExitCode(t, processErr, 2)
+	if pytestResult.Outcome != QualityOutcomeToolError || pytestResult.ExitCode != 2 {
+		t.Fatalf("unexpected pytest exit result = %#v", pytestResult)
+	}
+}
+
 func availableWindows11(context.Context) Windows11Capability {
 	return Windows11Capability{Available: true, BuildNumber: 22631}
 }

@@ -265,7 +265,7 @@ func (r PythonQualityRunner) runProcess(ctx context.Context, request QualityAdap
 	result.ExitCode = output.ExitCode
 	result.rawStdout = output.Stdout
 	result.Evidence = maskQualityEvidence(output.Stdout, output.Stderr, request.Masker, command.MaxOutputBytes)
-	if err != nil && !isExpectedQualityProcessExit(err, result.ExitCode) {
+	if err != nil && !isExpectedQualityProcessExit(command.AdapterID, err, result.ExitCode) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timed out") {
 			result.TimedOut = true
 			result.Outcome = QualityOutcomeInconclusive
@@ -281,12 +281,23 @@ func (r PythonQualityRunner) runProcess(ctx context.Context, request QualityAdap
 // finding or failed test from a process that could not be launched or
 // otherwise failed at the infrastructure boundary. ProcessRunner preserves
 // the command output and returns *exec.ExitError for ordinary non-zero exits.
-func isExpectedQualityProcessExit(err error, exitCode int) bool {
-	if err == nil || exitCode == 0 {
+// Only the documented semantic exit code for each adapter is accepted; other
+// non-zero exits are usage, configuration, or infrastructure failures.
+func isExpectedQualityProcessExit(adapterID string, err error, exitCode int) bool {
+	if err == nil || exitCode == 0 || expectedQualityExitCode(adapterID) != exitCode {
 		return false
 	}
 	var exitError *exec.ExitError
 	return errors.As(err, &exitError) && exitError.ExitCode() == exitCode
+}
+
+func expectedQualityExitCode(adapterID string) int {
+	switch adapterID {
+	case QualityAdapterRuffID, QualityAdapterPytestID, QualityAdapterESLintID, QualityAdapterVitestID:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func ParseRuffJSON(data []byte, masker *masking.Masker) ([]QualityFinding, error) {

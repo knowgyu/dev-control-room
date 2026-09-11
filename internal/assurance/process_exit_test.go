@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 
@@ -29,11 +30,16 @@ func init() {
 		os.Exit(2)
 	}
 	_, _ = os.Stdout.WriteString(payload)
-	os.Exit(1)
+	exitCode, err := strconv.Atoi(os.Getenv("QUALITY_PROCESS_HELPER_EXIT_CODE"))
+	if err != nil || exitCode == 0 {
+		exitCode = 1
+	}
+	os.Exit(exitCode)
 }
 
 type helperQualityProcess struct {
 	kind       string
+	exitCode   int
 	processErr *error
 }
 
@@ -42,11 +48,15 @@ func (p *helperQualityProcess) Run(ctx context.Context, _ TypedCommand, director
 	if err != nil {
 		return QualityProcessOutput{}, err
 	}
+	exitCode := p.exitCode
+	if exitCode == 0 {
+		exitCode = 1
+	}
 	result, err := (environment.ProcessRunner{OutputLimit: limit}).RunInDirectory(
 		ctx,
 		executable,
 		[]string{"-test.run=^$"},
-		[]string{"QUALITY_PROCESS_HELPER=1", "QUALITY_PROCESS_HELPER_KIND=" + p.kind},
+		[]string{"QUALITY_PROCESS_HELPER=1", "QUALITY_PROCESS_HELPER_KIND=" + p.kind, "QUALITY_PROCESS_HELPER_EXIT_CODE=" + strconv.Itoa(exitCode)},
 		directory,
 		timeout,
 	)
@@ -57,9 +67,13 @@ func (p *helperQualityProcess) Run(ctx context.Context, _ TypedCommand, director
 }
 
 func assertExpectedProcessExit(t *testing.T, processErr error) {
+	assertExpectedProcessExitCode(t, processErr, 1)
+}
+
+func assertExpectedProcessExitCode(t *testing.T, processErr error, expectedCode int) {
 	t.Helper()
 	var exitErr *exec.ExitError
-	if !errors.As(processErr, &exitErr) || exitErr.ExitCode() != 1 {
-		t.Fatalf("ProcessRunner error = %T %v, want *exec.ExitError with exit code 1", processErr, processErr)
+	if !errors.As(processErr, &exitErr) || exitErr.ExitCode() != expectedCode {
+		t.Fatalf("ProcessRunner error = %T %v, want *exec.ExitError with exit code %d", processErr, processErr, expectedCode)
 	}
 }

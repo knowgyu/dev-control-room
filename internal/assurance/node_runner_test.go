@@ -69,6 +69,35 @@ func TestNodeRunnerParsesExpectedNonzeroProcessExits(t *testing.T) {
 	}
 }
 
+func TestNodeRunnerRejectsUnexpectedNonzeroExitWithParseableOutput(t *testing.T) {
+	root := adapterFixtureRoot(t)
+	node := adapterExecutable(t, root, "node.exe")
+	writeNodePackage(t, root, "eslint", "9.0.0", `{"eslint":"./bin/eslint.js"}`, "bin/eslint.js")
+	writeNodePackage(t, root, "vitest", "2.0.0", `{"vitest":"./vitest.mjs"}`, "vitest.mjs")
+
+	var eslintProcessErr error
+	eslintRunner := NodeQualityRunner{
+		Capability: availableWindows11,
+		Process:    &helperQualityProcess{kind: "eslint", exitCode: 2, processErr: &eslintProcessErr},
+	}
+	eslintResult := eslintRunner.RunESLint(context.Background(), QualityAdapterRequest{WorktreeRoot: root, NodePath: node, ToolVersion: "9.0.0"})
+	assertExpectedProcessExitCode(t, eslintProcessErr, 2)
+	if eslintResult.Outcome != QualityOutcomeToolError || len(eslintResult.Findings) != 0 || eslintResult.ExitCode != 2 {
+		t.Fatalf("unexpected ESLint exit result = %#v", eslintResult)
+	}
+
+	var vitestProcessErr error
+	vitestRunner := NodeQualityRunner{
+		Capability: availableWindows11,
+		Process:    &helperQualityProcess{kind: "vitest", exitCode: 2, processErr: &vitestProcessErr},
+	}
+	vitestResult := vitestRunner.RunVitest(context.Background(), QualityAdapterRequest{WorktreeRoot: root, NodePath: node, ToolVersion: "2.0.0"})
+	assertExpectedProcessExitCode(t, vitestProcessErr, 2)
+	if vitestResult.Outcome != QualityOutcomeToolError || vitestResult.ExitCode != 2 {
+		t.Fatalf("unexpected Vitest exit result = %#v", vitestResult)
+	}
+}
+
 func writeNodePackage(t *testing.T, root, name, version, bin, script string) {
 	t.Helper()
 	packageRoot := filepath.Join(root, "node_modules", name)
