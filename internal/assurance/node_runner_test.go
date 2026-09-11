@@ -1,6 +1,7 @@
 package assurance
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,6 +40,32 @@ func TestNodeRunnerParsesESLintAndVitestJSON(t *testing.T) {
 	}
 	if _, err := ParseVitestJSON([]byte(`{"numTotalTests":1}`)); err == nil {
 		t.Fatal("partial Vitest report accepted")
+	}
+}
+
+func TestNodeRunnerParsesExpectedNonzeroProcessExits(t *testing.T) {
+	root := adapterFixtureRoot(t)
+	node := adapterExecutable(t, root, "node.exe")
+	writeNodePackage(t, root, "eslint", "9.0.0", `{"eslint":"./bin/eslint.js"}`, "bin/eslint.js")
+	writeNodePackage(t, root, "vitest", "2.0.0", `{"vitest":"./vitest.mjs"}`, "vitest.mjs")
+	request := QualityAdapterRequest{WorktreeRoot: root, NodePath: node, ToolVersion: "9.0.0"}
+
+	var eslintProcessErr error
+	eslint := &helperQualityProcess{kind: "eslint", processErr: &eslintProcessErr}
+	eslintRunner := NodeQualityRunner{Capability: availableWindows11, Process: eslint}
+	eslintResult := eslintRunner.RunESLint(context.Background(), request)
+	assertExpectedProcessExit(t, eslintProcessErr)
+	if eslintResult.Outcome != QualityOutcomeFindings || len(eslintResult.Findings) != 1 || eslintResult.ExitCode != 1 {
+		t.Fatalf("ESLint result = %#v", eslintResult)
+	}
+
+	var vitestProcessErr error
+	vitest := &helperQualityProcess{kind: "vitest", processErr: &vitestProcessErr}
+	vitestRunner := NodeQualityRunner{Capability: availableWindows11, Process: vitest}
+	vitestResult := vitestRunner.RunVitest(context.Background(), QualityAdapterRequest{WorktreeRoot: root, NodePath: node, ToolVersion: "2.0.0"})
+	assertExpectedProcessExit(t, vitestProcessErr)
+	if vitestResult.Outcome != QualityOutcomeTestsFailed || vitestResult.ExitCode != 1 {
+		t.Fatalf("Vitest result = %#v", vitestResult)
 	}
 }
 

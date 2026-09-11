@@ -265,7 +265,7 @@ func (r PythonQualityRunner) runProcess(ctx context.Context, request QualityAdap
 	result.ExitCode = output.ExitCode
 	result.rawStdout = output.Stdout
 	result.Evidence = maskQualityEvidence(output.Stdout, output.Stderr, request.Masker, command.MaxOutputBytes)
-	if err != nil {
+	if err != nil && !isExpectedQualityProcessExit(err, result.ExitCode) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timed out") {
 			result.TimedOut = true
 			result.Outcome = QualityOutcomeInconclusive
@@ -275,6 +275,18 @@ func (r PythonQualityRunner) runProcess(ctx context.Context, request QualityAdap
 		}
 	}
 	return result
+}
+
+// isExpectedQualityProcessExit distinguishes a reviewed tool reporting a
+// finding or failed test from a process that could not be launched or
+// otherwise failed at the infrastructure boundary. ProcessRunner preserves
+// the command output and returns *exec.ExitError for ordinary non-zero exits.
+func isExpectedQualityProcessExit(err error, exitCode int) bool {
+	if err == nil || exitCode == 0 {
+		return false
+	}
+	var exitError *exec.ExitError
+	return errors.As(err, &exitError) && exitError.ExitCode() == exitCode
 }
 
 func ParseRuffJSON(data []byte, masker *masking.Masker) ([]QualityFinding, error) {

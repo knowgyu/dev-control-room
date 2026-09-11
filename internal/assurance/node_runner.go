@@ -112,7 +112,7 @@ func (r NodeQualityRunner) runProcess(ctx context.Context, request QualityAdapte
 	result.ExitCode = output.ExitCode
 	result.rawStdout = output.Stdout
 	result.Evidence = maskQualityEvidence(output.Stdout, output.Stderr, request.Masker, command.MaxOutputBytes)
-	if err != nil {
+	if err != nil && !isExpectedQualityProcessExit(err, result.ExitCode) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timed out") {
 			result.Outcome = QualityOutcomeInconclusive
 			result.TimedOut = true
