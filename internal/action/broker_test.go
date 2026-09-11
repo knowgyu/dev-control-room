@@ -282,6 +282,90 @@ INSERT INTO action_plans(
 	}
 }
 
+func TestExecuteLegacyQualityInstallReleasesPreUpgradeAdmissionLock(t *testing.T) {
+	broker, persistence, now := actionFixture(t)
+	ctx := context.Background()
+	modern, err := broker.Plan(ctx, PlanRequest{
+		ID:           "modern-quality-install-execute",
+		Name:         "Quality install",
+		ProjectID:    "project",
+		RepositoryID: "repo",
+		WorktreeID:   "primary",
+		ActionType:   domain.QualityToolInstallPythonAction,
+		Inputs: map[string]string{
+			"package":          "ruff",
+			"version":          "1.0.0",
+			"componentId":      "component-root",
+			"componentRoot":    "C:/fixture",
+			"executable":       "C:/fixture/python.exe",
+			"environmentScope": "project",
+			"affectedFiles":    `["pyproject.toml"]`,
+		},
+		RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"},
+		ToolVersion: "ruff@1.0.0", ToolConfigDigest: "sha256:" + strings.Repeat("a", 64),
+		WritablePaths: []string{"C:/fixture/pyproject.toml"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	legacy := modern
+	legacy.Metadata.ID = "legacy-quality-install-execute"
+	legacy.Metadata.Name = "Legacy quality install"
+	legacy.Spec.Inputs = map[string]string{"package": "ruff", "version": "1.0.0"}
+	legacy.Spec.Execution.WorkingDirectory = ""
+	legacyObject, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyDigest := "sha256:" + strings.Repeat("0", 64)
+	if _, err := persistence.DB().Exec(`
+INSERT INTO action_plans(
+    id, project_id, repository_id, worktree_id, action_type, risk, policy_decision,
+    digest, execution_context_digest, created_at, requester_kind, requester_id,
+    requested_at, object_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		legacy.Metadata.ID,
+		legacy.Spec.ProjectID,
+		legacy.Spec.RepositoryID,
+		legacy.Spec.WorktreeID,
+		legacy.Spec.ActionType,
+		legacy.Spec.Risk,
+		legacy.Spec.PolicyDecision,
+		legacyDigest,
+		"sha256:"+strings.Repeat("0", 64),
+		now.UTC().Format(time.RFC3339Nano),
+		legacy.Spec.RequestedBy.Kind,
+		legacy.Spec.RequestedBy.ID,
+		legacy.Spec.RequestedAt.UTC().Format(time.RFC3339Nano),
+		legacyObject,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	lock := store.ActionLock{
+		Scope:            scope(legacy),
+		ActionPlanID:     legacy.Metadata.ID,
+		ActionPlanDigest: legacyDigest,
+		Holder:           "pre-upgrade-runner",
+		ExpiresAt:        now.Add(time.Minute),
+	}
+	if err := persistence.AcquireActionLock(ctx, lock, *now); err != nil {
+		t.Fatal(err)
+	}
+
+	admission := Admission{Plan: legacy, Lock: lock}
+	if _, err := broker.Execute(ctx, admission); !errors.Is(err, ErrActionPlanStale) {
+		t.Fatalf("legacy execution error = %v, want %v", err, ErrActionPlanStale)
+	}
+
+	replacement := lock
+	replacement.Holder = "post-upgrade-runner"
+	if err := persistence.AcquireActionLock(ctx, replacement, *now); err != nil {
+		t.Fatalf("pre-upgrade admission lock was not released: %v", err)
+	}
+}
+
 func TestBrokerDeniesUntrustedOrChangedWorktreeBeforeFutureExecution(t *testing.T) {
 	broker, persistence, now := actionFixture(t)
 	ctx := context.Background()

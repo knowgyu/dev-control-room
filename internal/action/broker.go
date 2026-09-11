@@ -504,13 +504,13 @@ func (b *Broker) ExecuteWithRevalidation(ctx context.Context, admission Admissio
 	if admission.Plan.Metadata.ID != plan.Metadata.ID || admission.Lock.ActionPlanID != plan.Metadata.ID || admission.Lock.Scope != scope(plan) || admission.Lock.Holder == "" || !admission.Lock.ExpiresAt.After(b.now().UTC()) {
 		return domain.ActionRun{}, ErrLockConflict
 	}
-	if plan.IsUnboundQualityToolInstall() {
-		return domain.ActionRun{}, ErrActionPlanStale
-	}
 	// Once an admission has been acquired, every pre-launch rejection must
 	// release its lease. This matters when a scope is revoked or expires after
 	// admission but before the execution boundary is reached.
 	defer func() { _ = b.Release(context.Background(), admission) }()
+	if plan.IsUnboundQualityToolInstall() {
+		return domain.ActionRun{}, ErrActionPlanStale
+	}
 	digest, err := plan.Digest()
 	if err != nil || digest != admission.Lock.ActionPlanDigest {
 		return domain.ActionRun{}, ErrExecutionContextStale
