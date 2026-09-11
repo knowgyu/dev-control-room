@@ -2,23 +2,21 @@
 
 Updated: 2026-09-11
 
-## Active: v0.18.0 repository-quality release candidate
+## Active: v0.18.1 repository-quality hardening release
 
-Status: **RELEASE CANDIDATE — NOT PUBLISHED**
+Status: **RELEASE CANDIDATE**
 
-The current worktree adds repository-scoped inspection plans, supported
-Python/Node/Go runners, deterministic quality scores, evidence-bound
-comparisons, reviewable enum-only self-improvement proposals, and server-owned
-tool-install Action Plans. Python project environments are preferred; global
-installation requires explicit opt-in and human approval. Linux and arm64 are
-not release targets.
+The v0.18.1 patch hardens the repository-quality workflow introduced in
+v0.18.0. It fixes semantic tool exit handling, inspection result mapping,
+artifact integrity checks, plan digest updates, target-switch restoration, and
+component-aware tool installation for mixed Python/Node repositories. Linux
+and arm64 are not release assets.
 
-P1/P2 hardening includes atomic plan/proposal CAS application, stale-tool
-digests, project-interpreter execution, exact installer paths, writable-scope
-binding, and approval rejection/cancellation tests. See
-[`VERIFICATION_v0.18.0.md`](VERIFICATION_v0.18.0.md). The release target is one
-Windows amd64 ZIP plus `SHA256SUMS`; package, tag, and publication follow only
-after the recorded source checks pass.
+Additional Action Broker hardening preserves immutable plan reuse, repairs a
+missing planned audit on retry, blocks unbound legacy install plans with a
+recreate-required state, and releases pre-upgrade locks on rejection. See
+[`VERIFICATION_v0.18.1.md`](VERIFICATION_v0.18.1.md). The release target is one
+Windows amd64 ZIP plus `SHA256SUMS`.
 
 ## Historical: v0.17.0 M1 project-oriented setup release candidate
 
