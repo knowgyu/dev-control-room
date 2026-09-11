@@ -4,7 +4,7 @@ Updated: 2026-09-11
 
 ## Active: v0.18.1 repository-quality hardening release
 
-Status: **RELEASE CANDIDATE**
+Status: **RELEASE READY**
 
 The v0.18.1 patch hardens the repository-quality workflow introduced in
 v0.18.0. It fixes semantic tool exit handling, inspection result mapping,
@@ -17,6 +17,9 @@ missing planned audit on retry, blocks unbound legacy install plans with a
 recreate-required state, and releases pre-upgrade locks on rejection. See
 [`VERIFICATION_v0.18.1.md`](VERIFICATION_v0.18.1.md). The release target is one
 Windows amd64 ZIP plus `SHA256SUMS`.
+
+The native Full gate and packaged archive/version/checksum smoke are PASS. The
+release-ready implementation source is `666b6fe4fec42a15044ac27f5e94b7e56009079a`.
 
 ## Historical: v0.17.0 M1 project-oriented setup release candidate
 
