@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/knowgyu/dev-control-room/internal/assurance"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
 	"github.com/knowgyu/dev-control-room/internal/qualitysetup"
@@ -43,6 +44,34 @@ func TestGenerateInspectionPlanIsDeterministicAndNoAI(t *testing.T) {
 	}
 	if plan.Spec.Checks == nil || len(plan.Spec.Checks) == 0 {
 		t.Fatal("deterministic plan has no checks")
+	}
+}
+
+func TestInspectionResultFromAdapterMapsTestsFailed(t *testing.T) {
+	result := inspectionResultFromAdapter(assurance.QualityOutcomeTestsFailed, nil, domain.InspectionCheck{ID: domain.InspectionCheckPytest, ComponentID: "backend"})
+	if result.Outcome != domain.InspectionOutcomeTestsFailed {
+		t.Fatalf("tests-failed adapter outcome = %q, want %q", result.Outcome, domain.InspectionOutcomeTestsFailed)
+	}
+}
+
+func TestDeterministicQualityImprovementsOnlyAddsRunnableChecks(t *testing.T) {
+	root := t.TempDir()
+	setup := qualitysetup.Report{Components: []qualitysetup.Component{{
+		ID:     "backend",
+		Checks: []qualitysetup.Check{{ID: "pytest"}},
+	}}}
+	plan := domain.InspectionPlan{Spec: domain.InspectionPlanSpec{
+		Checks: []domain.InspectionCheck{{ID: domain.InspectionCheckRuff, ComponentID: "backend"}},
+	}}
+	results := []domain.InspectionResult{{
+		ComponentID: "backend",
+		CheckID:     domain.InspectionCheckRuff,
+		Outcome:     domain.InspectionOutcomeFindings,
+	}}
+
+	changes, _ := deterministicQualityImprovements(plan, setup, root, results)
+	if len(changes) != 0 {
+		t.Fatalf("improvements added unavailable checks: %#v", changes)
 	}
 }
 
@@ -184,10 +213,81 @@ func TestInspectionPlanRoutesUseReviewAndCAS(t *testing.T) {
 	if reviewed.Spec.State != domain.InspectionPlanStateReviewed || reviewed.Spec.Revision != 2 {
 		t.Fatalf("reviewed plan = %#v", reviewed.Spec)
 	}
+	assertInspectionPlanViewDigest(t, reviewed)
+	storedReviewed, err := service.store.GetInspectionPlan(context.Background(), plan.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedReviewed.Spec.Digest != reviewed.Spec.Digest {
+		t.Fatalf("reviewed digest differs from persisted plan: returned=%q persisted=%q", reviewed.Spec.Digest, storedReviewed.Spec.Digest)
+	}
 	assertUIError(t, service, http.MethodPost, "/api/quality/inspection-plans/"+plan.Metadata.ID+"/review", []byte(`{"expectedRevision":1,"decision":"approve"}`), service.mutationToken, "http://127.0.0.1:38471", http.StatusConflict, contract.ErrorConflict)
 	approved := callUICheckset[InspectionPlanView](t, service, http.MethodPost, "/api/quality/inspection-plans/"+plan.Metadata.ID+"/review", []byte(`{"expectedRevision":2,"decision":"approve"}`))
 	if approved.Spec.State != domain.InspectionPlanStateApproved || approved.Spec.Revision != 3 {
 		t.Fatalf("approved plan = %#v", approved.Spec)
+	}
+	assertInspectionPlanViewDigest(t, approved)
+}
+
+func TestLoadInspectionRunArtifactRejectsManifestMismatch(t *testing.T) {
+	content, err := json.Marshal(inspectionRunArtifact{
+		PlanID:  "inspection-plan",
+		Results: []domain.InspectionResult{{ComponentID: "component-1", CheckID: domain.InspectionCheckGoTest, Outcome: domain.InspectionOutcomeClean}},
+		ScoreID: "score-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{name: "size", mutate: func(data []byte) []byte { return append(data, '\n') }},
+		{name: "sha256", mutate: func(data []byte) []byte {
+			mutated := append([]byte{}, data...)
+			mutated[0] ^= 1
+			return mutated
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service, err := New(t.TempDir(), "127.0.0.1:38471")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = service.Close() })
+			artifact, err := service.SaveAssuranceArtifact(context.Background(), ArtifactInput{
+				SourceType: inspectionResultArtifactType,
+				SourceID:   "inspection-run",
+				Name:       "inspection-run.json",
+				MIME:       inspectionResultArtifactMIME,
+				Content:    content,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(artifact.Spec.Path, tt.mutate(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.loadInspectionRunArtifact(context.Background(), artifact.Metadata.ID); contract.Classify(err).Code != contract.ErrorUnavailable {
+				t.Fatalf("tampered artifact error = %v, want unavailable", err)
+			}
+		})
+	}
+}
+
+func assertInspectionPlanViewDigest(t *testing.T, view InspectionPlanView) {
+	t.Helper()
+	want, err := view.InspectionPlan.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Spec.Digest != want {
+		t.Fatalf("returned plan digest = %q, want %q", view.Spec.Digest, want)
+	}
+	if err := view.InspectionPlan.Validate(); err != nil {
+		t.Fatalf("returned plan is invalid: %v", err)
 	}
 }
 

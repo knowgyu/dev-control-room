@@ -85,6 +85,7 @@ type QualityToolInstallPlanInput struct {
 	ProjectID     string                           `json:"projectId"`
 	RepositoryID  string                           `json:"repositoryId"`
 	WorktreeID    string                           `json:"worktreeId"`
+	ComponentID   string                           `json:"componentId"`
 	Kind          assurance.QualityToolInstallKind `json:"kind"`
 	Version       string                           `json:"version"`
 	AffectedFiles []string                         `json:"affectedFiles"`
@@ -345,11 +346,11 @@ func (a *App) GenerateQualityImprovementProposal(ctx context.Context, input Qual
 	if score.Spec.ProjectID != plan.Spec.ProjectID || score.Spec.RepositoryID != plan.Spec.RepositoryID || score.Spec.WorktreeID != plan.Spec.WorktreeID || score.Spec.Head != plan.Spec.Head {
 		return domain.QualityImprovementProposal{}, contract.Conflict("result score does not belong to the inspection plan")
 	}
-	setup, freshness, _, err := a.currentInspectionEvidence(ctx, plan)
+	setup, freshness, root, err := a.currentInspectionEvidence(ctx, plan)
 	if err != nil {
 		return domain.QualityImprovementProposal{}, contract.Unavailable("inspection evidence could not be revalidated")
 	}
-	changes, rationaleCode := deterministicQualityImprovements(plan, setup, run.Results)
+	changes, rationaleCode := deterministicQualityImprovements(plan, setup, root, run.Results)
 	if len(changes) == 0 {
 		return domain.QualityImprovementProposal{}, contract.Conflict("inspection results contain no actionable improvement")
 	}
@@ -484,6 +485,10 @@ func (a *App) ReviewInspectionPlan(ctx context.Context, id string, input Inspect
 	plan.Spec.State = next
 	plan.Spec.Revision++
 	plan.Spec.UpdatedAt = time.Now().UTC()
+	plan.Spec.Digest, err = plan.Digest()
+	if err != nil {
+		return InspectionPlanView{}, err
+	}
 	if err := a.store.UpdateInspectionPlanRevisionCAS(ctx, domain.InspectionPlanKind, id, input.ExpectedRevision, plan); err != nil {
 		if errors.Is(err, store.ErrInspectionPlanRevisionStale) {
 			return InspectionPlanView{}, contract.Conflict("inspection plan revision is stale")
@@ -722,6 +727,8 @@ func inspectionResultFromAdapter(outcome assurance.QualityOutcome, findings []as
 		result.Outcome = domain.InspectionOutcomeClean
 	case assurance.QualityOutcomeFindings:
 		result.Outcome = domain.InspectionOutcomeFindings
+	case assurance.QualityOutcomeTestsFailed:
+		result.Outcome = domain.InspectionOutcomeTestsFailed
 	case assurance.QualityOutcomeToolError:
 		result.Outcome = domain.InspectionOutcomeToolError
 	default:
@@ -1077,12 +1084,13 @@ func inspectionMinInt(first, second int) int {
 	return second
 }
 
-func deterministicQualityImprovements(plan domain.InspectionPlan, setup qualitysetup.Report, results []domain.InspectionResult) ([]domain.QualityImprovementChange, string) {
+func deterministicQualityImprovements(plan domain.InspectionPlan, setup qualitysetup.Report, root string, results []domain.InspectionResult) ([]domain.QualityImprovementChange, string) {
 	planChecks := make(map[string]domain.InspectionCheck, len(plan.Spec.Checks))
 	for _, check := range plan.Spec.Checks {
 		planChecks[check.ComponentID+"\x00"+check.ID] = check
 	}
 	_, candidates := inspectionPlanParts(setup)
+	candidates = runnableInspectionChecks(setup, root, candidates)
 	changes := []domain.QualityImprovementChange{}
 	rationale := ""
 	for _, result := range results {
@@ -1225,7 +1233,7 @@ func (a *App) loadInspectionRunArtifact(ctx context.Context, id string) (inspect
 		}
 		return inspectionRunArtifact{}, err
 	}
-	if artifact.Spec.SourceType != inspectionResultArtifactType || artifact.Spec.MIME != inspectionResultArtifactMIME || artifact.Spec.Path == "" || artifact.Spec.Size > 256<<10 {
+	if artifact.Spec.SourceType != inspectionResultArtifactType || artifact.Spec.MIME != inspectionResultArtifactMIME || artifact.Spec.Path == "" || artifact.Spec.Size < 0 || artifact.Spec.Size > 256<<10 {
 		return inspectionRunArtifact{}, contract.InvalidInput("invalid inspection result artifact")
 	}
 	home, err := filepath.Abs(a.home)
@@ -1241,7 +1249,7 @@ func (a *App) loadInspectionRunArtifact(ctx context.Context, id string) (inspect
 		return inspectionRunArtifact{}, contract.InvalidInput("inspection result artifact path is outside assurance storage")
 	}
 	data, err := os.ReadFile(path)
-	if err != nil || len(data) > 256<<10 {
+	if err != nil || int64(len(data)) != artifact.Spec.Size || len(data) > 256<<10 || artifactHash(data) != artifact.Spec.SHA256 {
 		return inspectionRunArtifact{}, contract.Unavailable("inspection result artifact is unavailable")
 	}
 	var run inspectionRunArtifact
