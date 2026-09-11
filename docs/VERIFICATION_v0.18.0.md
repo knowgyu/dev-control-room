@@ -10,7 +10,7 @@ added after v0.17.0. The release target is Windows amd64 only.
 
 | Field | Result |
 | --- | --- |
-| Source SHA | `65535901a6fffb7acf1f7a1f9c97e3c19de2fd99` |
+| Implementation source SHA | `a27b1cf0f39ad12847ff0df7c065d7c0de819405` |
 | Version | `0.18.0` |
 | Target | Windows 11 amd64 |
 | Release assets | One ZIP plus `SHA256SUMS` |
