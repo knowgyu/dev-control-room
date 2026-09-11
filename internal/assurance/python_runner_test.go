@@ -127,15 +127,17 @@ func TestPythonRunnerRejectsUnexpectedNonzeroExitWithParseableOutput(t *testing.
 		t.Fatalf("unexpected Ruff exit result = %#v", result)
 	}
 
-	processErr = nil
-	pytestRunner := PythonQualityRunner{
-		Capability: availableWindows11,
-		Process:    &helperQualityProcess{kind: "pytest", exitCode: 2, processErr: &processErr},
-	}
-	pytestResult := pytestRunner.RunPytest(context.Background(), QualityAdapterRequest{WorktreeRoot: root, InterpreterPath: python})
-	assertExpectedProcessExitCode(t, processErr, 2)
-	if pytestResult.Outcome != QualityOutcomeToolError || pytestResult.ExitCode != 2 {
-		t.Fatalf("unexpected pytest exit result = %#v", pytestResult)
+	for _, exitCode := range []int{2, 3, 4, 5} {
+		processErr = nil
+		pytestRunner := PythonQualityRunner{
+			Capability: availableWindows11,
+			Process:    &helperQualityProcess{kind: "pytest", exitCode: exitCode, processErr: &processErr},
+		}
+		pytestResult := pytestRunner.RunPytest(context.Background(), QualityAdapterRequest{WorktreeRoot: root, InterpreterPath: python})
+		assertExpectedProcessExitCode(t, processErr, exitCode)
+		if pytestResult.Outcome != QualityOutcomeToolError || pytestResult.ExitCode != exitCode {
+			t.Errorf("unexpected pytest exit %d result = %#v", exitCode, pytestResult)
+		}
 	}
 }
 
