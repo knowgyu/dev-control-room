@@ -37,6 +37,7 @@ var (
 	ErrActionExecution          = errors.New("action execution failed")
 	ErrActionPrecheck           = errors.New("action precheck failed")
 	ErrActionPostcheck          = errors.New("action postcheck failed")
+	ErrActionPlanStale          = errors.New("quality tool install action plan is from an older format; recreate the preview and action plan")
 )
 
 const (
@@ -193,6 +194,9 @@ func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPl
 	}
 	if existing, existingErr := b.store.GetActionPlan(ctx, plan.Metadata.ID); existingErr == nil {
 		if actionPlansEquivalentExceptRequestedAt(existing, plan) {
+			if err := b.ensurePlannedAudit(ctx, existing); err != nil {
+				return existing, err
+			}
 			if existing.Spec.ApprovalScopeID != "" && !existing.Spec.ScopeMatch {
 				return existing, ErrApprovalScopeMismatch
 			}
@@ -204,6 +208,9 @@ func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPl
 	if err := b.store.SaveActionPlan(ctx, plan); err != nil {
 		if errors.Is(err, store.ErrActionPlanImmutable) {
 			if existing, readErr := b.store.GetActionPlan(ctx, plan.Metadata.ID); readErr == nil && actionPlansEquivalentExceptRequestedAt(existing, plan) {
+				if auditErr := b.ensurePlannedAudit(ctx, existing); auditErr != nil {
+					return existing, auditErr
+				}
 				if existing.Spec.ApprovalScopeID != "" && !existing.Spec.ScopeMatch {
 					return existing, ErrApprovalScopeMismatch
 				}
@@ -216,7 +223,7 @@ func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPl
 	if err != nil {
 		return domain.ActionPlan{}, err
 	}
-	if err := b.audit(ctx, persisted, "planned", persisted.Spec.RequestedBy, now, persisted.Metadata.ID); err != nil {
+	if err := b.ensurePlannedAudit(ctx, persisted); err != nil {
 		return domain.ActionPlan{}, err
 	}
 	if persisted.Spec.ApprovalScopeID != "" && !persisted.Spec.ScopeMatch {
@@ -245,6 +252,9 @@ func (b *Broker) StartHumanApprovalCeremony(ctx context.Context, planID string) 
 	plan, err := b.store.GetActionPlan(ctx, planID)
 	if err != nil {
 		return HumanDecisionResult{}, err
+	}
+	if plan.IsUnboundQualityToolInstall() {
+		return HumanDecisionResult{}, ErrActionPlanStale
 	}
 	now := b.now().UTC()
 	digest, err := plan.Digest()
@@ -298,6 +308,7 @@ const (
 	AdmissionEligible         AdmissionStatus = "eligible"
 	AdmissionPolicyDenied     AdmissionStatus = "policy_denied"
 	AdmissionApprovalRequired AdmissionStatus = "approval_required"
+	AdmissionStale            AdmissionStatus = "stale_recreate_required"
 )
 
 // Status is a persisted, read-only snapshot for adapters. Eligible means the
@@ -323,6 +334,9 @@ func (b *Broker) Status(ctx context.Context, planID string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	if plan.IsUnboundQualityToolInstall() {
+		return Status{Plan: plan, Approvals: approvals, Events: events, Admission: AdmissionStale}, nil
+	}
 	status := AdmissionEligible
 	if plan.Spec.PolicyDecision == domain.PolicyDenied {
 		status = AdmissionPolicyDenied
@@ -343,6 +357,9 @@ func (b *Broker) Admit(ctx context.Context, planID, holder, idempotencyKey strin
 	plan, err := b.store.GetActionPlan(ctx, planID)
 	if err != nil {
 		return Admission{}, err
+	}
+	if plan.IsUnboundQualityToolInstall() {
+		return Admission{}, ErrActionPlanStale
 	}
 	if plan.Spec.PolicyDecision == domain.PolicyDenied {
 		return Admission{}, ErrPolicyDenied
@@ -487,6 +504,9 @@ func (b *Broker) ExecuteWithRevalidation(ctx context.Context, admission Admissio
 	if admission.Plan.Metadata.ID != plan.Metadata.ID || admission.Lock.ActionPlanID != plan.Metadata.ID || admission.Lock.Scope != scope(plan) || admission.Lock.Holder == "" || !admission.Lock.ExpiresAt.After(b.now().UTC()) {
 		return domain.ActionRun{}, ErrLockConflict
 	}
+	if plan.IsUnboundQualityToolInstall() {
+		return domain.ActionRun{}, ErrActionPlanStale
+	}
 	// Once an admission has been acquired, every pre-launch rejection must
 	// release its lease. This matters when a scope is revoked or expires after
 	// admission but before the execution boundary is reached.
@@ -619,6 +639,51 @@ func actionRunID(planID, holder string, at time.Time) string {
 
 func (b *Broker) audit(ctx context.Context, plan domain.ActionPlan, eventType string, actor domain.Actor, at time.Time, nonce string) error {
 	return b.store.SaveActionEvent(ctx, b.event(plan, eventType, actor, at, nonce))
+}
+
+// ensurePlannedAudit makes deterministic plan reuse safe after a partial
+// first request. The event ID is stable, and an existing event is accepted
+// only when its immutable identity still matches this plan.
+func (b *Broker) ensurePlannedAudit(ctx context.Context, plan domain.ActionPlan) error {
+	expected := b.event(plan, "planned", plan.Spec.RequestedBy, plan.Spec.RequestedAt, plan.Metadata.ID)
+	find := func() (bool, error) {
+		events, err := b.store.ListActionEvents(ctx, plan.Metadata.ID)
+		if err != nil {
+			return false, err
+		}
+		for _, event := range events {
+			if event.Metadata.ID != expected.Metadata.ID {
+				continue
+			}
+			if !reflect.DeepEqual(event, expected) {
+				return false, fmt.Errorf("planned audit event conflicts with the action plan: %w", store.ErrActionEventImmutable)
+			}
+			return true, nil
+		}
+		return false, nil
+	}
+	complete, err := find()
+	if err != nil {
+		return err
+	}
+	if complete {
+		return nil
+	}
+	err = b.store.SaveActionEvent(ctx, expected)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, store.ErrActionEventImmutable) {
+		return err
+	}
+	complete, verifyErr := find()
+	if verifyErr != nil {
+		return verifyErr
+	}
+	if complete {
+		return nil
+	}
+	return fmt.Errorf("planned audit event could not be repaired: %w", store.ErrActionEventImmutable)
 }
 
 func (b *Broker) event(plan domain.ActionPlan, eventType string, actor domain.Actor, at time.Time, nonce string) domain.ActionEvent {

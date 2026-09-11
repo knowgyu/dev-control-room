@@ -432,6 +432,8 @@ func classifyActionError(err error) error {
 		return contract.Conflict("a human approval ceremony is already active")
 	case errors.Is(err, action.ErrHumanDecisionUnavailable):
 		return contract.CodedError{Code: contract.ErrorUnavailable, Message: "native human approval is unavailable"}
+	case errors.Is(err, action.ErrActionPlanStale):
+		return contract.CodedError{Code: contract.ErrorConflict, Message: "quality tool install plan is from an older format; create a new preview and action plan"}
 	case errors.Is(err, action.ErrActionPrecheck), errors.Is(err, action.ErrActionPostcheck), errors.Is(err, action.ErrActionExecution):
 		return contract.CodedError{Code: contract.ErrorExecutionFailed, Message: "action execution did not succeed"}
 	case errors.Is(err, action.ErrExecutionContextStale), errors.Is(err, action.ErrWorktreeUntrusted):

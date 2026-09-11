@@ -3,8 +3,10 @@ package action
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +88,197 @@ func TestBrokerReusesActionPlanWhenOnlyRequestedAtChanges(t *testing.T) {
 	}
 	if second.Metadata.ID != first.Metadata.ID || !second.Spec.RequestedAt.Equal(first.Spec.RequestedAt) {
 		t.Fatalf("repeated plan was not reused: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestBrokerRepairsMissingPlannedAuditOnEquivalentRetry(t *testing.T) {
+	broker, persistence, now := actionFixture(t)
+	ctx := context.Background()
+	request := PlanRequest{ID: "recoverable-plan", Name: "Production", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"}}
+	if _, err := persistence.DB().Exec(`
+CREATE TRIGGER fail_planned_audit_once
+BEFORE INSERT ON action_events
+WHEN NEW.event_type = 'planned'
+BEGIN
+SELECT RAISE(ABORT, 'injected planned audit failure');
+END`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = persistence.DB().Exec(`DROP TRIGGER IF EXISTS fail_planned_audit_once`)
+	})
+
+	first, err := broker.Plan(ctx, request)
+	if err == nil {
+		t.Fatal("initial plan unexpectedly succeeded despite planned audit failure")
+	}
+	if first.Metadata.ID != "" {
+		t.Fatalf("failed plan returned persisted data: %#v", first)
+	}
+	persisted, err := persistence.GetActionPlan(ctx, request.ID)
+	if err != nil {
+		t.Fatalf("persisted plan after audit failure: %v", err)
+	}
+	events, err := persistence.ListActionEvents(ctx, request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("planned audit was written despite injected failure: %#v", events)
+	}
+
+	if _, err := persistence.DB().Exec(`DROP TRIGGER fail_planned_audit_once`); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(time.Minute)
+	retried, err := broker.Plan(ctx, request)
+	if err != nil {
+		t.Fatalf("equivalent retry did not repair the planned audit: %v", err)
+	}
+	if !reflect.DeepEqual(retried, persisted) {
+		t.Fatalf("equivalent retry changed the immutable plan: first=%#v retry=%#v", persisted, retried)
+	}
+	events, err = persistence.ListActionEvents(ctx, request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Spec.EventType != "planned" || !events[0].Spec.OccurredAt.Equal(persisted.Spec.RequestedAt) {
+		t.Fatalf("repaired planned audit = %#v", events)
+	}
+
+	if _, err := broker.Plan(ctx, request); err != nil {
+		t.Fatalf("idempotent retry after repair failed: %v", err)
+	}
+	events, err = persistence.ListActionEvents(ctx, request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("equivalent retries created duplicate planned audits: %#v", events)
+	}
+}
+
+func TestBrokerRejectsConflictingPlannedAuditOnEquivalentRetry(t *testing.T) {
+	broker, persistence, _ := actionFixture(t)
+	ctx := context.Background()
+	request := PlanRequest{ID: "conflicting-plan", Name: "Production", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"}}
+	if _, err := persistence.DB().Exec(`
+CREATE TRIGGER fail_planned_audit
+BEFORE INSERT ON action_events
+WHEN NEW.event_type = 'planned'
+BEGIN
+SELECT RAISE(ABORT, 'injected planned audit failure');
+END`); err != nil {
+		t.Fatal(err)
+	}
+	first, err := broker.Plan(ctx, request)
+	if err == nil {
+		t.Fatal("initial plan unexpectedly succeeded despite planned audit failure")
+	}
+	if first.Metadata.ID != "" {
+		t.Fatalf("failed plan returned persisted data: %#v", first)
+	}
+	if _, err := persistence.DB().Exec(`DROP TRIGGER fail_planned_audit`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = persistence.DB().Exec(`DROP TRIGGER IF EXISTS fail_planned_audit`)
+	})
+
+	persisted, err := persistence.GetActionPlan(ctx, request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict := broker.event(persisted, "planned", persisted.Spec.RequestedBy, persisted.Spec.RequestedAt.Add(time.Minute), persisted.Metadata.ID)
+	if err := persistence.SaveActionEvent(ctx, conflict); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := broker.Plan(ctx, request); !errors.Is(err, store.ErrActionEventImmutable) {
+		t.Fatalf("conflicting planned audit was accepted: %v", err)
+	}
+	events, err := persistence.ListActionEvents(ctx, request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || !events[0].Spec.OccurredAt.Equal(conflict.Spec.OccurredAt) {
+		t.Fatalf("conflicting planned audit was overwritten or duplicated: %#v", events)
+	}
+}
+
+func TestBrokerRejectsLegacyQualityInstallPlanBeforeApprovalOrExecution(t *testing.T) {
+	broker, persistence, now := actionFixture(t)
+	ctx := context.Background()
+	modern, err := broker.Plan(ctx, PlanRequest{
+		ID:           "modern-quality-install",
+		Name:         "Quality install",
+		ProjectID:    "project",
+		RepositoryID: "repo",
+		WorktreeID:   "primary",
+		ActionType:   domain.QualityToolInstallPythonAction,
+		Inputs: map[string]string{
+			"package":          "ruff",
+			"version":          "1.0.0",
+			"componentId":      "component-root",
+			"componentRoot":    "C:/fixture",
+			"executable":       "C:/fixture/python.exe",
+			"environmentScope": "project",
+			"affectedFiles":    `["pyproject.toml"]`,
+		},
+		RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"},
+		ToolVersion: "ruff@1.0.0", ToolConfigDigest: "sha256:" + strings.Repeat("a", 64),
+		WritablePaths: []string{"C:/fixture/pyproject.toml"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	legacy := modern
+	legacy.Metadata.ID = "legacy-quality-install"
+	legacy.Metadata.Name = "Legacy quality install"
+	legacy.Spec.Inputs = map[string]string{"package": "ruff", "version": "1.0.0"}
+	legacy.Spec.Execution.WorkingDirectory = ""
+	legacyObject, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyDigest := "sha256:" + strings.Repeat("0", 64)
+	if _, err := persistence.DB().Exec(`
+INSERT INTO action_plans(
+    id, project_id, repository_id, worktree_id, action_type, risk, policy_decision,
+    digest, execution_context_digest, created_at, requester_kind, requester_id,
+    requested_at, object_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		legacy.Metadata.ID,
+		legacy.Spec.ProjectID,
+		legacy.Spec.RepositoryID,
+		legacy.Spec.WorktreeID,
+		legacy.Spec.ActionType,
+		legacy.Spec.Risk,
+		legacy.Spec.PolicyDecision,
+		legacyDigest,
+		"sha256:"+strings.Repeat("0", 64),
+		now.UTC().Format(time.RFC3339Nano),
+		legacy.Spec.RequestedBy.Kind,
+		legacy.Spec.RequestedBy.ID,
+		legacy.Spec.RequestedAt.UTC().Format(time.RFC3339Nano),
+		legacyObject,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := broker.StartHumanApprovalCeremony(ctx, legacy.Metadata.ID); !errors.Is(err, ErrActionPlanStale) {
+		t.Fatalf("legacy plan approval error = %v, want %v", err, ErrActionPlanStale)
+	}
+	status, err := broker.Status(ctx, legacy.Metadata.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Admission != AdmissionStale {
+		t.Fatalf("legacy plan admission = %q, want %q", status.Admission, AdmissionStale)
+	}
+	if _, err := broker.Admit(ctx, legacy.Metadata.ID, "runner", "legacy-quality-install"); !errors.Is(err, ErrActionPlanStale) {
+		t.Fatalf("legacy plan admission error = %v, want %v", err, ErrActionPlanStale)
 	}
 }
 

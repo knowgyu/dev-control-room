@@ -1297,6 +1297,16 @@ func (a ActionPlan) Validate() error {
 	return nil
 }
 
+// IsUnboundQualityToolInstall identifies pre-component-aware quality install
+// plans. They remain readable for audit and inspection, but cannot be
+// approved or executed because their target directory was never verified.
+func (a ActionPlan) IsUnboundQualityToolInstall() bool {
+	if a.Spec.ActionType != QualityToolInstallPythonAction && a.Spec.ActionType != QualityToolInstallNodeAction {
+		return false
+	}
+	return strings.TrimSpace(a.Spec.Inputs["componentId"]) == "" || strings.TrimSpace(a.Spec.Inputs["componentRoot"]) == "" || strings.TrimSpace(a.Spec.Execution.WorkingDirectory) == ""
+}
+
 func (r ActionRun) Validate() error {
 	if err := validateResource(r.TypeMeta, ActionRunKind, r.Metadata); err != nil {
 		return err
