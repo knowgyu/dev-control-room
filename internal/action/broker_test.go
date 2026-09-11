@@ -206,6 +206,55 @@ END`); err != nil {
 	}
 }
 
+func TestBrokerDoesNotDuplicateLegacyPlannedAuditOnEquivalentRetry(t *testing.T) {
+	broker, persistence, _ := actionFixture(t)
+	ctx := context.Background()
+	request := PlanRequest{ID: "legacy-planned-event-plan", Name: "Production", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"}}
+	if _, err := persistence.DB().Exec(`
+CREATE TRIGGER fail_planned_audit
+BEFORE INSERT ON action_events
+WHEN NEW.event_type = 'planned'
+BEGIN
+SELECT RAISE(ABORT, 'injected planned audit failure');
+END`); err != nil {
+		t.Fatal(err)
+	}
+	first, err := broker.Plan(ctx, request)
+	if err == nil {
+		t.Fatal("initial plan unexpectedly succeeded despite planned audit failure")
+	}
+	if first.Metadata.ID != "" {
+		t.Fatalf("failed plan returned persisted data: %#v", first)
+	}
+	if _, err := persistence.DB().Exec(`DROP TRIGGER fail_planned_audit`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = persistence.DB().Exec(`DROP TRIGGER IF EXISTS fail_planned_audit`)
+	})
+
+	persisted, err := persistence.GetActionPlan(ctx, request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := broker.event(persisted, "planned", persisted.Spec.RequestedBy, persisted.Spec.RequestedAt, persisted.Metadata.ID)
+	legacy.Metadata.ID = "legacy-planned-event"
+	if err := persistence.SaveActionEvent(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := broker.Plan(ctx, request); !errors.Is(err, store.ErrActionEventImmutable) {
+		t.Fatalf("legacy planned audit was duplicated: %v", err)
+	}
+	events, err := persistence.ListActionEvents(ctx, request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Metadata.ID != legacy.Metadata.ID {
+		t.Fatalf("legacy planned audit was overwritten or duplicated: %#v", events)
+	}
+}
+
 func TestBrokerRejectsLegacyQualityInstallPlanBeforeApprovalOrExecution(t *testing.T) {
 	broker, persistence, now := actionFixture(t)
 	ctx := context.Background()

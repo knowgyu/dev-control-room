@@ -652,10 +652,10 @@ func (b *Broker) ensurePlannedAudit(ctx context.Context, plan domain.ActionPlan)
 			return false, err
 		}
 		for _, event := range events {
-			if event.Metadata.ID != expected.Metadata.ID {
+			if event.Spec.EventType != "planned" {
 				continue
 			}
-			if !reflect.DeepEqual(event, expected) {
+			if event.Metadata.ID != expected.Metadata.ID || !reflect.DeepEqual(event, expected) {
 				return false, fmt.Errorf("planned audit event conflicts with the action plan: %w", store.ErrActionEventImmutable)
 			}
 			return true, nil
