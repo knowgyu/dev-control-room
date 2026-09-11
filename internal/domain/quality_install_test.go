@@ -18,14 +18,14 @@ func TestQualityToolInstallDefinitionsUseFixedReviewedExecution(t *testing.T) {
 		{
 			name:       "python",
 			actionType: QualityToolInstallPythonAction,
-			inputs:     map[string]string{"package": "ruff", "version": "0.6.9"},
-			want:       ActionExecution{Executable: "python.exe", Arguments: []string{"-m", "pip", "install", "--disable-pip-version-check", "--no-input", "ruff==0.6.9"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10},
+			inputs:     map[string]string{"package": "ruff", "version": "0.6.9", "componentId": "component-root", "componentRoot": `C:\\fixture`},
+			want:       ActionExecution{Executable: "python.exe", Arguments: []string{"-m", "pip", "install", "--disable-pip-version-check", "--no-input", "ruff==0.6.9"}, WorkingDirectory: `C:\\fixture`, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10},
 		},
 		{
 			name:       "node",
 			actionType: QualityToolInstallNodeAction,
-			inputs:     map[string]string{"package": "eslint", "version": "9.0.0"},
-			want:       ActionExecution{Executable: "npm.exe", Arguments: []string{"install", "--save-dev", "--ignore-scripts", "--no-audit", "--no-fund", "eslint@9.0.0"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10},
+			inputs:     map[string]string{"package": "eslint", "version": "9.0.0", "componentId": "component-root", "componentRoot": `C:\\fixture`},
+			want:       ActionExecution{Executable: "npm.exe", Arguments: []string{"install", "--save-dev", "--ignore-scripts", "--no-audit", "--no-fund", "eslint@9.0.0"}, WorkingDirectory: `C:\\fixture`, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10},
 		},
 	}
 
@@ -71,6 +71,8 @@ func TestQualityToolInstallActionPlanBindsAffectedFilesToWritablePaths(t *testin
 	inputs := map[string]string{
 		"package":          "ruff",
 		"version":          "1.0.0",
+		"componentId":      "component-root",
+		"componentRoot":    `C:\\fixture`,
 		"executable":       `C:\\Python\\python.exe`,
 		"environmentScope": "project",
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/knowgyu/dev-control-room/internal/assurance"
 	"github.com/knowgyu/dev-control-room/internal/contract"
 	"github.com/knowgyu/dev-control-room/internal/domain"
+	"github.com/knowgyu/dev-control-room/internal/qualitysetup"
 )
 
 // QualityToolInstallActionPlan is the persisted broker plan together with the
@@ -40,6 +41,7 @@ func (a *App) planQualityToolInstallAction(ctx context.Context, input QualityToo
 	input.ProjectID = strings.TrimSpace(input.ProjectID)
 	input.RepositoryID = strings.TrimSpace(input.RepositoryID)
 	input.WorktreeID = strings.TrimSpace(input.WorktreeID)
+	input.ComponentID = strings.TrimSpace(input.ComponentID)
 	if input.ProjectID == "" || input.RepositoryID == "" || input.WorktreeID == "" {
 		return QualityToolInstallActionPlan{}, contract.InvalidInput("project, repository, and worktree IDs are required")
 	}
@@ -53,21 +55,26 @@ func (a *App) planQualityToolInstallAction(ctx context.Context, input QualityToo
 	if changed {
 		return QualityToolInstallActionPlan{}, contract.Conflict("selected worktree changed; refresh and try again")
 	}
+	componentID, componentRoot, affectedFiles, err := a.verifiedQualityInstallTarget(ctx, current.Path, input)
+	if err != nil {
+		return QualityToolInstallActionPlan{}, contract.InvalidInput(err.Error())
+	}
 	interpreterPath, environmentScope := "", "project"
 	if input.Kind == assurance.QualityToolInstallRuff || input.Kind == assurance.QualityToolInstallPytest {
-		interpreterPath, environmentScope = resolveQualityPython(current.Path, current.Path, lookPath)
+		interpreterPath, environmentScope = resolveQualityPython(current.Path, componentRoot, lookPath)
 	}
 	request := assurance.QualityToolInstallRequest{
 		Kind:             input.Kind,
+		ComponentID:      componentID,
 		WorktreeRoot:     current.Path,
-		ComponentRoot:    current.Path,
+		ComponentRoot:    componentRoot,
 		InterpreterPath:  interpreterPath,
 		NodePath:         lookPath("node.exe", "node"),
 		NPMPath:          lookPath("npm.exe", "npm.cmd", "npm"),
 		EnvironmentScope: environmentScope,
 		AllowGlobal:      input.AllowGlobal,
 		Version:          strings.TrimSpace(input.Version),
-		AffectedFiles:    input.AffectedFiles,
+		AffectedFiles:    affectedFiles,
 	}
 	actionPreview, err := assurance.BuildQualityToolInstallAction(request, capability)
 	if err != nil {
@@ -82,7 +89,7 @@ func (a *App) planQualityToolInstallAction(ctx context.Context, input QualityToo
 		return QualityToolInstallActionPlan{}, contract.InvalidInput(err.Error())
 	}
 	plan, err := a.broker.Plan(ctx, action.PlanRequest{
-		ID:               assuranceID("quality-tool-install", input.ProjectID, input.RepositoryID, input.WorktreeID, current.Head, actionType, actionPreview.Package, actionPreview.Version, actionPreview.EnvironmentScope, actionPreview.Command.Executable, strings.Join(actionPreview.Command.Arguments, "\x00"), strings.Join(actionPreview.WritablePaths, "\x00")),
+		ID:               assuranceID("quality-tool-install", input.ProjectID, input.RepositoryID, input.WorktreeID, current.Head, actionType, actionPreview.ComponentID, actionPreview.Package, actionPreview.Version, actionPreview.EnvironmentScope, actionPreview.Command.Executable, strings.Join(actionPreview.Command.Arguments, "\x00"), strings.Join(actionPreview.WritablePaths, "\x00")),
 		Name:             "Quality tool install: " + actionPreview.Package,
 		ProjectID:        input.ProjectID,
 		RepositoryID:     input.RepositoryID,
@@ -91,7 +98,7 @@ func (a *App) planQualityToolInstallAction(ctx context.Context, input QualityToo
 		Inputs:           inputs,
 		RequestedBy:      domain.Actor{Kind: domain.ActorSystem, ID: "quality-tool-install-service"},
 		ToolVersion:      actionPreview.Package + "@" + actionPreview.Version,
-		ToolConfigDigest: digestText("quality-tool-install-config-v1", actionPreview.EnvironmentScope, actionPreview.Command, actionPreview.AffectedFiles, actionPreview.WritablePaths),
+		ToolConfigDigest: digestText("quality-tool-install-config-v1", actionPreview.ComponentID, actionPreview.ComponentRoot, actionPreview.EnvironmentScope, actionPreview.Command, actionPreview.AffectedFiles, actionPreview.WritablePaths),
 		WritablePaths:    append([]string(nil), actionPreview.WritablePaths...),
 	})
 	if err != nil {
@@ -131,6 +138,8 @@ func qualityToolInstallPlanInputs(action assurance.QualityToolInstallAction) map
 	inputs := map[string]string{
 		"package":          action.Package,
 		"version":          action.Version,
+		"componentId":      action.ComponentID,
+		"componentRoot":    action.ComponentRoot,
 		"executable":       action.Command.Executable,
 		"affectedFiles":    string(affectedFiles),
 		"environmentScope": action.EnvironmentScope,
@@ -139,6 +148,108 @@ func qualityToolInstallPlanInputs(action assurance.QualityToolInstallAction) map
 		inputs["npmCliPath"] = action.Command.Arguments[0]
 	}
 	return inputs
+}
+
+func (a *App) verifiedQualityInstallTarget(ctx context.Context, root string, input QualityToolInstallPlanInput) (string, string, []string, error) {
+	setup, err := qualitysetup.Inspect(ctx, root, nil)
+	if err != nil {
+		return "", "", nil, errors.New("quality tool installation component could not be inspected")
+	}
+	requestedID := strings.TrimSpace(input.ComponentID)
+	component := qualitysetup.Component{ID: "repository", Path: "."}
+	if requestedID != "" && requestedID != "repository" {
+		found := false
+		for _, candidate := range setup.Components {
+			if candidate.ID == requestedID {
+				component = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", "", nil, errors.New("componentId is not a verified worktree component")
+		}
+	} else if requestedID == "" && len(setup.Components) > 0 {
+		candidates := make([]qualitysetup.Component, 0, len(setup.Components))
+		for _, candidate := range setup.Components {
+			if qualityToolKindMatchesComponent(input.Kind, candidate) && qualityInstallAffectedFilesMatchComponent(candidate, setup.Components, input.AffectedFiles) {
+				candidates = append(candidates, candidate)
+			}
+		}
+		switch len(candidates) {
+		case 1:
+			component = candidates[0]
+		case 0:
+			if len(setup.Components) == 1 {
+				component = setup.Components[0]
+			} else {
+				return "", "", nil, errors.New("componentId is required because no unique component matches this tool and its affected files")
+			}
+		default:
+			return "", "", nil, errors.New("componentId is required because multiple components match this tool and its affected files")
+		}
+	}
+	componentPath := filepath.ToSlash(filepath.Clean(component.Path))
+	componentRoot := qualityComponentRoot(root, componentPath)
+	if !qualityInstallPathWithin(root, componentRoot) || qualityInstallPathContainsSymlink(componentRoot) {
+		return "", "", nil, errors.New("verified component root is outside or linked from the worktree")
+	}
+	info, err := os.Stat(componentRoot)
+	if err != nil || !info.IsDir() {
+		return "", "", nil, errors.New("verified component root is unavailable")
+	}
+	affectedFiles, err := normalizeQualityInstallAffectedFiles(component, setup.Components, input.AffectedFiles)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return component.ID, filepath.Clean(componentRoot), affectedFiles, nil
+}
+
+func qualityToolKindMatchesComponent(kind assurance.QualityToolInstallKind, component qualitysetup.Component) bool {
+	wantsPython := kind == assurance.QualityToolInstallRuff || kind == assurance.QualityToolInstallPytest
+	for _, language := range component.Languages {
+		if wantsPython && language == "python" {
+			return true
+		}
+		if !wantsPython && (language == "javascript" || language == "typescript") {
+			return true
+		}
+	}
+	return false
+}
+
+func qualityInstallAffectedFilesMatchComponent(component qualitysetup.Component, components []qualitysetup.Component, values []string) bool {
+	_, err := normalizeQualityInstallAffectedFiles(component, components, values)
+	return err == nil
+}
+
+func normalizeQualityInstallAffectedFiles(component qualitysetup.Component, components []qualitysetup.Component, values []string) ([]string, error) {
+	componentPath := filepath.ToSlash(filepath.Clean(component.Path))
+	if componentPath == "." {
+		componentPath = ""
+	}
+	result := make([]string, 0, len(values))
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" || filepath.IsAbs(value) || filepath.VolumeName(value) != "" || strings.ContainsAny(value, "\x00\r\n") || strings.TrimSpace(raw) != raw {
+			return nil, errors.New("affected file must be a relative path")
+		}
+		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value)))
+		if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+			return nil, errors.New("affected file escapes the selected component")
+		}
+		if componentPath != "" && !strings.HasPrefix(clean, componentPath+"/") && clean != componentPath {
+			for _, other := range components {
+				otherPath := filepath.ToSlash(filepath.Clean(other.Path))
+				if otherPath != "." && otherPath != componentPath && (clean == otherPath || strings.HasPrefix(clean, otherPath+"/")) {
+					return nil, errors.New("affected file belongs to a different component")
+				}
+			}
+			clean = componentPath + "/" + clean
+		}
+		result = append(result, clean)
+	}
+	return result, nil
 }
 
 func resolveQualityPython(root, component string, lookPath qualityToolInstallLookPath) (string, string) {

@@ -11,7 +11,7 @@ import (
 func TestBuildQualityToolInstallActionUsesExplicitTypedVersionAndAffectedFiles(t *testing.T) {
 	root := adapterFixtureRoot(t)
 	python := adapterExecutable(t, root, "python.exe")
-	action, err := BuildQualityToolInstallAction(QualityToolInstallRequest{Kind: QualityToolInstallRuff, WorktreeRoot: root, InterpreterPath: python, Version: "0.6.9", AffectedFiles: []string{"pyproject.toml", "requirements.txt"}}, availableWindows11(context.Background()))
+	action, err := BuildQualityToolInstallAction(QualityToolInstallRequest{Kind: QualityToolInstallRuff, ComponentID: "component-root", WorktreeRoot: root, ComponentRoot: root, InterpreterPath: python, Version: "0.6.9", AffectedFiles: []string{"pyproject.toml", "requirements.txt"}}, availableWindows11(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestBuildQualityToolInstallActionValidatesNodeAndBrokerIsTheOnlyExecutor(t 
 	if err := os.WriteFile(npmCLI, []byte("// reviewed npm entry point"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	action, err := BuildQualityToolInstallAction(QualityToolInstallRequest{Kind: QualityToolInstallESLint, WorktreeRoot: root, NodePath: node, NPMPath: npm, Version: "9.0.0", AffectedFiles: []string{"package.json", "package-lock.json"}}, availableWindows11(context.Background()))
+	action, err := BuildQualityToolInstallAction(QualityToolInstallRequest{Kind: QualityToolInstallESLint, ComponentID: "component-root", WorktreeRoot: root, ComponentRoot: root, NodePath: node, NPMPath: npm, Version: "9.0.0", AffectedFiles: []string{"package.json", "package-lock.json"}}, availableWindows11(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestBuildQualityToolInstallActionValidatesNodeAndBrokerIsTheOnlyExecutor(t 
 func TestBuildQualityToolInstallActionRejectsImplicitOrUnsafeInstallation(t *testing.T) {
 	root := adapterFixtureRoot(t)
 	python := adapterExecutable(t, root, "python.exe")
-	base := QualityToolInstallRequest{Kind: QualityToolInstallPytest, WorktreeRoot: root, InterpreterPath: python, Version: "latest", AffectedFiles: []string{"requirements.txt"}}
+	base := QualityToolInstallRequest{Kind: QualityToolInstallPytest, ComponentID: "component-root", WorktreeRoot: root, ComponentRoot: root, InterpreterPath: python, Version: "latest", AffectedFiles: []string{"requirements.txt"}}
 	if _, err := BuildQualityToolInstallAction(base, availableWindows11(context.Background())); err == nil {
 		t.Fatal("implicit version accepted")
 	}

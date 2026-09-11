@@ -71,6 +71,24 @@ func TestBrokerRejectsAgentApprovalAndRequiresExactWorktree(t *testing.T) {
 	}
 }
 
+func TestBrokerReusesActionPlanWhenOnlyRequestedAtChanges(t *testing.T) {
+	broker, _, now := actionFixture(t)
+	ctx := context.Background()
+	request := PlanRequest{ID: "repeatable-plan", Name: "Production", ProjectID: "project", RepositoryID: "repo", WorktreeID: "primary", ActionType: "release.production", Inputs: map[string]string{"commit": "abc"}, RequestedBy: domain.Actor{Kind: domain.ActorAgent, ID: "agent"}}
+	first, err := broker.Plan(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(time.Minute)
+	second, err := broker.Plan(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Metadata.ID != first.Metadata.ID || !second.Spec.RequestedAt.Equal(first.Spec.RequestedAt) {
+		t.Fatalf("repeated plan was not reused: first=%#v second=%#v", first, second)
+	}
+}
+
 func TestBrokerDeniesUntrustedOrChangedWorktreeBeforeFutureExecution(t *testing.T) {
 	broker, persistence, now := actionFixture(t)
 	ctx := context.Background()

@@ -658,6 +658,7 @@ type ActionPlanSpec struct {
 type ActionExecution struct {
 	Executable           string   `json:"executable"`
 	Arguments            []string `json:"arguments"`
+	WorkingDirectory     string   `json:"workingDirectory,omitempty"`
 	EnvironmentAllowlist []string `json:"environmentAllowlist,omitempty"`
 	TimeoutSeconds       int      `json:"timeoutSeconds"`
 	MaxOutputBytes       int      `json:"maxOutputBytes"`
@@ -799,8 +800,8 @@ var actionDefinitions = map[string]ActionDefinition{
 	"external.jenkins.group":       {ActionType: "external.jenkins.group", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest"}, Execution: ActionExecution{Executable: "devroom-external-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 	"release.jenkins.stage":        {ActionType: "release.jenkins.stage", Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest", "environment", "expected_revision"}, Execution: ActionExecution{Executable: "devroom-release-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}", "--environment", "{environment}", "--expected-revision", "{expected_revision}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 	"release.jenkins.production":   {ActionType: "release.jenkins.production", Risk: RiskHighImpact, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"group_id", "group_digest", "environment", "expected_revision"}, Execution: ActionExecution{Executable: "devroom-release-jenkins", Arguments: []string{"--group", "{group_id}", "--digest", "{group_digest}", "--environment", "{environment}", "--expected-revision", "{expected_revision}"}, TimeoutSeconds: 1800, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	QualityToolInstallPythonAction: {ActionType: QualityToolInstallPythonAction, Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"package", "version"}, Execution: ActionExecution{Executable: "python.exe", Arguments: []string{"-m", "pip", "install", "--disable-pip-version-check", "--no-input", "{package}=={version}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
-	QualityToolInstallNodeAction:   {ActionType: QualityToolInstallNodeAction, Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"package", "version"}, Execution: ActionExecution{Executable: "npm.exe", Arguments: []string{"install", "--save-dev", "--ignore-scripts", "--no-audit", "--no-fund", "{package}@{version}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	QualityToolInstallPythonAction: {ActionType: QualityToolInstallPythonAction, Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"package", "version", "componentId", "componentRoot"}, Execution: ActionExecution{Executable: "python.exe", Arguments: []string{"-m", "pip", "install", "--disable-pip-version-check", "--no-input", "{package}=={version}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
+	QualityToolInstallNodeAction:   {ActionType: QualityToolInstallNodeAction, Risk: RiskExternalChange, PolicyDecision: PolicyApprovalRequired, ApprovalRequired: true, Inputs: []string{"package", "version", "componentId", "componentRoot"}, Execution: ActionExecution{Executable: "npm.exe", Arguments: []string{"install", "--save-dev", "--ignore-scripts", "--no-audit", "--no-fund", "{package}@{version}"}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, Prechecks: worktreePrechecks, Postchecks: processExitPostcheck},
 }
 
 var (
@@ -1379,11 +1380,18 @@ func (d ActionDefinition) ExecutionFor(inputs map[string]string) (ActionExecutio
 var qualityToolInstallVersionPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?$`)
 
 func qualityToolInstallExecution(actionType string, inputs map[string]string) (ActionExecution, error) {
-	if !reviewedActionInputs(actionType, inputs, []string{"package", "version"}) {
+	if !reviewedActionInputs(actionType, inputs, []string{"package", "version", "componentId", "componentRoot"}) {
 		return ActionExecution{}, errors.New("quality tool install inputs are not reviewed")
 	}
 	packageName := strings.TrimSpace(inputs["package"])
 	version := strings.TrimSpace(inputs["version"])
+	if !validOpaqueID(strings.TrimSpace(inputs["componentId"])) {
+		return ActionExecution{}, errors.New("quality tool install component id is invalid")
+	}
+	componentRoot := strings.TrimSpace(inputs["componentRoot"])
+	if _, err := normalizeApprovalPath(componentRoot); err != nil {
+		return ActionExecution{}, errors.New("quality tool install component root is invalid")
+	}
 	if !qualityToolInstallPackage(actionType, packageName) || !qualityToolInstallVersionPattern.MatchString(version) || strings.ContainsAny(version, "\r\n") {
 		return ActionExecution{}, errors.New("quality tool install package or version is invalid")
 	}
@@ -1395,7 +1403,7 @@ func qualityToolInstallExecution(actionType string, inputs map[string]string) (A
 		if !validQualityInstallExecutable(executable, "python.exe") {
 			return ActionExecution{}, errors.New("quality tool install Python executable is invalid")
 		}
-		return ActionExecution{Executable: executable, Arguments: []string{"-m", "pip", "install", "--disable-pip-version-check", "--no-input", packageName + "==" + version}, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, nil
+		return ActionExecution{Executable: executable, Arguments: []string{"-m", "pip", "install", "--disable-pip-version-check", "--no-input", packageName + "==" + version}, WorkingDirectory: componentRoot, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, nil
 	}
 	executable := strings.TrimSpace(inputs["executable"])
 	if executable == "" {
@@ -1415,7 +1423,7 @@ func qualityToolInstallExecution(actionType string, inputs map[string]string) (A
 		}
 		arguments = append([]string{npmCLIPath}, arguments...)
 	}
-	return ActionExecution{Executable: executable, Arguments: arguments, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, nil
+	return ActionExecution{Executable: executable, Arguments: arguments, WorkingDirectory: componentRoot, TimeoutSeconds: 300, MaxOutputBytes: 64 << 10}, nil
 }
 
 func reviewedActionInputs(actionType string, inputs map[string]string, required []string) bool {
@@ -1430,7 +1438,7 @@ func reviewedActionInputs(actionType string, inputs map[string]string, required 
 		}
 	}
 	if actionType == QualityToolInstallPythonAction || actionType == QualityToolInstallNodeAction {
-		for _, name := range []string{"executable", "affectedFiles", "environmentScope", "toolState"} {
+		for _, name := range []string{"executable", "affectedFiles", "environmentScope", "toolState", "componentId", "componentRoot"} {
 			allowed[name] = struct{}{}
 		}
 		if actionType == QualityToolInstallNodeAction {
@@ -1484,6 +1492,17 @@ func validateQualityInstallScopeBinding(spec ActionPlanSpec) error {
 	if err != nil {
 		return errors.New("quality tool install execution root is invalid")
 	}
+	if !validOpaqueID(strings.TrimSpace(spec.Inputs["componentId"])) {
+		return errors.New("quality tool install component id is invalid")
+	}
+	componentRoot, err := normalizeApprovalPath(strings.TrimSpace(spec.Inputs["componentRoot"]))
+	if err != nil || !approvalPathContains(root, componentRoot) {
+		return errors.New("quality tool install component root is outside the worktree")
+	}
+	executionRoot, err := normalizeApprovalPath(spec.Execution.WorkingDirectory)
+	if err != nil || !approvalPathContains(root, executionRoot) || !approvalPathContains(componentRoot, executionRoot) || !approvalPathContains(executionRoot, componentRoot) {
+		return errors.New("quality tool install execution directory is not the verified component")
+	}
 	seen := make(map[string]struct{}, len(affected))
 	for index, file := range affected {
 		if strings.TrimSpace(file) != file || file == "" || filepath.IsAbs(file) || filepath.VolumeName(file) != "" || strings.ContainsAny(file, "\x00\r\n") {
@@ -1504,6 +1523,9 @@ func validateQualityInstallScopeBinding(spec ActionPlanSpec) error {
 		expected, err := normalizeApprovalPath(filepath.Join(root, clean))
 		if err != nil || !approvalPathContains(expected, writable) || !approvalPathContains(writable, expected) {
 			return errors.New("quality tool install affected file is not bound to its writable path")
+		}
+		if !approvalPathContains(componentRoot, expected) {
+			return errors.New("quality tool install affected file is outside the verified component")
 		}
 	}
 	return nil
@@ -1548,6 +1570,11 @@ func (t WorktreeExecutionTrust) Validate() error {
 func validActionExecution(execution ActionExecution) bool {
 	if !commandNamePattern.MatchString(execution.Executable) || execution.TimeoutSeconds < 1 || execution.TimeoutSeconds > 3600 || execution.MaxOutputBytes < 1024 || execution.MaxOutputBytes > 1<<20 {
 		return false
+	}
+	if execution.WorkingDirectory != "" {
+		if _, err := normalizeApprovalPath(execution.WorkingDirectory); err != nil {
+			return false
+		}
 	}
 	seen := map[string]struct{}{}
 	for _, name := range execution.EnvironmentAllowlist {

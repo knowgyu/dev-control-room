@@ -579,16 +579,20 @@ func (a *App) PlanQualityToolInstall(ctx context.Context, input QualityToolInsta
 	if changed {
 		return QualityToolInstallPreview{}, contract.Conflict("selected worktree changed; refresh and try again")
 	}
+	componentID, componentRoot, affectedFiles, err := a.verifiedQualityInstallTarget(ctx, current.Path, input)
+	if err != nil {
+		return QualityToolInstallPreview{}, contract.InvalidInput(err.Error())
+	}
 	interpreterPath, environmentScope := "", "project"
 	if input.Kind == assurance.QualityToolInstallRuff || input.Kind == assurance.QualityToolInstallPytest {
-		interpreterPath, environmentScope = resolveQualityPython(current.Path, current.Path, qualityLookPath)
+		interpreterPath, environmentScope = resolveQualityPython(current.Path, componentRoot, qualityLookPath)
 	}
 	request := assurance.QualityToolInstallRequest{
-		Kind: input.Kind, WorktreeRoot: current.Path, ComponentRoot: current.Path,
+		Kind: input.Kind, ComponentID: componentID, WorktreeRoot: current.Path, ComponentRoot: componentRoot,
 		InterpreterPath: interpreterPath,
 		NodePath:        qualityLookPath("node.exe", "node"), NPMPath: qualityLookPath("npm.exe", "npm.cmd", "npm"),
 		EnvironmentScope: environmentScope, AllowGlobal: input.AllowGlobal,
-		Version: strings.TrimSpace(input.Version), AffectedFiles: input.AffectedFiles,
+		Version: strings.TrimSpace(input.Version), AffectedFiles: affectedFiles,
 	}
 	action, err := assurance.BuildQualityToolInstallAction(request, assurance.CheckWindows11Capability(ctx))
 	if err != nil {

@@ -5,10 +5,13 @@ package action
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -188,7 +191,25 @@ func (b *Broker) Plan(ctx context.Context, request PlanRequest) (domain.ActionPl
 		plan.Spec.ScopeMatchReasons = append([]string(nil), match.Reasons...)
 		plan.Spec.ScopeCheckedAt = match.CheckedAt
 	}
+	if existing, existingErr := b.store.GetActionPlan(ctx, plan.Metadata.ID); existingErr == nil {
+		if actionPlansEquivalentExceptRequestedAt(existing, plan) {
+			if existing.Spec.ApprovalScopeID != "" && !existing.Spec.ScopeMatch {
+				return existing, ErrApprovalScopeMismatch
+			}
+			return existing, nil
+		}
+	} else if !errors.Is(existingErr, sql.ErrNoRows) {
+		return domain.ActionPlan{}, existingErr
+	}
 	if err := b.store.SaveActionPlan(ctx, plan); err != nil {
+		if errors.Is(err, store.ErrActionPlanImmutable) {
+			if existing, readErr := b.store.GetActionPlan(ctx, plan.Metadata.ID); readErr == nil && actionPlansEquivalentExceptRequestedAt(existing, plan) {
+				if existing.Spec.ApprovalScopeID != "" && !existing.Spec.ScopeMatch {
+					return existing, ErrApprovalScopeMismatch
+				}
+				return existing, nil
+			}
+		}
 		return domain.ActionPlan{}, err
 	}
 	persisted, err := b.store.GetActionPlan(ctx, plan.Metadata.ID)
@@ -390,6 +411,9 @@ func (b *Broker) validateExecutionContext(ctx context.Context, plan domain.Actio
 	if current != plan.Spec.ExecutionContext {
 		return ErrExecutionContextStale
 	}
+	if err := validatePlanWorkingDirectory(plan); err != nil {
+		return err
+	}
 	trust, err := b.store.GetWorktreeExecutionTrust(ctx, current.ProjectID, current.RepositoryID, current.WorktreeID)
 	if err != nil {
 		return ErrWorktreeUntrusted
@@ -512,7 +536,11 @@ func (b *Broker) ExecuteWithRevalidation(ctx context.Context, admission Admissio
 		return domain.ActionRun{}, err
 	}
 	command := plan.Spec.Execution
-	result, processErr := b.runner.Run(ctx, command.Executable, command.Arguments, environment.AllowlistedEnvironment(command.EnvironmentAllowlist), plan.Spec.ExecutionContext.CanonicalPath, time.Duration(command.TimeoutSeconds)*time.Second, command.MaxOutputBytes)
+	workingDirectory := plan.Spec.ExecutionContext.CanonicalPath
+	if command.WorkingDirectory != "" {
+		workingDirectory = command.WorkingDirectory
+	}
+	result, processErr := b.runner.Run(ctx, command.Executable, command.Arguments, environment.AllowlistedEnvironment(command.EnvironmentAllowlist), workingDirectory, time.Duration(command.TimeoutSeconds)*time.Second, command.MaxOutputBytes)
 	completed := b.now().UTC()
 	postchecks := []domain.ActionEvidence{{ID: "process-exit", Kind: domain.EvidenceProcessExit, Passed: processErr == nil && result.ExitCode == 0, Detail: strconv.Itoa(result.ExitCode)}}
 	status := domain.ActionRunSucceeded
@@ -598,6 +626,48 @@ func (b *Broker) event(plan domain.ActionPlan, eventType string, actor domain.Ac
 	sum := sha256.Sum256([]byte(plan.Metadata.ID + "\x00" + eventType + "\x00" + actor.ID + "\x00" + nonce))
 	id := "action-" + hex.EncodeToString(sum[:])[:57]
 	return domain.ActionEvent{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ActionEventKind}, Metadata: domain.ObjectMeta{ID: id, Name: eventType}, Spec: domain.ActionEventSpec{ActionPlanID: plan.Metadata.ID, ActionPlanDigest: digest, EventType: eventType, Actor: actor, OccurredAt: at}}
+}
+
+func actionPlansEquivalentExceptRequestedAt(left, right domain.ActionPlan) bool {
+	left.Spec.RequestedAt = time.Time{}
+	right.Spec.RequestedAt = time.Time{}
+	return reflect.DeepEqual(left, right)
+}
+
+func validatePlanWorkingDirectory(plan domain.ActionPlan) error {
+	directory := strings.TrimSpace(plan.Spec.Execution.WorkingDirectory)
+	if directory == "" {
+		return nil
+	}
+	root := filepath.Clean(plan.Spec.ExecutionContext.CanonicalPath)
+	directory = filepath.Clean(directory)
+	relative, err := filepath.Rel(root, directory)
+	if err != nil || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return ErrExecutionContextStale
+	}
+	current := root
+	parts := []string{}
+	if relative != "." {
+		parts = strings.Split(relative, string(filepath.Separator))
+	}
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return ErrExecutionContextStale
+		}
+		if !info.IsDir() && current != directory {
+			return ErrExecutionContextStale
+		}
+	}
+	info, err := os.Lstat(current)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return ErrExecutionContextStale
+	}
+	return nil
 }
 
 func scope(plan domain.ActionPlan) string {

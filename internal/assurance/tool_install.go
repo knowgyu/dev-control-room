@@ -22,6 +22,7 @@ const (
 
 type QualityToolInstallRequest struct {
 	Kind             QualityToolInstallKind
+	ComponentID      string
 	WorktreeRoot     string
 	ComponentRoot    string
 	InterpreterPath  string
@@ -38,6 +39,7 @@ type QualityToolInstallAction struct {
 	Kind             QualityToolInstallKind `json:"kind"`
 	Package          string                 `json:"package"`
 	Version          string                 `json:"version"`
+	ComponentID      string                 `json:"componentId"`
 	WorktreeRoot     string                 `json:"worktreeRoot"`
 	ComponentRoot    string                 `json:"componentRoot"`
 	Command          TypedCommand           `json:"command"`
@@ -71,6 +73,10 @@ func BuildQualityToolInstallAction(request QualityToolInstallRequest, capability
 	root, component, err := installRoots(request.WorktreeRoot, request.ComponentRoot)
 	if err != nil {
 		return QualityToolInstallAction{}, err
+	}
+	componentID := strings.TrimSpace(request.ComponentID)
+	if componentID == "" || strings.ContainsAny(componentID, "\x00\r\n") {
+		return QualityToolInstallAction{}, errors.New("quality tool installation requires a verified component")
 	}
 	if !validExactToolVersion(request.Version) {
 		return QualityToolInstallAction{}, errors.New("quality tool installation requires an explicit exact version")
@@ -117,7 +123,12 @@ func BuildQualityToolInstallAction(request QualityToolInstallRequest, capability
 	for _, file := range files {
 		writablePaths = append(writablePaths, filepath.Clean(filepath.Join(root, filepath.FromSlash(file))))
 	}
-	return QualityToolInstallAction{Kind: request.Kind, Package: packageName, Version: request.Version, WorktreeRoot: root, ComponentRoot: component, Command: command, AffectedFiles: files, WritablePaths: writablePaths, EnvironmentScope: scope}, nil
+	for _, file := range files {
+		if !qualityPathWithin(component, filepath.Join(root, filepath.FromSlash(file))) {
+			return QualityToolInstallAction{}, errors.New("declared affected file is outside the verified component")
+		}
+	}
+	return QualityToolInstallAction{Kind: request.Kind, Package: packageName, Version: request.Version, ComponentID: componentID, WorktreeRoot: root, ComponentRoot: component, Command: command, AffectedFiles: files, WritablePaths: writablePaths, EnvironmentScope: scope}, nil
 }
 
 func installRoots(root, component string) (string, string, error) {
