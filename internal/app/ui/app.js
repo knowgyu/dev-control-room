@@ -2575,6 +2575,9 @@
   }
 
   let loadingQualityInspection = false;
+  let qualityInspectionTargetRequestSequence = 0;
+  const qualityInspectionTargetRequestIsCurrent = (targetValue, sequence) =>
+    sequence === qualityInspectionTargetRequestSequence && (selectedTarget()?.value || "") === targetValue;
   const ensureQualityInspectionState = () => {
     if (!state.qualityInspection) state.qualityInspection = {};
     const workflow = state.qualityInspection;
@@ -2608,55 +2611,112 @@
     workflow.selectedProposalID = id;
     workflow.selectedProposal = proposal;
   };
-  async function loadQualityInspectionPlan(id, render = true) {
+  async function loadQualityInspectionPlan(id, render = true, isCurrent = null) {
     if (!id) return null;
     const plan = await request(`/api/quality/inspection-plans/${encode(id)}`);
+    if (isCurrent && !isCurrent()) return null;
     qualityInspectionReplacePlan(plan);
     if (render) renderAssuranceDashboard();
     return plan;
   }
-  async function loadQualityInspectionProposal(id, render = true) {
+  async function loadQualityInspectionProposal(id, render = true, isCurrent = null) {
     if (!id) return null;
     const proposal = await request(`/api/quality/improvement-proposals/${encode(id)}`);
+    if (isCurrent && !isCurrent()) return null;
     qualityInspectionReplaceProposal(proposal);
     if (render) renderAssuranceDashboard();
     return proposal;
   }
-  async function loadQualityInspectionProposals(render = false) {
+  async function loadQualityInspectionProposals(render = false, targetOverride = null, isCurrent = null) {
     const workflow = ensureQualityInspectionState();
-    const target = selectedTarget();
+    const target = targetOverride || selectedTarget();
+    if (isCurrent && !isCurrent()) return;
     workflow.proposalStatus = "loading";
     workflow.proposalError = "";
     try {
       const items = await request("/api/quality/improvement-proposals");
-      workflow.proposals = Array.isArray(items) ? items : [];
+      if (isCurrent && !isCurrent()) return;
+      const proposals = Array.isArray(items) ? items : [];
       const selected = workflow.selectedProposalID
-        ? workflow.proposals.find(item => item?.metadata?.id === workflow.selectedProposalID)
-        : workflow.proposals
+        ? proposals.find(item => item?.metadata?.id === workflow.selectedProposalID)
+        : proposals
           .filter(item => qualityImprovementScopeMatches(item, target))
           .sort((left, right) => qualityInspectionUpdatedAt(right) - qualityInspectionUpdatedAt(left))[0];
-      workflow.selectedProposalID = selected?.metadata?.id || "";
-      workflow.selectedProposal = selected || null;
+      let selectedProposal = selected || null;
       if (selected?.metadata?.id) {
-        try { await loadQualityInspectionProposal(selected.metadata.id, false); } catch (error) { workflow.proposalError = error.message || "선택한 개선 제안 상세를 불러오지 못했습니다."; }
+        try {
+          selectedProposal = await request(`/api/quality/improvement-proposals/${encode(selected.metadata.id)}`);
+        } catch (error) {
+          if (!isCurrent || isCurrent()) workflow.proposalError = error.message || "선택한 개선 제안 상세를 불러오지 못했습니다.";
+        }
       }
+      if (isCurrent && !isCurrent()) return;
+      workflow.proposals = proposals;
+      workflow.selectedProposalID = selectedProposal?.metadata?.id || "";
+      workflow.selectedProposal = selectedProposal;
       workflow.proposalStatus = "ready";
     } catch (error) {
+      if (isCurrent && !isCurrent()) return;
       workflow.proposalStatus = "error";
       workflow.proposalError = error.message || "개선 제안 목록을 불러오지 못했습니다.";
     }
     if (render) renderAssuranceDashboard();
   }
+  async function loadQualityInspectionTargetData(targetValue, render = true) {
+    const workflow = ensureQualityInspectionState();
+    const sequence = ++qualityInspectionTargetRequestSequence;
+    const isCurrent = () => qualityInspectionTargetRequestIsCurrent(targetValue, sequence);
+    const target = targetOptions().find(item => item.value === targetValue) || null;
+    if (!target) return;
+    const latestRunPath = `/api/quality/inspection-runs/latest?projectId=${encode(target.projectID)}&repositoryId=${encode(target.repositoryID)}&worktreeId=${encode(target.worktreeID)}`;
+    workflow.status = "ready";
+    workflow.error = "";
+    try {
+      let latestRun = null;
+      try {
+        latestRun = await request(latestRunPath);
+      } catch (error) {
+        if (error?.status !== 404) throw error;
+      }
+      if (!isCurrent()) return;
+      workflow.lastRun = latestRun || null;
+      if (latestRun?.score?.metadata?.id && !workflow.scores.some(item => item?.metadata?.id === latestRun.score.metadata.id)) {
+        workflow.scores = [...workflow.scores, latestRun.score];
+      }
+      if (latestRun?.plan?.metadata?.id && !workflow.plans.some(item => item?.metadata?.id === latestRun.plan.metadata.id)) {
+        workflow.plans = [...workflow.plans, latestRun.plan];
+      }
+      const plan = latestRun?.plan || qualityInspectionPlansForTarget(target)[0] || null;
+      workflow.selectedPlanID = plan?.metadata?.id || "";
+      workflow.selectedPlan = plan;
+      if (plan?.metadata?.id) {
+        try {
+          await loadQualityInspectionPlan(plan.metadata.id, false, isCurrent);
+        } catch (error) {
+          if (isCurrent()) workflow.error = `선택한 계획 상세를 불러오지 못했습니다. ${error.message || "다시 시도하세요."}`;
+        }
+      }
+      await loadQualityInspectionProposals(false, target, isCurrent);
+    } catch (error) {
+      if (!isCurrent()) return;
+      workflow.error = error.message || "선택한 Worktree의 최근 검사 결과를 불러오지 못했습니다.";
+    } finally {
+      if (isCurrent() && render) renderAssuranceDashboard();
+    }
+  }
   async function loadQualityInspectionData(force = false) {
     const workflow = ensureQualityInspectionState();
     if (loadingQualityInspection || (!force && workflow.status === "ready")) return;
+    const target = selectedTarget();
+    const targetValue = target?.value || "";
+    const sequence = ++qualityInspectionTargetRequestSequence;
+    const isCurrent = () => qualityInspectionTargetRequestIsCurrent(targetValue, sequence);
     loadingQualityInspection = true;
     const previous = { ...workflow };
     workflow.status = "loading";
     workflow.error = "";
     renderAssuranceDashboard();
     try {
-		const target = selectedTarget();
 		const latestRunPath = target ? `/api/quality/inspection-runs/latest?projectId=${encode(target.projectID)}&repositoryId=${encode(target.repositoryID)}&worktreeId=${encode(target.worktreeID)}` : "";
 		const [plansResult, scoresResult, latestRunResult] = await Promise.allSettled([
         request("/api/quality/inspection-plans"),
@@ -2668,11 +2728,11 @@
       else errors.push(plansResult.reason?.message || "검사 계획");
       if (scoresResult.status === "fulfilled") workflow.scores = Array.isArray(scoresResult.value) ? scoresResult.value : [];
       else errors.push(scoresResult.reason?.message || "품질 점수");
-		if (latestRunResult.status === "fulfilled" && latestRunResult.value) {
+		if (isCurrent() && latestRunResult.status === "fulfilled" && latestRunResult.value) {
 			workflow.lastRun = latestRunResult.value;
 			if (latestRunResult.value.score?.metadata?.id && !workflow.scores.some(item => item?.metadata?.id === latestRunResult.value.score.metadata.id)) workflow.scores = [...workflow.scores, latestRunResult.value.score];
 			if (latestRunResult.value.plan?.metadata?.id && !workflow.plans.some(item => item?.metadata?.id === latestRunResult.value.plan.metadata.id)) workflow.plans = [...workflow.plans, latestRunResult.value.plan];
-		} else if (latestRunResult.status === "rejected" && latestRunResult.reason?.status !== 404) {
+		} else if (isCurrent() && latestRunResult.status === "rejected" && latestRunResult.reason?.status !== 404) {
 			errors.push(latestRunResult.reason?.message || "최근 검사 결과");
 		}
       if (plansResult.status === "rejected" && scoresResult.status === "rejected") {
@@ -2682,6 +2742,7 @@
       }
       workflow.status = "ready";
       workflow.error = errors.length ? "계획 또는 점수 중 일부 기록을 새로 읽지 못했습니다." : "";
+		if (!isCurrent()) return;
 		const plan = workflow.lastRun?.plan?.metadata?.id
 			? workflow.plans.find(item => item?.metadata?.id === workflow.lastRun.plan.metadata.id) || workflow.lastRun.plan
 			: qualityInspectionPlansForTarget(target)[0] || null;
@@ -2689,13 +2750,14 @@
       workflow.selectedPlan = plan;
       if (plan?.metadata?.id) {
         try {
-          await loadQualityInspectionPlan(plan.metadata.id, false);
+          await loadQualityInspectionPlan(plan.metadata.id, false, isCurrent);
         } catch (error) {
           workflow.error = workflow.error || `선택한 계획 상세를 불러오지 못했습니다. ${error.message || "다시 시도하세요."}`;
         }
       }
-      await loadQualityInspectionProposals(false);
+      await loadQualityInspectionProposals(false, target, isCurrent);
     } catch (error) {
+      if (!isCurrent()) return;
       workflow.status = "error";
       workflow.error = error.message || "검사 계획과 점수를 불러오지 못했습니다.";
       if (previous.status === "ready") {
@@ -4684,11 +4746,7 @@
       workflow.toolPreview = { status: "idle", data: null, error: "", input: null };
       workflow.toolActionPlan = { status: "idle", data: null, error: "", approvalStatus: "idle", executionStatus: "idle" };
       renderAssuranceDashboard();
-      if (activeRoute === "assurance" && workflow.status === "ready") {
-        const plan = qualityInspectionPlansForTarget(selectedTarget())[0] || null;
-        if (plan?.metadata?.id) void loadQualityInspectionPlan(plan.metadata.id);
-        void loadQualityInspectionProposals(true);
-      }
+      if (activeRoute === "assurance") void loadQualityInspectionTargetData(event.target.value);
     }
     if (event.target.matches("input[data-quality-inspection-ai]")) {
       ensureQualityInspectionState().aiEnabled = event.target.checked === true;

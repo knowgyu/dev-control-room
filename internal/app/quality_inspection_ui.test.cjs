@@ -90,7 +90,7 @@ const score = (id, overall, status = "fresh", createdAt = "2026-09-10T02:00:00Z"
   },
 });
 
-function harness({ targets = [target], requests = [], selections = {}, actionPlan = installActionPlan, approvalDecision = "granted", latestRun = null } = {}) {
+function harness({ targets = [target], requests = [], selections = {}, actionPlan = installActionPlan, approvalDecision = "granted", latestRun = null, latestRunResolver = null } = {}) {
   const elements = new Map([
     ["quality-inspection-target", { innerHTML: "" }],
     ["quality-inspection-content", { innerHTML: "", setAttribute() {} }],
@@ -144,6 +144,7 @@ function harness({ targets = [target], requests = [], selections = {}, actionPla
       if (url === "/api/quality/inspection-plans") return [plan()];
       if (url === "/api/quality/scores") return [score("score-2", 86)];
       if (url.startsWith("/api/quality/inspection-runs/latest?")) {
+        if (latestRunResolver) return latestRunResolver(url);
         if (latestRun) return latestRun;
         const error = new Error("not found"); error.status = 404; throw error;
       }
@@ -179,7 +180,7 @@ function harness({ targets = [target], requests = [], selections = {}, actionPla
     },
     escapeHTML: undefined,
   });
-  vm.runInContext(`${uiSource}\nthis.ui = { renderQualityInspectionWorkflow, loadQualityInspectionData, generateQualityInspectionPlan, reviewQualityInspectionPlan, runQualityInspectionPlan, compareQualityInspectionScores, requestQualityToolInstallPreview, generateQualityImprovementProposal, reviewQualityImprovementProposal, applyQualityImprovementProposal, requestQualityToolInstallActionPlan, approveQualityToolInstallActionPlan, executeQualityToolInstallActionPlan };`, context);
+  vm.runInContext(`${uiSource}\nthis.ui = { renderQualityInspectionWorkflow, loadQualityInspectionData, loadQualityInspectionTargetData, generateQualityInspectionPlan, reviewQualityInspectionPlan, runQualityInspectionPlan, compareQualityInspectionScores, requestQualityToolInstallPreview, generateQualityImprovementProposal, reviewQualityImprovementProposal, applyQualityImprovementProposal, requestQualityToolInstallActionPlan, approveQualityToolInstallActionPlan, executeQualityToolInstallActionPlan };`, context);
   return { ui: context.ui, state, elements, calls };
 }
 
@@ -341,6 +342,36 @@ test("refresh restores the latest inspection result artifact for the selected wo
   assert.equal(h.state.qualityInspection.lastRun.resultArtifactId, "artifact-refresh");
   assert.equal(h.state.qualityInspection.selectedPlanID, "plan-1");
   assert.ok(h.state.qualityInspection.scores.some(item => item.metadata.id === "score-refresh"));
+});
+
+test("switching the inspection target restores its latest run and proposal action", async () => {
+  const run = { plan: plan("approved"), resultArtifactId: "artifact-switched", results: [{ checkId: "quality.go.test", outcome: "findings" }], score: score("score-switched", 74) };
+  const h = harness({ latestRun: run });
+  const unrelatedPreview = { status: "ready", data: { available: true }, error: "", input: { kind: "python.ruff" } };
+  h.state.qualityInspection.toolPreview = unrelatedPreview;
+  await h.ui.loadQualityInspectionTargetData(target.value);
+  assert.equal(h.state.qualityInspection.lastRun.resultArtifactId, "artifact-switched");
+  assert.strictEqual(h.state.qualityInspection.toolPreview, unrelatedPreview);
+  h.ui.renderQualityInspectionWorkflow();
+  assert.match(h.elements.get("quality-inspection-content").innerHTML, /최근 결과로 개선 제안 만들기/);
+});
+
+test("stale inspection target responses cannot overwrite the newly selected target", async () => {
+  const secondTarget = { ...target, value: "project|repository-2|worktree-2", repositoryID: "repository-2", worktreeID: "worktree-2", label: "Dev Control Room · feature" };
+  const pending = new Map();
+  const h = harness({
+    targets: [target, secondTarget],
+    latestRunResolver: url => new Promise(resolve => pending.set(url, resolve)),
+  });
+  const firstURL = "/api/quality/inspection-runs/latest?projectId=project&repositoryId=repository&worktreeId=worktree";
+  const secondURL = "/api/quality/inspection-runs/latest?projectId=project&repositoryId=repository-2&worktreeId=worktree-2";
+  const first = h.ui.loadQualityInspectionTargetData(target.value);
+  h.state.selectedTargetValue = secondTarget.value;
+  const second = h.ui.loadQualityInspectionTargetData(secondTarget.value);
+  pending.get(firstURL)({ resultArtifactId: "artifact-stale" });
+  pending.get(secondURL)({ resultArtifactId: "artifact-current" });
+  await Promise.all([first, second]);
+  assert.equal(h.state.qualityInspection.lastRun.resultArtifactId, "artifact-current");
 });
 
 test("missing install action plan endpoint leaves the preview honest and never marks installation complete", async () => {
