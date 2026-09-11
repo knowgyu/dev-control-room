@@ -30,9 +30,6 @@ hardening added after v0.18.0. The release target is Windows amd64 only.
 
 Packaged executable version: `0.18.1`
 
-Package SHA-256:
-`1efaf59b9abda5f0a1e65ef0670468c371cb3e36bedf984f3a1e42aa2864b8d1`
-
 The tests cover actual `result + *exec.ExitError` behavior, unexpected pytest
 exit codes, failed-test mapping, runnable-only improvement proposals, artifact
 tampering, returned plan digests, target-switch response races, mixed
