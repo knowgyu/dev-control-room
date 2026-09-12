@@ -392,10 +392,9 @@ func TestNoArgumentStartupFailureDoesNotPauseWithCapturedWriters(t *testing.T) {
 	t.Setenv("DEV_CONTROL_ROOM_HOME", home)
 
 	var stdout, stderr bytes.Buffer
-	started := time.Now()
 	code := run(nil, &stdout, &stderr)
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("captured no-argument startup failure paused for %s", elapsed)
+	if strings.Contains(stdout.String(), "Enter를 누르면 종료합니다.") {
+		t.Fatalf("captured no-argument startup failure emitted an interactive pause prompt: %s", stdout.String())
 	}
 	if code != int(contract.ExitInternal) || !strings.Contains(stderr.String(), "진단 명령: dev-control-room troubleshoot") {
 		t.Fatalf("no-argument startup failure = code %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())

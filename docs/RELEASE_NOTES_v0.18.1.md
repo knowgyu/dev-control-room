@@ -34,6 +34,12 @@ Updated: 2026-09-13
   so an INSERT whose execution status is ambiguous is never replayed.
 - Keeps the production five-second lock budget unchanged.
 
+## Startup diagnostics test stability
+
+- Verifies that the captured-writer startup test emits no interactive pause
+  prompt instead of enforcing a machine-speed wall-clock threshold; the
+  focused test passed 50 normal and 20 race repetitions.
+
 ## Release boundary
 
 - Publishes one Windows 11 amd64 ZIP and `SHA256SUMS`.

@@ -26,6 +26,8 @@ hardening added after v0.18.0. The release target is Windows amd64 only.
 | focused Action Broker race tests | **PASS** |
 | quality inspection UI Node tests | **PASS — 11 tests** |
 | Windows process-tree timeout regression | **PASS — 10/10 reruns** |
+| captured-writer startup pause test | **PASS — normal 50/50, race 20/20; prompt absence, no wall-clock threshold** |
+| related startup diagnostics tests | **PASS — normal 20/20, race 10/10** |
 | Windows storage process serialization | **PASS — normal 20/20, race 10/10** |
 | Windows amd64 package/archive/version/checksum smoke | **PASS** |
 
@@ -36,7 +38,9 @@ exit codes, failed-test mapping, runnable-only improvement proposals, artifact
 tampering, returned plan digests, target-switch response races, mixed
 FastAPI/Vue component installation, repeated plans, audit recovery, legacy
 plan rejection, lock release, Windows path identity normalization, and safe
-pre-execution storage-lock retries.
+pre-execution storage-lock retries. The captured-writer startup test checks
+that the interactive pause prompt is absent rather than relying on a fixed
+machine-speed wall-clock limit.
 
 ## Manual and external boundaries
 
