@@ -157,7 +157,7 @@ func TestQualityToolInstallInfersMonorepoComponentAndBindsWorkingDirectory(t *te
 	if !sameQualityInstallPath(t, pythonPlan.Preview.Action.ComponentRoot, backend) || !sameQualityInstallPath(t, pythonPlan.Plan.Spec.Execution.WorkingDirectory, backend) || pythonPlan.Plan.Spec.Inputs["componentId"] == "" {
 		t.Fatalf("python component binding = %#v, plan = %#v", pythonPlan.Preview.Action, pythonPlan.Plan.Spec)
 	}
-	if !reflect.DeepEqual(pythonPlan.Preview.Action.AffectedFiles, []string{"backend/pyproject.toml"}) || pythonPlan.Plan.Spec.Execution.Executable != python {
+	if !reflect.DeepEqual(pythonPlan.Preview.Action.AffectedFiles, []string{"backend/pyproject.toml"}) || !sameQualityInstallPath(t, pythonPlan.Plan.Spec.Execution.Executable, python) {
 		t.Fatalf("python component-relative binding = %#v, plan = %#v", pythonPlan.Preview.Action, pythonPlan.Plan.Spec)
 	}
 
