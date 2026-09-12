@@ -154,7 +154,7 @@ func TestQualityToolInstallInfersMonorepoComponentAndBindsWorkingDirectory(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pythonPlan.Preview.Action.ComponentRoot != backend || pythonPlan.Plan.Spec.Execution.WorkingDirectory != backend || pythonPlan.Plan.Spec.Inputs["componentId"] == "" {
+	if !sameQualityInstallPath(t, pythonPlan.Preview.Action.ComponentRoot, backend) || !sameQualityInstallPath(t, pythonPlan.Plan.Spec.Execution.WorkingDirectory, backend) || pythonPlan.Plan.Spec.Inputs["componentId"] == "" {
 		t.Fatalf("python component binding = %#v, plan = %#v", pythonPlan.Preview.Action, pythonPlan.Plan.Spec)
 	}
 	if !reflect.DeepEqual(pythonPlan.Preview.Action.AffectedFiles, []string{"backend/pyproject.toml"}) || pythonPlan.Plan.Spec.Execution.Executable != python {
@@ -168,7 +168,7 @@ func TestQualityToolInstallInfersMonorepoComponentAndBindsWorkingDirectory(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if nodePlan.Preview.Action.ComponentRoot != frontend || nodePlan.Plan.Spec.Execution.WorkingDirectory != frontend {
+	if !sameQualityInstallPath(t, nodePlan.Preview.Action.ComponentRoot, frontend) || !sameQualityInstallPath(t, nodePlan.Plan.Spec.Execution.WorkingDirectory, frontend) {
 		t.Fatalf("node component binding = %#v, plan = %#v", nodePlan.Preview.Action, nodePlan.Plan.Spec)
 	}
 	if !reflect.DeepEqual(nodePlan.Preview.Action.AffectedFiles, []string{"frontend/package.json"}) {
@@ -207,6 +207,19 @@ func TestQualityToolInstallActionPlanReusesRepeatedRequest(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("repeated planning emitted duplicate plan audit events: %#v", events)
 	}
+}
+
+func sameQualityInstallPath(t *testing.T, got, want string) bool {
+	t.Helper()
+	gotInfo, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("stat quality install path %q: %v", got, err)
+	}
+	wantInfo, err := os.Stat(want)
+	if err != nil {
+		t.Fatalf("stat expected quality install path %q: %v", want, err)
+	}
+	return os.SameFile(gotInfo, wantInfo)
 }
 
 func monorepoQualityInstallFixture(t *testing.T) (*App, domain.Project, string, string) {
