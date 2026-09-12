@@ -143,6 +143,42 @@ func TestStorageLockReturnsTypedBusyAfterBoundedWait(t *testing.T) {
 	if !errors.As(err, &busy) || !IsStorageBusy(err) {
 		t.Fatalf("storage lock error = %T %v, want StorageBusyError", err, err)
 	}
+	if !IsStorageLockBusy(err) {
+		t.Fatalf("storage lock error = %T %v, want pre-execution lock-busy classification", err, err)
+	}
+}
+
+func TestStorageProcessRetryOnlyReplaysPreExecutionLockBusy(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	attempts := 0
+	err := retryStorageProcessOperation(ctx, func(context.Context) error {
+		attempts++
+		if attempts == 1 {
+			return &StorageBusyError{operation: "storage access", lockBusy: true}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("pre-execution retry error = %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("pre-execution attempts = %d, want 2", attempts)
+	}
+
+	attempts = 0
+	executionBusy := &StorageBusyError{operation: "storage access"}
+	err = retryStorageProcessOperation(ctx, func(context.Context) error {
+		attempts++
+		return executionBusy
+	})
+	if !errors.Is(err, executionBusy) {
+		t.Fatalf("execution-busy error = %v, want original error", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("execution-busy attempts = %d, want 1", attempts)
+	}
 }
 
 func TestMigrateDirectCallHonorsStorageLock(t *testing.T) {
@@ -240,13 +276,18 @@ func TestStorageProcessHelper(t *testing.T) {
 	}
 	for index := 0; index < iterations; index++ {
 		id := fmt.Sprintf("storage-%s-%d-%d", role, os.Getpid(), index)
-		if _, err := db.ExecContext(context.Background(), `
+		if err := runStorageProcessOperation(func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, `
 INSERT INTO projects(id, api_version, kind, name, spec_json)
-VALUES (?, 'devroom/v1alpha1', 'Project', ?, '{}')`, id, id); err != nil {
+VALUES (?, 'devroom/v1alpha1', 'Project', ?, '{}')`, id, id)
+			return err
+		}); err != nil {
 			t.Fatalf("write storage item %d: %v", index, err)
 		}
 		var count int
-		if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM projects WHERE id LIKE 'storage-%'`).Scan(&count); err != nil {
+		if err := runStorageProcessOperation(func(ctx context.Context) error {
+			return db.QueryRowContext(ctx, `SELECT count(*) FROM projects WHERE id LIKE 'storage-%'`).Scan(&count)
+		}); err != nil {
 			t.Fatalf("read storage item %d: %v", index, err)
 		}
 	}
@@ -255,13 +296,14 @@ VALUES (?, 'devroom/v1alpha1', 'Project', ?, '{}')`, id, id); err != nil {
 const (
 	storageProcessOpenDeadline     = 20 * time.Second
 	storageProcessOpenRetryBackoff = 25 * time.Millisecond
+	storageProcessOperationTimeout = 20 * time.Second
 )
 
 // Once readiness is published, the server immediately starts its write/read
 // loop. A client can lose the cross-process lock race during that loop and
 // Open can return typed busy after its bounded production wait. Retry only
-// that explicit result; the write loop below remains one-shot so an ambiguous
-// INSERT is never replayed.
+// pre-execution lock busy; an ambiguous SQLite execution-time busy is never
+// replayed.
 func openStorageProcessDatabase(path string) (*sql.DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), storageProcessOpenDeadline)
 	defer cancel()
@@ -271,7 +313,7 @@ func openStorageProcessDatabase(path string) (*sql.DB, error) {
 		if err == nil {
 			return db, nil
 		}
-		if !IsStorageBusy(err) {
+		if !IsStorageLockBusy(err) {
 			return nil, err
 		}
 
@@ -280,6 +322,31 @@ func openStorageProcessDatabase(path string) (*sql.DB, error) {
 		case <-ctx.Done():
 			timer.Stop()
 			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func runStorageProcessOperation(operation func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), storageProcessOperationTimeout)
+	defer cancel()
+	return retryStorageProcessOperation(ctx, operation)
+}
+
+func retryStorageProcessOperation(ctx context.Context, operation func(context.Context) error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		err := operation(ctx)
+		if err == nil || !IsStorageLockBusy(err) {
+			return err
+		}
+		timer := time.NewTimer(storageProcessOpenRetryBackoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
 		case <-timer.C:
 		}
 	}

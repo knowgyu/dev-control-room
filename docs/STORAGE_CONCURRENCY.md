@@ -34,6 +34,11 @@ SQLite의 WAL, foreign-key enforcement, forward-only immutable migration 검증�
 가 반환되고 `errors.As` 또는 `IsStorageBusy`로 구분할 수 있습니다. 이 오류의
 메시지에는 경로, SQL 원문, 비밀, 운영체제 오류 원문이 포함되지 않습니다.
 
+`IsStorageLockBusy`는 드라이버 콜백이 시작되기 전에 파일 잠금 획득 시간이
+만료된 경우에만 참입니다. 이 경우에는 실제 SQL이 실행되지 않았으므로 호출자가
+별도 한도 안에서 재시도할 수 있습니다. 반대로 실행 중 발생한 일반
+`StorageBusyError`는 성공 여부가 불명확할 수 있어 자동으로 재실행하면 안 됩니다.
+
 ```go
 var busy *store.StorageBusyError
 if errors.As(err, &busy) {

@@ -1,7 +1,7 @@
 # v0.18.1 verification record
 
 Status: **RELEASE READY**
-Updated: 2026-09-11
+Updated: 2026-09-13
 
 This patch verifies the repository-quality and component-aware installation
 hardening added after v0.18.0. The release target is Windows amd64 only.
@@ -10,7 +10,7 @@ hardening added after v0.18.0. The release target is Windows amd64 only.
 
 | Field | Result |
 | --- | --- |
-| Reviewed implementation source SHA | `666b6fe4fec42a15044ac27f5e94b7e56009079a` |
+| Reviewed implementation source | `v0.18.1` tag target |
 | Version | `0.18.1` |
 | Target | Windows 11 amd64 |
 | Release assets | One ZIP plus `SHA256SUMS` |
@@ -26,6 +26,7 @@ hardening added after v0.18.0. The release target is Windows amd64 only.
 | focused Action Broker race tests | **PASS** |
 | quality inspection UI Node tests | **PASS — 11 tests** |
 | Windows process-tree timeout regression | **PASS — 10/10 reruns** |
+| Windows storage process serialization | **PASS — normal 20/20, race 10/10** |
 | Windows amd64 package/archive/version/checksum smoke | **PASS** |
 
 Packaged executable version: `0.18.1`
@@ -34,7 +35,8 @@ The tests cover actual `result + *exec.ExitError` behavior, unexpected pytest
 exit codes, failed-test mapping, runnable-only improvement proposals, artifact
 tampering, returned plan digests, target-switch response races, mixed
 FastAPI/Vue component installation, repeated plans, audit recovery, legacy
-plan rejection, and lock release.
+plan rejection, lock release, Windows path identity normalization, and safe
+pre-execution storage-lock retries.
 
 ## Manual and external boundaries
 

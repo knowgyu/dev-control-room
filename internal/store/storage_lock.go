@@ -33,24 +33,40 @@ func hasStorageLock(ctx context.Context) bool {
 	return ctx != nil && ctx.Value(storageLockContextKey{}) == true
 }
 
-// StorageBusyError indicates that another process held the same home's
-// storage lock until the bounded wait expired. Its message intentionally
-// contains no database path, SQL text, or underlying operating-system detail.
+// StorageBusyError indicates that storage access could not complete within
+// the bounded retry policy. Its message intentionally contains no database
+// path, SQL text, or underlying operating-system detail.
 type StorageBusyError struct {
 	operation string
+	lockBusy  bool
 }
 
 func (e *StorageBusyError) Error() string {
-	if e == nil || e.operation == "" {
-		return "storage is busy; retry later"
+	if e == nil {
+		return storageBusyErrorMessage("")
 	}
-	return fmt.Sprintf("storage is busy during %s; retry later", e.operation)
+	return storageBusyErrorMessage(e.operation)
 }
 
 func (e *StorageBusyError) Unwrap() error { return ErrStorageBusy }
 
 func IsStorageBusy(err error) bool {
 	return errors.Is(err, ErrStorageBusy)
+}
+
+// IsStorageLockBusy reports whether storage lock acquisition expired before
+// the requested storage operation was started. This is safe to retry when the
+// operation itself is otherwise replayable because no driver callback ran.
+func IsStorageLockBusy(err error) bool {
+	var busy *StorageBusyError
+	return errors.As(err, &busy) && busy != nil && busy.lockBusy
+}
+
+func storageBusyErrorMessage(operation string) string {
+	if operation == "" {
+		return "storage is busy; retry later"
+	}
+	return fmt.Sprintf("storage is busy during %s; retry later", operation)
 }
 
 type storageLock struct {
@@ -108,7 +124,7 @@ func acquireStorageLockWithin(ctx context.Context, lockPath string, timeout time
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			return nil, &StorageBusyError{operation: "storage access"}
+			return nil, &StorageBusyError{operation: "storage access", lockBusy: true}
 		}
 		select {
 		case <-ctx.Done():

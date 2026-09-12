@@ -1,6 +1,6 @@
 # Dev Control Room v0.18.1
 
-Updated: 2026-09-11
+Updated: 2026-09-13
 
 ## Repository-quality correctness
 
@@ -25,6 +25,14 @@ Updated: 2026-09-11
 - Keeps v0.18.0 install plans readable but blocks approval or execution when
   they lack a verified component binding. A pre-upgrade lock is released when
   such a plan is rejected.
+
+## Windows storage reliability
+
+- Distinguishes a file-lock timeout that occurs before a storage operation
+  starts from an execution-time SQLite busy result.
+- Retries only the pre-execution lock case in the cross-process stress harness,
+  so an INSERT whose execution status is ambiguous is never replayed.
+- Keeps the production five-second lock budget unchanged.
 
 ## Release boundary
 
