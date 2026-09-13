@@ -1,11 +1,11 @@
 # v0.18.2 verification record
 
-Status: **RELEASE READY — automated, browser, and package gates passed; publication pending**
+Status: **RELEASED — automated, browser, package, CI, and remote-asset gates passed**
+Publication: **COMPLETE** — annotated tag `v0.18.2`; release is non-draft and non-prerelease.
 Updated: 2026-09-13
 
-This record covers the backward-compatible v0.18.2 release candidate. It does
-not replace or modify the historical v0.18.1 record. The local package gate
-passed, but no v0.18.2 tag or published release is claimed.
+This record covers the backward-compatible v0.18.2 candidate and final
+publication. It does not replace or modify the historical v0.18.1 record.
 
 ## Candidate boundary
 
@@ -15,6 +15,8 @@ passed, but no v0.18.2 tag or published release is claimed.
 | Baseline | published `v0.18.1` |
 | Working-tree HEAD before release commit | `86a58aa` (`v0.18.1`) |
 | Candidate source commit | `6cbd46f1e31c9dad0892b49de3602fc743930e71` |
+| Published release commit | `6e2a52ff1f5886adb95cdc50b39c63c4ddf80719` |
+| Published tag | `v0.18.2` (annotated object `e599973b771e65c2e13654c4af7b1d7cb4b8e306`) |
 | Runtime target | Windows 11 amd64 |
 | Release assets | one Windows amd64 ZIP plus `SHA256SUMS` |
 | Linux, macOS, arm64 assets | not release targets |
@@ -42,7 +44,7 @@ passed, but no v0.18.2 tag or published release is claimed.
 | Embedded UI syntax | `node --check internal/app/ui/app.js` | **PASS** |
 | Go formatting | `gofmt -l` on touched Go files | **PASS** |
 | Windows Full runner | `pwsh -NoProfile -File .\scripts\verify.ps1 -Mode Full` | **PASS** |
-| Full-run evidence | `C:\Users\knowgyu\AppData\Local\Temp\dev-control-room-verify-110ad653e7134b8cb5c4f2f0209600d1\verification.log` and `verification-summary.json` | **PASS** |
+| Full-run evidence | Retained `verification.log` and `verification-summary.json` (private temporary path omitted) | **PASS** |
 | UI CJS regression suite | targeted UI CJS suite, `32/32` assertions | **PASS** |
 
 The Full runner passed normal tests, race tests, vet, module verification,
@@ -51,7 +53,7 @@ arm64 binary is verification-only and is not a release asset. Focused checks
 were launched from WSL using the Windows Go toolchain; the Full runner and
 browser acceptance below are the native Windows evidence.
 
-## Required verification before release
+## Release acceptance
 
 | Tier | Required evidence | Status |
 | --- | --- | --- |
@@ -61,10 +63,10 @@ browser acceptance below are the native Windows evidence.
 | P1 coverage | Timeout/failure profile is non-active and evidence state/reason are shown separately from retention | **PASS** |
 | P1 target state | Non-default Worktree remains selected across discovery/action/external/guidance and localStorage refresh; exact-candidate empty state is explicit | **PASS** |
 | P2 journeys | Parent-folder grouping, Assurance first-use CTA, Activity noise, Diagnostics layout, control names | **PASS** |
-| Package | `pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.18.2`, archive/version/checksum smoke | **PASS — first package gate** |
-| Release acceptance | Exact candidate SHA, Windows amd64 asset hash, remote tag/release verification | **PENDING** |
+| Package | `pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.18.2`, archive/version/checksum smoke | **PASS — pre-final local gate** |
+| Release acceptance | Exact published commit/tag, CI, Windows amd64 asset hash, and remote release verification | **PASS — CI run `34743438251`** |
 
-### First package gate evidence
+### Pre-final local package gate evidence
 
 The first local package gate passed and created exactly these files under
 `artifacts/0.18.2`:
@@ -74,9 +76,23 @@ The first local package gate passed and created exactly these files under
 
 The ZIP contains version `0.18.2`. Its computed SHA-256 is
 `6af85d5bd306b8b81ee922c7871fb9030c09aeea3698f8b3005bc99457a776c9`, matching
-the generated `SHA256SUMS`. This is local first-package-gate evidence, not a
-published asset hash. The package will be regenerated after the final docs
-commit and checked again.
+the generated `SHA256SUMS`. This is pre-final local candidate evidence, not a
+published asset hash; the final published asset is recorded below.
+
+## Final publication evidence
+
+- Release: [v0.18.2](https://github.com/knowgyu/dev-control-room/releases/tag/v0.18.2),
+  published `2026-09-13T07:01:20Z`, non-draft and non-prerelease.
+- Source/tag: commit `6e2a52ff1f5886adb95cdc50b39c63c4ddf80719`, annotated tag
+  object `e599973b771e65c2e13654c4af7b1d7cb4b8e306`.
+- CI: [run `34743438251`](https://github.com/knowgyu/dev-control-room/actions/runs/34743438251)
+  **success**; Linux completed `2026-09-13T06:43:55Z` and Windows completed
+  `2026-09-13T07:00:16Z`.
+- Published assets are exactly:
+  - `dev-control-room_0.18.2_windows_amd64.zip` — `13,812,720` bytes;
+    downloaded SHA-256 `bf19ea76591ff1216c12aca319ebc960fb5e7adba22f776906b043fd2a69036d`.
+  - `SHA256SUMS` — `109` bytes; the downloaded ZIP hash matches its checksum.
+- Extracted native Windows executable version JSON reports `0.18.2`.
 
 ## Native browser acceptance
 
@@ -106,6 +122,8 @@ acceptance used temporary homes only: `dcr-v0182-browser-final-O0rrdB` and
 ## Safety boundaries
 
 No production or Jenkins endpoint, Scheduler installation, package-manager
-installation, destructive cleanup, release tag, push, or release publication
-was performed. Browser acceptance used only the temporary homes listed above.
-The package gate passed locally. Remote release verification remains pending.
+installation, or destructive cleanup was performed. Tag `v0.18.2`, its push,
+release publication, and remote asset verification are recorded above. Browser
+acceptance used only the temporary homes listed above. Mutation testing, causal
+quality-score evidence, and separate company/provider/second-device acceptance
+remain unproven; CI Node20/cache warnings were non-fatal.
