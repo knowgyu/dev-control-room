@@ -4,7 +4,7 @@ Updated: 2026-09-13
 
 ## Active: v0.18.2 repository-quality patch preparation
 
-Status: **RELEASE CANDIDATE — automated and browser acceptance passed; package/release pending**
+Status: **RELEASE READY — automated, browser, and package gates passed; publication pending**
 
 The v0.18.2 working tree carries backward-compatible P1 assurance evidence
 validity fixes and P2 repository-quality usability fixes on top of v0.18.1.
@@ -14,10 +14,12 @@ aggregation. Worktree target continuity and first-use presentation fixes are
 included in the working tree. Native Windows, browser regression, package,
 and release verification for v0.18.2 are recorded in
 [`VERIFICATION_v0.18.2.md`](VERIFICATION_v0.18.2.md). The Windows Full gate,
-targeted UI CJS suite, and Edge 153 browser acceptance passed. Package
-generation, tag, push, and release publication remain pending; no v0.18.2
-release asset is claimed. The release target remains one Windows amd64 ZIP
-plus `SHA256SUMS`.
+targeted UI CJS suite, Edge 153 browser acceptance, and first local package
+gate passed. The first package gate produced the Windows amd64 ZIP and
+`SHA256SUMS`; its hash is local evidence only and not a published asset hash.
+The package will be regenerated after the final docs commit. Tag, push, and
+release publication remain pending. The release target remains one Windows
+amd64 ZIP plus `SHA256SUMS`.
 
 ## Historical: v0.18.1 repository-quality hardening release
 

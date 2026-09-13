@@ -1,11 +1,11 @@
 # v0.18.2 verification record
 
-Status: **RELEASE CANDIDATE — automated and browser acceptance passed; package/release pending**
+Status: **RELEASE READY — automated, browser, and package gates passed; publication pending**
 Updated: 2026-09-13
 
-This record covers the backward-compatible v0.18.2 patch candidate. It does
-not replace or modify the historical v0.18.1 record. No v0.18.2 tag, package,
-or published release is claimed.
+This record covers the backward-compatible v0.18.2 release candidate. It does
+not replace or modify the historical v0.18.1 record. The local package gate
+passed, but no v0.18.2 tag or published release is claimed.
 
 ## Candidate boundary
 
@@ -61,8 +61,22 @@ browser acceptance below are the native Windows evidence.
 | P1 coverage | Timeout/failure profile is non-active and evidence state/reason are shown separately from retention | **PASS** |
 | P1 target state | Non-default Worktree remains selected across discovery/action/external/guidance and localStorage refresh; exact-candidate empty state is explicit | **PASS** |
 | P2 journeys | Parent-folder grouping, Assurance first-use CTA, Activity noise, Diagnostics layout, control names | **PASS** |
-| Package | `pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.18.2`, archive/version/checksum smoke | **PENDING** |
+| Package | `pwsh -NoProfile -File .\scripts\package.ps1 -Version 0.18.2`, archive/version/checksum smoke | **PASS — first package gate** |
 | Release acceptance | Exact candidate SHA, Windows amd64 asset hash, remote tag/release verification | **PENDING** |
+
+### First package gate evidence
+
+The first local package gate passed and created exactly these files under
+`artifacts/0.18.2`:
+
+- `dev-control-room_0.18.2_windows_amd64.zip` — `13,812,454` bytes
+- `SHA256SUMS`
+
+The ZIP contains version `0.18.2`. Its computed SHA-256 is
+`6af85d5bd306b8b81ee922c7871fb9030c09aeea3698f8b3005bc99457a776c9`, matching
+the generated `SHA256SUMS`. This is local first-package-gate evidence, not a
+published asset hash. The package will be regenerated after the final docs
+commit and checked again.
 
 ## Native browser acceptance
 
@@ -94,4 +108,4 @@ acceptance used temporary homes only: `dcr-v0182-browser-final-O0rrdB` and
 No production or Jenkins endpoint, Scheduler installation, package-manager
 installation, destructive cleanup, release tag, push, or release publication
 was performed. Browser acceptance used only the temporary homes listed above.
-Package generation and remote release verification remain pending.
+The package gate passed locally. Remote release verification remains pending.

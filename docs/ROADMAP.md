@@ -10,12 +10,12 @@ product-usability work is separately planned in
 Historical plans and verification documents remain evidence; they are not
 instructions to rerun completed work.
 
-Current repository status (2026-09-13): v0.18.2 is a patch-release candidate
-for P1 assurance correctness and P2 product-usability fixes. It follows the
-published v0.18.1 baseline and keeps Windows amd64 as the only release asset
-target. Windows Full, targeted UI CJS, and Edge 153 browser acceptance passed;
-package, tag, push, and publication remain pending. This status does not claim
-a published v0.18.2 package. Dogfood run
+Current repository status (2026-09-13): v0.18.2 is release-ready for its P1
+assurance correctness and P2 product-usability fixes. It follows the published
+v0.18.1 baseline and keeps Windows amd64 as the only release asset target.
+Windows Full, targeted UI CJS, Edge 153 browser, and first local package gates
+passed; tag, push, and publication remain pending. This status does not claim a
+published v0.18.2 package. Dogfood run
 `dogfood-e125339045844519a9e99a79e21142d5` passed all required checks with
 58.7% coverage, health/state 5/5 probes, validator/import/dashboard checks,
 and the populated browser dashboard confirms the exact run ID with required-gate
@@ -25,7 +25,7 @@ Mutation testing and causal quality score evidence remain unrun/unproven.
 
 | Area | Current status | Source of truth |
 | --- | --- | --- |
-| Repository quality workflow / v0.18.2 | Release candidate: failed/partial evidence classification, Worktree target continuity, and repository-quality UX fixes; package and publication pending | [RELEASE_NOTES_v0.18.2.md](RELEASE_NOTES_v0.18.2.md), [VERIFICATION_v0.18.2.md](VERIFICATION_v0.18.2.md), and docs/HANDOFF.md |
+| Repository quality workflow / v0.18.2 | Release ready: failed/partial evidence classification, Worktree target continuity, and repository-quality UX fixes; publication pending | [RELEASE_NOTES_v0.18.2.md](RELEASE_NOTES_v0.18.2.md), [VERIFICATION_v0.18.2.md](VERIFICATION_v0.18.2.md), and docs/HANDOFF.md |
 | Repository quality workflow / v0.18.1 | Hardening candidate: semantic runner exits, evidence integrity, target restoration, component-bound installation, idempotent audit repair, and safe legacy-plan rejection | [RELEASE_NOTES_v0.18.1.md](RELEASE_NOTES_v0.18.1.md), [VERIFICATION_v0.18.1.md](VERIFICATION_v0.18.1.md), and docs/HANDOFF.md |
 | Quality-first pilot / v0.16.0 | Released `804faf0`; dogfood PASS, 58.7% coverage, health/state probes 5/5, journeys 373 PASS, native resilience 15 PASS, browser scoped acceptance PASS, successor CI/package/publication PASS; mutation and causal score remain unrun/unproven | [RELEASE_NOTES_v0.16.0.md](RELEASE_NOTES_v0.16.0.md), [VERIFICATION_v0.16.0.md](VERIFICATION_v0.16.0.md), and docs/HANDOFF.md |
 | P0 local control plane | implemented and accepted | milestone verification documents and docs/HANDOFF.md |
