@@ -1549,7 +1549,7 @@
     return `<details class="quality-inspection-install"><summary><span><strong>품질 도구 설치 미리 보기</strong><small>설치하지 않고 승인 전 명령만 확인</small></span><span class="summary-action">미리 보기</span></summary><div class="quality-inspection-install-body"><p class="meta">정확한 버전과 영향을 받는 파일을 입력하면 서버가 미리보기와 설치 전용 Action Plan을 확인합니다. 이 화면은 endpoint가 제공할 때만 승인·실행으로 이어집니다.</p><form data-quality-tool-install-preview class="quality-inspection-install-form"><label><span>도구</span><select name="kind"><option value="python.ruff">Python · Ruff</option><option value="python.pytest">Python · pytest</option><option value="node.eslint">Node · ESLint</option><option value="node.vitest">Node · Vitest</option></select></label><label><span>정확한 버전</span><input name="version" autocomplete="off" placeholder="예: 0.6.9" required></label><label class="wide"><span>영향 파일</span><input name="affectedFiles" autocomplete="off" placeholder="예: pyproject.toml, package.json" required></label><label class="wide"><input type="checkbox" name="allowGlobal" value="on"><span>프로젝트 venv가 없을 때 전역 설치 허용 — 사람 승인 필수</span></label><button class="button small" type="submit" ${preview.status === "loading" ? "disabled" : ""}>미리보기 확인</button></form>${output}${qualityInspectionToolActionPlanHTML(workflow)}</div></details>`;
   };
   function renderQualityInspectionWorkflow() {
-    const targetContainer = document.getElementById("quality-inspection-target");
+    const targetContainer = document.getElementById("quality-inspection-target-panel");
     const contentContainer = document.getElementById("quality-inspection-content");
     if (!targetContainer || !contentContainer) return;
     const workflow = state.qualityInspection || { status: "idle", plans: [], scores: [], selectedPlanID: "", selectedPlan: null, lastRun: null, comparison: { status: "idle" }, toolPreview: { status: "idle" }, toolActionPlan: { status: "idle" }, mutation: { status: "idle" } };
@@ -1580,7 +1580,8 @@
     const scores = qualityInspectionScoresForTarget(target);
     const score = scores[0] || null;
     const run = workflow.lastRun && qualityInspectionScopeMatches(workflow.lastRun.score, target) ? workflow.lastRun : null;
-    const firstUse = !selected && !scores.length && !run && workflow.proposalStatus === "idle" && workflow.toolPreview?.status === "idle" && workflow.toolActionPlan?.status === "idle";
+    const untouchedProposals = ["idle", "ready"].includes(workflow.proposalStatus) && !workflow.proposals?.length && !workflow.selectedProposalID && !workflow.selectedProposal;
+    const firstUse = !selected && !scores.length && !run && untouchedProposals && workflow.mutation?.status === "idle" && workflow.proposalMutation?.status === "idle" && workflow.toolPreview?.status === "idle" && workflow.toolActionPlan?.status === "idle";
     if (firstUse) {
       contentContainer.innerHTML = `<section class="quality-inspection-first-use" aria-labelledby="quality-inspection-first-use-title"><header><span class="eyebrow">첫 검사</span><h3 id="quality-inspection-first-use-title">검사 계획부터 시작하세요.</h3><p>선택한 Worktree의 구성과 근거를 읽어 계획을 만들고, 내용을 검토·승인한 뒤 실행합니다.</p></header><ol class="quality-inspection-first-use-steps"><li><strong>계획</strong><span>확인 가능한 검사 항목을 제안합니다.</span></li><li><strong>검토·승인</strong><span>실행 항목과 HEAD를 확인합니다.</span></li><li><strong>실행</strong><span>승인한 계획만 검사합니다.</span></li></ol><button class="button primary small" type="button" data-quality-inspection="generate" aria-label="선택한 Worktree의 검사 계획 만들기">검사 계획 만들기</button></section>`;
       return;

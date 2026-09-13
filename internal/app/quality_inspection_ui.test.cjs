@@ -5,12 +5,32 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "ui/app.js"), "utf8");
+const indexHTML = fs.readFileSync(path.join(__dirname, "ui/index.html"), "utf8");
 function sourceBlock(start, end) {
   const from = source.indexOf(start);
   const to = source.indexOf(end, from);
   assert.ok(from >= 0 && to > from, `missing UI boundary: ${start}`);
   return source.slice(from, to);
 }
+
+test("inspection target container and select have distinct IDs for shared selector sync", () => {
+  const idCounts = new Map();
+  for (const match of indexHTML.matchAll(/\bid="([^"]+)"/g)) {
+    idCounts.set(match[1], (idCounts.get(match[1]) || 0) + 1);
+  }
+  assert.equal(idCounts.get("quality-inspection-target"), undefined);
+  assert.equal(idCounts.get("quality-inspection-target-panel"), 1);
+  assert.match(source, /<select id="quality-inspection-target"/);
+
+  const targetSelect = { options: [{ value: "project|repository|worktree" }], value: "" };
+  const context = vm.createContext({
+    document: { querySelectorAll: () => [targetSelect] },
+  });
+  const syncSource = sourceBlock("  const syncTargetSelectors =", "  const decodeURIComponentSafe =");
+  vm.runInContext(`${syncSource}\nthis.syncTargetSelectors = syncTargetSelectors;`, context);
+  assert.doesNotThrow(() => context.syncTargetSelectors("project|repository|worktree"));
+  assert.equal(targetSelect.value, "project|repository|worktree");
+});
 
 const uiSource = [
   sourceBlock("  const escapeHTML =", "  const findingTone ="),
@@ -90,9 +110,9 @@ const score = (id, overall, status = "fresh", createdAt = "2026-09-10T02:00:00Z"
   },
 });
 
-function harness({ targets = [target], requests = [], selections = {}, actionPlan = installActionPlan, approvalDecision = "granted", latestRun = null, latestRunResolver = null, inspectionPlans = [plan()], inspectionScores = [score("score-2", 86)] } = {}) {
+function harness({ targets = [target], requests = [], selections = {}, actionPlan = installActionPlan, approvalDecision = "granted", latestRun = null, latestRunResolver = null, inspectionPlans = [plan()], inspectionScores = [score("score-2", 86)], inspectionProposals = null } = {}) {
   const elements = new Map([
-    ["quality-inspection-target", { innerHTML: "" }],
+    ["quality-inspection-target-panel", { innerHTML: "" }],
     ["quality-inspection-content", { innerHTML: "", setAttribute() {} }],
   ]);
   const state = {
@@ -154,7 +174,7 @@ function harness({ targets = [target], requests = [], selections = {}, actionPla
       if (url === "/api/quality/inspection-plans/plan-1/run") {
         return { plan: plan("approved"), resultArtifactId: "artifact-1", results: [{ checkId: "quality.go.test", outcome: "runner_unavailable" }], score: score("score-3", 0, "inconclusive") };
       }
-      if (url === "/api/quality/improvement-proposals") return [proposalResponse];
+      if (url === "/api/quality/improvement-proposals") return inspectionProposals ?? [proposalResponse];
       if (url === "/api/quality/improvement-proposals/proposal-1") return proposalResponse;
       if (url === "/api/quality/improvement-proposals/generate") return proposalResponse;
       if (url === "/api/quality/improvement-proposals/proposal-1/review") {
@@ -190,7 +210,7 @@ test("assurance renderer explains deterministic plan review, score status, and n
   h.state.qualityInspection.scores = [score("score-1", 82, "stale")];
   h.ui.renderQualityInspectionWorkflow();
   const html = h.elements.get("quality-inspection-content").innerHTML;
-  assert.match(h.elements.get("quality-inspection-target").innerHTML, /quality-inspection-target/);
+  assert.match(h.elements.get("quality-inspection-target-panel").innerHTML, /quality-inspection-target/);
   assert.match(html, /AI 제안은 연결되지 않았습니다/);
   assert.match(html, /검토 후 승인/);
   assert.match(html, /오래됨/);
@@ -198,7 +218,7 @@ test("assurance renderer explains deterministic plan review, score status, and n
 
   const empty = harness({ targets: [] });
   empty.ui.renderQualityInspectionWorkflow();
-  assert.match(empty.elements.get("quality-inspection-target").innerHTML, /선택된 Worktree가 없습니다/);
+  assert.match(empty.elements.get("quality-inspection-target-panel").innerHTML, /선택된 Worktree가 없습니다/);
   assert.match(empty.elements.get("quality-inspection-content").innerHTML, /검사 흐름을 시작할 수 없습니다/);
 });
 
@@ -217,9 +237,34 @@ test("assurance first use keeps the next action focused until a plan exists", ()
 });
 
 test("assurance first use does not probe a missing latest run", async () => {
-  const h = harness({ inspectionPlans: [], inspectionScores: [] });
+  const h = harness({ inspectionPlans: [], inspectionScores: [], inspectionProposals: [] });
   await h.ui.loadQualityInspectionData(true);
   assert.equal(h.calls.some(item => item.url.startsWith("/api/quality/inspection-runs/latest?")), false);
+  assert.equal(h.state.qualityInspection.status, "ready");
+  assert.equal(h.state.qualityInspection.proposalStatus, "ready");
+  h.ui.renderQualityInspectionWorkflow();
+  const html = h.elements.get("quality-inspection-content").innerHTML;
+  assert.match(html, /quality-inspection-first-use/);
+  assert.match(html, /검사 계획 만들기/);
+  assert.doesNotMatch(html, /quality-inspection-score-title/);
+});
+
+test("assurance first use ignores ready empty proposal state but not real workflow state", () => {
+  const h = harness({ inspectionPlans: [], inspectionScores: [], inspectionProposals: [] });
+  h.state.qualityInspection.proposalStatus = "ready";
+  h.ui.renderQualityInspectionWorkflow();
+  assert.match(h.elements.get("quality-inspection-content").innerHTML, /quality-inspection-first-use/);
+
+  h.state.qualityInspection.mutation.status = "error";
+  h.ui.renderQualityInspectionWorkflow();
+  assert.doesNotMatch(h.elements.get("quality-inspection-content").innerHTML, /quality-inspection-first-use/);
+  assert.match(h.elements.get("quality-inspection-content").innerHTML, /quality-inspection-plan-title/);
+
+  h.state.qualityInspection.mutation.status = "idle";
+  h.state.qualityInspection.proposals = [improvement()];
+  h.ui.renderQualityInspectionWorkflow();
+  assert.doesNotMatch(h.elements.get("quality-inspection-content").innerHTML, /quality-inspection-first-use/);
+  assert.match(h.elements.get("quality-inspection-content").innerHTML, /quality-inspection-plan-title/);
 });
 
 test("assurance request flow uses list/get/generate/review/run/scores routes and mutation token", async () => {
