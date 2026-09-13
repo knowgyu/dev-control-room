@@ -363,6 +363,9 @@ func (a *App) qualityCoverageProfileArtifactVerified(ctx context.Context, id str
 		}
 		return false, err
 	}
+	if !item.EvidenceValid() {
+		return false, nil
+	}
 	if item.Spec.Retention == domain.ArtifactRetentionDeleted {
 		return false, nil
 	}

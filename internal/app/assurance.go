@@ -571,21 +571,31 @@ func (a *App) runQualityWithPersistence(ctx context.Context, input QualityRunInp
 				run.Spec.StaleReason = qualityRunCoverageProfileInconclusiveReason
 			}
 		} else if len(profile) > 0 {
-			profileArtifact, artifactErr := persistence.saveArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".coverage.out", MIME: "text/plain", Content: profile, TraceID: traceID})
+			var coverageSummary *domain.QualityCoverage
+			var parseErr error
+			if processErr == nil && !truncated {
+				var summary assurance.GoCoverageSummary
+				summary, parseErr = assurance.ParseGoCoverageProfile(profile)
+				if parseErr == nil {
+					coverageSummary = qualityCoverageSummary(summary, "")
+				}
+			}
+			evidenceState, evidenceReason := qualityCoverageArtifactEvidence(processErr, truncated, parseErr, run.Spec.StaleReason)
+			profileArtifact, artifactErr := persistence.saveArtifact(ctx, ArtifactInput{SourceType: "quality_run", SourceID: run.Metadata.ID, Name: run.Metadata.ID + ".coverage.out", MIME: "text/plain", Content: profile, TraceID: traceID, EvidenceState: evidenceState, EvidenceReason: evidenceReason})
 			if artifactErr != nil {
 				return a.failQualityRunPersistence(ctx, persistence, run, fmt.Errorf("persist quality run coverage artifact: %w", artifactErr), run.Spec.ArtifactIDs)
 			}
 			run.Spec.ArtifactIDs = append(run.Spec.ArtifactIDs, profileArtifact.Metadata.ID)
 			if processErr == nil {
-				coverageSummary, parseErr := assurance.ParseGoCoverageProfile(profile)
 				if truncated || parseErr != nil {
 					run.Spec.State = domain.AssuranceStateFailed
 					run.Spec.Outcome = domain.QualityRunOutcomeInconclusive
 					run.Spec.Summary = "Go coverage profile을 확정할 수 없습니다."
 					run.Spec.StaleReason = qualityRunCoverageProfileInconclusiveReason
 				} else {
+					coverageSummary.ProfileArtifactID = profileArtifact.Metadata.ID
 					run.Spec.Outcome = domain.QualityRunOutcomeCoverageCollected
-					run.Spec.Coverage = qualityCoverageSummary(coverageSummary, profileArtifact.Metadata.ID)
+					run.Spec.Coverage = coverageSummary
 				}
 			}
 		} else if processErr == nil {
@@ -1416,7 +1426,11 @@ func (a *App) prepareAssuranceArtifact(
 	}
 	committed = true
 	now := time.Now().UTC()
-	item := domain.Artifact{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ArtifactKind}, Metadata: domain.ObjectMeta{ID: id, Name: name}, Spec: domain.ArtifactSpec{ManifestVersion: "devroom/artifact/v1", StorageKey: id + "/" + name, SourceType: input.SourceType, SourceID: input.SourceID, Path: path, MIME: input.MIME, Size: int64(len(masked)), SHA256: hex.EncodeToString(sum[:]), Retention: domain.ArtifactRetentionActive, CreatedAt: now, SourceRef: input.SourceID, TraceID: strings.TrimSpace(input.TraceID), MaskingPolicyDigest: digestText("masking-v1"), RedactionState: "masked"}}
+	evidenceState := strings.TrimSpace(input.EvidenceState)
+	if evidenceState == "" {
+		evidenceState = domain.ArtifactEvidenceStateValid
+	}
+	item := domain.Artifact{TypeMeta: domain.TypeMeta{APIVersion: domain.APIVersion, Kind: domain.ArtifactKind}, Metadata: domain.ObjectMeta{ID: id, Name: name}, Spec: domain.ArtifactSpec{ManifestVersion: "devroom/artifact/v1", StorageKey: id + "/" + name, SourceType: input.SourceType, SourceID: input.SourceID, Path: path, MIME: input.MIME, Size: int64(len(masked)), SHA256: hex.EncodeToString(sum[:]), Retention: domain.ArtifactRetentionActive, EvidenceState: evidenceState, EvidenceReason: strings.TrimSpace(input.EvidenceReason), CreatedAt: now, SourceRef: input.SourceID, TraceID: strings.TrimSpace(input.TraceID), MaskingPolicyDigest: digestText("masking-v1"), RedactionState: "masked"}}
 	return item, func() error {
 		err := os.Remove(path)
 		if errors.Is(err, os.ErrNotExist) {

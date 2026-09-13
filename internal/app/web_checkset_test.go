@@ -34,7 +34,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 		"assurance-demo-board", "예시 화면 보기",
 		`data-view="home"`, `data-view="projects" hidden`, `aria-label="주 탐색"`, `id="home-assurance" class="ledger" aria-live="polite"`,
 		`class="decision-strip home-setup"`, `id="quality-work-surface"`, `id="advanced-work"`, `id="quality-tools-disclosure"`,
-		`href="/ui/app.css?v=0.18.1"`, `src="/ui/app.js?v=0.18.1"`, `meta name="control-room-token"`,
+		`href="/ui/app.css?v=0.18.2"`, `src="/ui/app.js?v=0.18.2"`, `meta name="control-room-token"`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI HTML missing %q", value)
@@ -80,7 +80,7 @@ func TestEmbeddedUIExposesKoreanMultiViewControlRoom(t *testing.T) {
 	}
 
 	css := embeddedUIAsset(t, service, "/ui/app.css", "text/css")
-	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums", "--space-7: 32px", "--control-height: 40px", ".button.primary:disabled", ".flow-step", "align-items: start;", ".assurance-empty", "grid-template-columns: minmax(76px, auto) minmax(0, 1fr) auto", ".project-card .ledger-row__context { display: none; }", "grid-template-columns: minmax(96px, 116px) minmax(0, 1fr) auto", ".diagnostic-findings .finding", "#environment > .list-item", "#environment > .list-item > p { margin: 0; }", ".provider-card", ".quality-work-surface", ".advanced-work", ".demo-banner", ".demo-board", ".demo-kpis", ".guide-purpose", ".guide-route", ".guide-action-grid", ".guide-page-map", ".guide-branch"} {
+	for _, value := range []string{".app-shell", ".primary-nav", ".skip-link", ":focus-visible", "prefers-reduced-motion", "font-variant-numeric: tabular-nums", "--space-7: 32px", "--control-height: 40px", ".button.primary:disabled", ".flow-step", "align-items: start;", ".assurance-empty", "grid-template-columns: minmax(76px, auto) minmax(0, 1fr) auto", ".project-card .ledger-row__context { display: none; }", "grid-template-columns: minmax(0, 1fr) auto", ".provider-card__heading", ".diagnostic-findings .finding", "#environment > .list-item", "#environment > .list-item > p { margin: 0; }", ".provider-card", ".quality-work-surface", ".advanced-work", ".demo-banner", ".demo-board", ".demo-kpis", ".guide-purpose", ".guide-route", ".guide-action-grid", ".guide-page-map", ".guide-branch"} {
 		if !strings.Contains(css, value) {
 			t.Errorf("embedded UI CSS missing %q", value)
 		}

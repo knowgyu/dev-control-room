@@ -216,6 +216,16 @@ func TestQualityObjectiveCoverageLifecycleFailsClosedForInvalidProfileEvidence(t
 			_, err := service.DeleteAssuranceArtifact(context.Background(), artifact.Metadata.ID, "DELETE")
 			return err
 		}},
+		{name: "partial evidence", mutate: func(service *App, artifact domain.Artifact) error {
+			artifact.Spec.EvidenceState = domain.ArtifactEvidenceStatePartial
+			artifact.Spec.EvidenceReason = "runner.timeout"
+			return service.store.UpdateAssuranceArtifact(context.Background(), artifact)
+		}},
+		{name: "invalid evidence", mutate: func(service *App, artifact domain.Artifact) error {
+			artifact.Spec.EvidenceState = domain.ArtifactEvidenceStateInvalid
+			artifact.Spec.EvidenceReason = "coverage.profile_truncated"
+			return service.store.UpdateAssuranceArtifact(context.Background(), artifact)
+		}},
 		{name: "untrusted path", mutate: func(service *App, artifact domain.Artifact) error {
 			path := filepath.Join(service.home, "outside-profile.out")
 			if err := os.WriteFile(path, []byte("profile"), 0o600); err != nil {

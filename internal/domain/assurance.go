@@ -60,6 +60,9 @@ const (
 	ArtifactRetentionPinned            = "pinned"
 	ArtifactRetentionArchived          = "archived"
 	ArtifactRetentionDeleted           = "deleted"
+	ArtifactEvidenceStateValid         = "valid"
+	ArtifactEvidenceStatePartial       = "partial"
+	ArtifactEvidenceStateInvalid       = "invalid"
 	EffectMeasured                     = "measured"
 	EffectPreventedRegression          = "prevented_regression"
 	EffectUserEstimated                = "user_estimated"
@@ -324,15 +327,20 @@ type Artifact struct {
 }
 
 type ArtifactSpec struct {
-	ManifestVersion     string     `json:"manifestVersion,omitempty"`
-	StorageKey          string     `json:"storageKey,omitempty"`
-	SourceType          string     `json:"sourceType"`
-	SourceID            string     `json:"sourceId"`
-	Path                string     `json:"path"`
-	MIME                string     `json:"mime"`
-	Size                int64      `json:"size"`
-	SHA256              string     `json:"sha256"`
-	Retention           string     `json:"retention"`
+	ManifestVersion string `json:"manifestVersion,omitempty"`
+	StorageKey      string `json:"storageKey,omitempty"`
+	SourceType      string `json:"sourceType"`
+	SourceID        string `json:"sourceId"`
+	Path            string `json:"path"`
+	MIME            string `json:"mime"`
+	Size            int64  `json:"size"`
+	SHA256          string `json:"sha256"`
+	Retention       string `json:"retention"`
+	// EvidenceState is separate from Retention: retention controls storage
+	// lifecycle, while evidence state controls whether an artifact may support
+	// an assurance claim. Empty is treated as valid for older manifests.
+	EvidenceState       string     `json:"evidenceState,omitempty"`
+	EvidenceReason      string     `json:"evidenceReason,omitempty"`
 	CreatedAt           time.Time  `json:"createdAt"`
 	ArchivedAt          *time.Time `json:"archivedAt,omitempty"`
 	ArchivePath         string     `json:"archivePath,omitempty"`
@@ -621,7 +629,7 @@ func (a Artifact) Validate() error {
 	if err := assuranceResource(a.TypeMeta, ArtifactKind, a.Metadata); err != nil {
 		return err
 	}
-	if strings.TrimSpace(a.Spec.SourceType) == "" || strings.TrimSpace(a.Spec.SourceID) == "" || strings.TrimSpace(a.Spec.Path) == "" || a.Spec.Size < 0 || len(a.Spec.SHA256) != 64 || !validArtifactRetention(a.Spec.Retention) || a.Spec.CreatedAt.IsZero() {
+	if strings.TrimSpace(a.Spec.SourceType) == "" || strings.TrimSpace(a.Spec.SourceID) == "" || strings.TrimSpace(a.Spec.Path) == "" || a.Spec.Size < 0 || len(a.Spec.SHA256) != 64 || !validArtifactRetention(a.Spec.Retention) || !validArtifactEvidenceState(a.Spec.EvidenceState) || a.Spec.CreatedAt.IsZero() {
 		return errors.New("artifact manifest is incomplete")
 	}
 	if a.Spec.ArchiveSHA256 != "" && len(a.Spec.ArchiveSHA256) != 64 {
@@ -630,10 +638,21 @@ func (a Artifact) Validate() error {
 	if a.Spec.ArchiveManifest != "" && strings.TrimSpace(a.Spec.ArchivePath) == "" {
 		return errors.New("artifact archive manifest requires an archive path")
 	}
+	if !a.EvidenceValid() && strings.TrimSpace(a.Spec.EvidenceReason) == "" {
+		return errors.New("non-valid artifact evidence requires a reason")
+	}
 	if a.Spec.RestoredAt != nil && a.Spec.RestoredAt.Before(a.Spec.CreatedAt) {
 		return errors.New("artifact restore cannot precede creation")
 	}
 	return nil
+}
+
+// EvidenceValid reports whether this artifact is eligible to support an
+// assurance claim. Empty state is valid for manifests written before the
+// evidence-state fields were introduced.
+func (a Artifact) EvidenceValid() bool {
+	state := strings.TrimSpace(a.Spec.EvidenceState)
+	return state == "" || state == ArtifactEvidenceStateValid
 }
 
 func (e Effect) Validate() error {
@@ -1088,6 +1107,15 @@ func validArtifactRetention(value string) bool {
 		return true
 	}
 	return false
+}
+
+func validArtifactEvidenceState(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "", ArtifactEvidenceStateValid, ArtifactEvidenceStatePartial, ArtifactEvidenceStateInvalid:
+		return true
+	default:
+		return false
+	}
 }
 func validEffectKind(value string) bool {
 	switch value {

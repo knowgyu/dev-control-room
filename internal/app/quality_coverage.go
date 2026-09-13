@@ -20,6 +20,22 @@ const (
 	qualityRunCoverageProfileInconclusiveReason = "coverage.profile_inconclusive"
 )
 
+func qualityCoverageArtifactEvidence(processErr error, truncated bool, parseErr error, processReason string) (state, reason string) {
+	switch {
+	case truncated:
+		return domain.ArtifactEvidenceStateInvalid, "coverage.profile_truncated"
+	case parseErr != nil:
+		return domain.ArtifactEvidenceStateInvalid, "coverage.profile_unparseable"
+	case processErr != nil:
+		if strings.TrimSpace(processReason) == "" {
+			processReason = "runner.inconclusive"
+		}
+		return domain.ArtifactEvidenceStatePartial, strings.TrimSpace(processReason)
+	default:
+		return domain.ArtifactEvidenceStateValid, ""
+	}
+}
+
 func (a *App) newQualityCoverageProfile(runID string) (string, func(), error) {
 	directory := filepath.Join(a.home, "runtime", "quality")
 	if err := os.MkdirAll(directory, 0o700); err != nil {

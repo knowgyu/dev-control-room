@@ -2,7 +2,21 @@
 
 Updated: 2026-09-11
 
-## Active: v0.18.1 repository-quality hardening release
+## Active: v0.18.2 repository-quality patch preparation
+
+Status: **PATCH PREPARATION — verification pending**
+
+The v0.18.2 working tree carries backward-compatible P1 assurance evidence
+validity fixes and P2 repository-quality usability fixes on top of v0.18.1.
+Failed, timed-out, truncated, and unparseable coverage artifacts are separated
+from retention state and excluded from assurance completeness and score
+aggregation. Worktree target continuity and first-use presentation fixes are
+included in the working tree. Native Windows, browser regression, package,
+and release verification for v0.18.2 remain pending; no v0.18.2 tag or package
+publication is claimed. The release target remains one Windows amd64 ZIP plus
+`SHA256SUMS`.
+
+## Historical: v0.18.1 repository-quality hardening release
 
 Status: **RELEASE READY**
 

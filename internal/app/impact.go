@@ -128,16 +128,18 @@ type AssuranceTraceLink struct {
 // AssuranceArtifactRef is safe to share: the operator's local storage path is
 // deliberately not part of a trace or exported impact report.
 type AssuranceArtifactRef struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	SourceType string `json:"sourceType"`
-	SourceID   string `json:"sourceId"`
-	MIME       string `json:"mime"`
-	Size       int64  `json:"size"`
-	SHA256     string `json:"sha256"`
-	Retention  string `json:"retention"`
-	TraceID    string `json:"traceId,omitempty"`
-	Present    bool   `json:"present"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	SourceType     string `json:"sourceType"`
+	SourceID       string `json:"sourceId"`
+	MIME           string `json:"mime"`
+	Size           int64  `json:"size"`
+	SHA256         string `json:"sha256"`
+	Retention      string `json:"retention"`
+	EvidenceState  string `json:"evidenceState,omitempty"`
+	EvidenceReason string `json:"evidenceReason,omitempty"`
+	TraceID        string `json:"traceId,omitempty"`
+	Present        bool   `json:"present"`
 }
 
 type AssuranceTrace struct {
@@ -370,6 +372,9 @@ func (a *App) AssuranceImpact(ctx context.Context, query AssuranceImpactQuery) (
 	}
 
 	for _, item := range artifacts {
+		if !item.EvidenceValid() {
+			continue
+		}
 		if (provider != "" || model != "" || projectID != "") && !selectedArtifactIDs[item.Metadata.ID] {
 			continue
 		}
@@ -818,7 +823,7 @@ func reportArtifacts(effects []domain.Effect, invocations map[string]domain.Agen
 	}
 	result := make([]domain.Artifact, 0, len(wanted))
 	for _, artifact := range artifacts {
-		if wanted[artifact.Metadata.ID] {
+		if wanted[artifact.Metadata.ID] && artifact.EvidenceValid() {
 			result = append(result, artifact)
 		}
 	}
@@ -1086,7 +1091,7 @@ func effectEvidenceComplete(item domain.Effect, artifacts map[string]domain.Arti
 	}
 	for _, id := range item.Spec.EvidenceIDs {
 		artifact, ok := artifacts[id]
-		if !ok || artifact.Spec.Retention == domain.ArtifactRetentionDeleted || !artifactPresent(artifact) {
+		if !ok || !artifact.EvidenceValid() || artifact.Spec.Retention == domain.ArtifactRetentionDeleted || !artifactPresent(artifact) {
 			return false
 		}
 	}
@@ -1113,7 +1118,7 @@ func missingArtifactCount(effects []domain.Effect, artifacts map[string]domain.A
 			}
 			seen[id] = true
 			artifact, ok := artifacts[id]
-			if !ok || artifact.Spec.Retention == domain.ArtifactRetentionDeleted || !artifactPresent(artifact) {
+			if !ok || !artifact.EvidenceValid() || artifact.Spec.Retention == domain.ArtifactRetentionDeleted || !artifactPresent(artifact) {
 				missing++
 			}
 		}
@@ -1127,7 +1132,7 @@ func summarizeTraceability(effects []domain.Effect, invocations map[string]domai
 		hasSource := effectSourceLinked(item, invocations, runs, findingRefs)
 		linked := 0
 		for _, id := range item.Spec.EvidenceIDs {
-			if artifact, ok := artifacts[id]; ok && artifact.Spec.Retention != domain.ArtifactRetentionDeleted && artifactPresent(artifact) {
+			if artifact, ok := artifacts[id]; ok && artifact.EvidenceValid() && artifact.Spec.Retention != domain.ArtifactRetentionDeleted && artifactPresent(artifact) {
 				linked++
 			} else {
 				result.MissingArtifacts++
@@ -1234,14 +1239,14 @@ func addArtifactTrace(result *AssuranceTrace, artifacts map[string]domain.Artifa
 		result.Artifacts = append(result.Artifacts, assuranceArtifactRef(artifact))
 		result.Nodes = append(result.Nodes, AssuranceTraceNode{ID: artifact.Metadata.ID, Kind: domain.ArtifactKind, Label: artifact.Metadata.Name, TraceID: artifact.Spec.TraceID, State: artifact.Spec.Retention, Digest: artifact.Spec.SHA256})
 	}
-	if !artifactPresent(artifact) {
+	if !artifact.EvidenceValid() || !artifactPresent(artifact) {
 		result.MissingRefs = appendUniqueStrings(result.MissingRefs, artifactID)
 	}
 	result.Links = appendUniqueTraceLink(result.Links, AssuranceTraceLink{FromID: fromID, ToID: artifactID, Relation: relation})
 }
 
 func assuranceArtifactRef(item domain.Artifact) AssuranceArtifactRef {
-	return AssuranceArtifactRef{ID: item.Metadata.ID, Name: item.Metadata.Name, SourceType: item.Spec.SourceType, SourceID: item.Spec.SourceID, MIME: item.Spec.MIME, Size: item.Spec.Size, SHA256: item.Spec.SHA256, Retention: item.Spec.Retention, TraceID: item.Spec.TraceID, Present: artifactPresent(item)}
+	return AssuranceArtifactRef{ID: item.Metadata.ID, Name: item.Metadata.Name, SourceType: item.Spec.SourceType, SourceID: item.Spec.SourceID, MIME: item.Spec.MIME, Size: item.Spec.Size, SHA256: item.Spec.SHA256, Retention: item.Spec.Retention, EvidenceState: item.Spec.EvidenceState, EvidenceReason: item.Spec.EvidenceReason, TraceID: item.Spec.TraceID, Present: artifactPresent(item)}
 }
 
 func artifactPresent(item domain.Artifact) bool {

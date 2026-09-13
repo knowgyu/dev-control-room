@@ -21,6 +21,8 @@ func TestEmbeddedUIResponsiveAccessibilityPolishContract(t *testing.T) {
 		`id="import-project-file" name="project-import-file"`,
 		`aria-label="가져올 프로젝트 설정 파일"`,
 		`id="project-import-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"`,
+		`id="home-target" name="homeTarget"`,
+		`id="quality-target" name="qualityTarget"`,
 	} {
 		if !strings.Contains(html, value) {
 			t.Errorf("embedded UI import accessibility contract missing %q", value)
@@ -36,6 +38,18 @@ func TestEmbeddedUIResponsiveAccessibilityPolishContract(t *testing.T) {
 		`["ArrowLeft", "ArrowRight", "Home", "End"]`,
 		`const hasObservedTarget = projectID => targetOptions().some`,
 		`data-repository-refresh`,
+		`const collapseActivityEvents =`,
+		`name="aiCandidate"`,
+		`name="repositoryPath"`,
+		`name="qualityInspectionTarget"`,
+		`name="discoveryTarget"`,
+		`name="actionTarget"`,
+		`name="guidanceTarget"`,
+		`name="externalTarget"`,
+		`name="runbookTarget-`,
+		`const selectedRepositoryID =`,
+		`repositoryList.prepend(primary)`,
+		`repository-disclosure`,
 		`targetSelect.disabled = !targets.length || Boolean(state.qualityRunPending);`,
 		`projectImportFile?.addEventListener("cancel"`,
 		`프로젝트 설정 파일을 선택하지 않았습니다.`,
@@ -54,9 +68,24 @@ func TestEmbeddedUIResponsiveAccessibilityPolishContract(t *testing.T) {
 		`.quality-work-surface`,
 		`.advanced-work`,
 		`.provider-card`,
+		`.provider-card__heading`,
+		`.repository-discovery-other`,
+		`.quality-inspection-first-use`,
+		`.quality-inspection-ai-toggle input { flex: 0 0 auto; width: auto; min-height: 0; padding: 0;`,
+		`.quality-inspection-ai-toggle span { min-width: 0; flex: 1 1 auto;`,
 	} {
 		if !strings.Contains(styles, value) {
 			t.Errorf("embedded UI style contract missing %q", value)
+		}
+	}
+	for _, value := range []string{
+		`const assuranceEvidenceLabels =`,
+		`<dt>근거 상태</dt>`,
+		`data-evidence-state=`,
+		`유효하지 않은 참조`,
+	} {
+		if !strings.Contains(javascript, value) {
+			t.Errorf("embedded UI evidence-state contract missing %q", value)
 		}
 	}
 	if strings.Contains(styles, "min-width: 320px") {

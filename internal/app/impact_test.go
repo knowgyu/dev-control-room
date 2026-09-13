@@ -333,6 +333,53 @@ func TestAssuranceImpactAttributesTraceIDAsSource(t *testing.T) {
 	}
 }
 
+func TestInvalidArtifactCannotCompleteAssuranceEvidence(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "coverage.out")
+	content := []byte("partial profile")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artifact := domain.Artifact{
+		Metadata: domain.ObjectMeta{ID: "artifact-partial", Name: "coverage.out"},
+		Spec: domain.ArtifactSpec{
+			Path:           path,
+			Size:           int64(len(content)),
+			Retention:      domain.ArtifactRetentionActive,
+			EvidenceState:  domain.ArtifactEvidenceStatePartial,
+			EvidenceReason: "runner.timeout",
+		},
+	}
+	effect := domain.Effect{Spec: domain.EffectSpec{EvidenceIDs: []string{artifact.Metadata.ID}}}
+	artifacts := map[string]domain.Artifact{artifact.Metadata.ID: artifact}
+	if effectEvidenceComplete(effect, artifacts) {
+		t.Fatal("partial artifact was accepted as complete evidence")
+	}
+	if got := currentEffectsMissingEvidence([]domain.Effect{effect}, artifacts); got != 1 {
+		t.Fatalf("missing evidence count = %d, want 1", got)
+	}
+	if got := missingArtifactCount([]domain.Effect{effect}, artifacts); got != 1 {
+		t.Fatalf("missing artifact count = %d, want 1", got)
+	}
+	traceability := summarizeTraceability([]domain.Effect{effect}, nil, nil, artifacts, nil)
+	if traceability.LinkedArtifacts != 0 || traceability.MissingArtifacts != 1 || traceability.CompleteEffects != 0 {
+		t.Fatalf("partial artifact traceability = %#v", traceability)
+	}
+	if report := reportArtifacts([]domain.Effect{effect}, nil, nil, []domain.Artifact{artifact}); len(report) != 0 {
+		t.Fatalf("partial artifact leaked into report = %#v", report)
+	}
+	ref := assuranceArtifactRef(artifact)
+	if ref.EvidenceState != domain.ArtifactEvidenceStatePartial || ref.EvidenceReason != "runner.timeout" {
+		t.Fatalf("artifact ref lost evidence state = %#v", ref)
+	}
+}
+
+func TestEmptyArtifactEvidenceStateRemainsValid(t *testing.T) {
+	if !(domain.Artifact{Spec: domain.ArtifactSpec{}}).EvidenceValid() {
+		t.Fatal("legacy empty evidence state was not treated as valid")
+	}
+}
+
 func hasTraceRelation(links []AssuranceTraceLink, relation string) bool {
 	for _, link := range links {
 		if link.Relation == relation {

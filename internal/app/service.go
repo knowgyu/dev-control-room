@@ -567,12 +567,14 @@ type AssuranceProposalInput struct {
 }
 
 type ArtifactInput struct {
-	SourceType string `json:"sourceType"`
-	SourceID   string `json:"sourceId"`
-	Name       string `json:"name"`
-	MIME       string `json:"mime"`
-	Content    []byte `json:"-"`
-	TraceID    string `json:"traceId,omitempty"`
+	SourceType     string `json:"sourceType"`
+	SourceID       string `json:"sourceId"`
+	Name           string `json:"name"`
+	MIME           string `json:"mime"`
+	Content        []byte `json:"-"`
+	TraceID        string `json:"traceId,omitempty"`
+	EvidenceState  string `json:"evidenceState,omitempty"`
+	EvidenceReason string `json:"evidenceReason,omitempty"`
 }
 
 type EffectInput struct {

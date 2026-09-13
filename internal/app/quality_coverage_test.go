@@ -1,10 +1,14 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/knowgyu/dev-control-room/internal/domain"
 )
 
 func qualityCoverageTempDir(t *testing.T) string {
@@ -80,5 +84,31 @@ func TestReadBoundedQualityCoverage(t *testing.T) {
 	}
 	if _, _, err := readBoundedQualityCoverage(directoryPath); err == nil {
 		t.Fatal("directory was accepted as a coverage profile")
+	}
+}
+
+func TestQualityCoverageArtifactEvidenceClassifiesIncompleteProfiles(t *testing.T) {
+	tests := []struct {
+		name          string
+		processErr    error
+		truncated     bool
+		parseErr      error
+		processReason string
+		wantState     string
+		wantReason    string
+	}{
+		{name: "successful profile", wantState: domain.ArtifactEvidenceStateValid},
+		{name: "timed out profile", processErr: context.DeadlineExceeded, processReason: "runner.timeout", wantState: domain.ArtifactEvidenceStatePartial, wantReason: "runner.timeout"},
+		{name: "failed profile", processErr: errors.New("exit status 1"), processReason: "runner.tests_failed", wantState: domain.ArtifactEvidenceStatePartial, wantReason: "runner.tests_failed"},
+		{name: "truncated profile", truncated: true, wantState: domain.ArtifactEvidenceStateInvalid, wantReason: "coverage.profile_truncated"},
+		{name: "unparseable profile", parseErr: errors.New("bad profile"), wantState: domain.ArtifactEvidenceStateInvalid, wantReason: "coverage.profile_unparseable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state, reason := qualityCoverageArtifactEvidence(test.processErr, test.truncated, test.parseErr, test.processReason)
+			if state != test.wantState || reason != test.wantReason {
+				t.Fatalf("evidence = %q/%q, want %q/%q", state, reason, test.wantState, test.wantReason)
+			}
+		})
 	}
 }

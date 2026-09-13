@@ -90,7 +90,7 @@ const score = (id, overall, status = "fresh", createdAt = "2026-09-10T02:00:00Z"
   },
 });
 
-function harness({ targets = [target], requests = [], selections = {}, actionPlan = installActionPlan, approvalDecision = "granted", latestRun = null, latestRunResolver = null } = {}) {
+function harness({ targets = [target], requests = [], selections = {}, actionPlan = installActionPlan, approvalDecision = "granted", latestRun = null, latestRunResolver = null, inspectionPlans = [plan()], inspectionScores = [score("score-2", 86)] } = {}) {
   const elements = new Map([
     ["quality-inspection-target", { innerHTML: "" }],
     ["quality-inspection-content", { innerHTML: "", setAttribute() {} }],
@@ -141,8 +141,8 @@ function harness({ targets = [target], requests = [], selections = {}, actionPla
     stateText: (text, tone) => `<span class="state-${tone}">${text}</span>`,
     request: async (url, options = {}) => {
       calls.push({ url, options });
-      if (url === "/api/quality/inspection-plans") return [plan()];
-      if (url === "/api/quality/scores") return [score("score-2", 86)];
+      if (url === "/api/quality/inspection-plans") return inspectionPlans;
+      if (url === "/api/quality/scores") return inspectionScores;
       if (url.startsWith("/api/quality/inspection-runs/latest?")) {
         if (latestRunResolver) return latestRunResolver(url);
         if (latestRun) return latestRun;
@@ -200,6 +200,26 @@ test("assurance renderer explains deterministic plan review, score status, and n
   empty.ui.renderQualityInspectionWorkflow();
   assert.match(empty.elements.get("quality-inspection-target").innerHTML, /선택된 Worktree가 없습니다/);
   assert.match(empty.elements.get("quality-inspection-content").innerHTML, /검사 흐름을 시작할 수 없습니다/);
+});
+
+test("assurance first use keeps the next action focused until a plan exists", () => {
+  const h = harness();
+  h.ui.renderQualityInspectionWorkflow();
+  const html = h.elements.get("quality-inspection-content").innerHTML;
+  assert.match(html, /quality-inspection-first-use/);
+  assert.match(html, /계획.*검토·승인.*실행/s);
+  assert.match(html, /검사 계획부터 시작하세요/);
+  assert.match(html, /검사 계획 만들기/);
+  assert.doesNotMatch(html, /quality-inspection-score-title/);
+  assert.doesNotMatch(html, /quality-inspection-proposal-title/);
+  assert.doesNotMatch(html, /quality-inspection-compare-title/);
+  assert.doesNotMatch(html, /품질 도구 설치 미리 보기/);
+});
+
+test("assurance first use does not probe a missing latest run", async () => {
+  const h = harness({ inspectionPlans: [], inspectionScores: [] });
+  await h.ui.loadQualityInspectionData(true);
+  assert.equal(h.calls.some(item => item.url.startsWith("/api/quality/inspection-runs/latest?")), false);
 });
 
 test("assurance request flow uses list/get/generate/review/run/scores routes and mutation token", async () => {
